@@ -2,6 +2,10 @@
   "name": "cha0s-listener",
   "version": "1.2.0",
   "description": "Cha0s Bot Listener — OBS & Jellyfin bridge with dashboard",
+  "author": {
+    "name": "Cha0s1nc",
+    "email": "cha0s@chaosinc.xyz"
+  },
   "main": "electron/main.js",
   "bin": "electron/main.js",
   "scripts": {
