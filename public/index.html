@@ -1240,7 +1240,8 @@
         if (isElectron) {
           saved = await window.electronAPI.getSettings();
         } else {
-          saved = JSON.parse(localStorage.getItem('cha0s_settings') || '{}');
+          const r = await fetch('/settings');
+          saved = r.ok ? await r.json() : {};
         }
         Object.entries(fields).forEach(([id, key]) => {
           const el = document.getElementById(id);
@@ -1270,7 +1271,6 @@
       if (isElectron) {
         await window.electronAPI.saveSettings(settings);
       } else {
-        localStorage.setItem('cha0s_settings', JSON.stringify(settings));
         try { await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }); } catch {}
       }
       // Save redeem actions too

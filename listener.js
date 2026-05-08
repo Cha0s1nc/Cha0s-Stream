@@ -990,13 +990,23 @@ app.get('/api/state', (req, res) => res.json({
   srEnabled: process.env.SONG_REQUEST_ENABLED !== 'false'
 }));
 
+const SETTINGS_KEYS = [
+  'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
+  'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
+  'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
+  'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL'
+];
+
+app.get('/settings', (req, res) => {
+  const settings = {};
+  for (const key of SETTINGS_KEYS) {
+    if (process.env[key] !== undefined) settings[key] = process.env[key];
+  }
+  res.json(settings);
+});
+
 app.post('/settings', (req, res) => {
-  const allowed = [
-    'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
-    'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
-    'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
-    'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH'
-  ];
+  const allowed = SETTINGS_KEYS;
   const updated = [];
   for (const [key, value] of Object.entries(req.body)) {
     if (allowed.includes(key)) { process.env[key] = value; updated.push(key); }
