@@ -1,6 +1,6 @@
 # cha0s_listener
 
-A companion app for [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) that bridges Twitch chat commands to OBS and Jellyfin. Built with Node.js and Electron, featuring a live dashboard to monitor connections and commands in real time. Also available as a Docker container for headless server deployments.
+An app that bridges Twitch chat commands to OBS and Jellyfin. Built with Node.js and Electron, featuring a live dashboard to monitor connections and commands in real time. Also available as a Docker container for headless server deployments.
 
 ---
 
@@ -262,4 +262,4 @@ Electron builds are done manually and attached to [GitHub Releases](https://gith
 
 ## Related
 
-- [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) — The Twitch bot that sends commands to this listener
+-  [DEPERECATED]  [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) — The Twitch bot that sends commands to this listener
