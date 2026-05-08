@@ -31,11 +31,14 @@ const STORE_SCHEMA = {
   TWITCH_CLIENT_SECRET:     { type: 'string', default: '' },
   SCRIPT_ALLOWLIST:         { type: 'string', default: '' },
   COMMANDS_CONFIG:          { type: 'string', default: '{}' },
+  CUSTOM_COMMANDS:          { type: 'string', default: '{}' },
   REDEEM_ACTIONS:           { type: 'string', default: '{}' },
   MEDIA_CONTROL_MODE:       { type: 'string', default: 'jellyfin' },
   SONG_REQUEST_MODE:        { type: 'string', default: 'chat' },
   SONG_REQUEST_REDEEM_NAME: { type: 'string', default: '' },
   SONG_REQUEST_ENABLED:     { type: 'string', default: 'true' },
+  MOD_ENABLED:              { type: 'string', default: 'true' },
+  MOD_PORT:                 { type: 'string', default: '3001' },
 };
 
 let store;
@@ -73,11 +76,14 @@ function getConfig() {
     TWITCH_CLIENT_SECRET: store.get('TWITCH_CLIENT_SECRET'),
     SCRIPT_ALLOWLIST: store.get('SCRIPT_ALLOWLIST'),
     COMMANDS_CONFIG: store.get('COMMANDS_CONFIG'),
+    CUSTOM_COMMANDS: store.get('CUSTOM_COMMANDS'),
     MEDIA_CONTROL_MODE: store.get('MEDIA_CONTROL_MODE'),
     SONG_REQUEST_MODE: store.get('SONG_REQUEST_MODE'),
     SONG_REQUEST_REDEEM_NAME: store.get('SONG_REQUEST_REDEEM_NAME'),
     SONG_REQUEST_ENABLED: store.get('SONG_REQUEST_ENABLED'),
     REDEEM_ACTIONS: store.get('REDEEM_ACTIONS'),
+    MOD_ENABLED: store.get('MOD_ENABLED'),
+    MOD_PORT: store.get('MOD_PORT'),
   };
 }
 

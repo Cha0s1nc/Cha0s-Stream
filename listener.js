@@ -1,5 +1,50 @@
 const dotenvPath = process.env.DOTENV_CONFIG_PATH || require('path').join(__dirname, '.env');
 require('dotenv').config({ path: dotenvPath });
+
+// Keys that should be written back to .env whenever they change so settings
+// survive process restarts and Docker container restarts.
+const PERSIST_KEYS = [
+  'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
+  'OBS_HOST','OBS_PORT','OBS_PASSWORD',
+  'LISTENER_PORT','MOD_PORT','MOD_ENABLED',
+  'TWITCH_OAUTH','TWITCH_CHANNEL','TWITCH_CLIENT_ID','TWITCH_CLIENT_SECRET',
+  'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH',
+  'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE',
+  'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
+  'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS'
+];
+
+function persistEnv() {
+  const fs = require('fs');
+  try {
+    let lines = [];
+    try { lines = fs.readFileSync(dotenvPath, 'utf8').split('\n'); } catch {}
+
+    const written = new Set();
+    // Update existing lines in place (preserves ordering and comments)
+    lines = lines.map(line => {
+      const match = line.match(/^([A-Z_][A-Z0-9_]*)=/);
+      if (match && PERSIST_KEYS.includes(match[1])) {
+        written.add(match[1]);
+        const val = process.env[match[1]] ?? '';
+        return `${match[1]}="${val.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      }
+      return line;
+    });
+
+    // Append any keys not yet in the file
+    for (const key of PERSIST_KEYS) {
+      if (!written.has(key) && process.env[key] != null) {
+        const val = process.env[key];
+        lines.push(`${key}="${val.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+      }
+    }
+
+    fs.writeFileSync(dotenvPath, lines.join('\n'), 'utf8');
+  } catch (err) {
+    console.error('Failed to persist .env:', err.message);
+  }
+}
 const express = require('express');
 const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
@@ -230,6 +275,46 @@ checkJellyfinConnection();
 setInterval(checkJellyfinConnection, 30000);
 
 // --- OS Media Keys ---
+function getOSNowPlaying() {
+  const { exec } = require('child_process');
+  const platform = require('os').platform();
+
+  const cmds = {
+    darwin: `osascript -e '
+set output to ""
+try
+  if application "Spotify" is running then
+    tell application "Spotify"
+      if player state is playing then
+        set output to artist & " — " & name of current track
+      end if
+    end tell
+  end if
+end try
+try
+  if output is "" and application "Music" is running then
+    tell application "Music"
+      if player state is playing then
+        set output to artist of current track & " — " & name of current track
+      end if
+    end tell
+  end if
+end try
+return output'`,
+    win32: `powershell -Command "$null=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media,ContentType=WindowsRuntime];$m=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync().GetAwaiter().GetResult();$s=$m.GetCurrentSession();if($s){$p=$s.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();if($p -and $p.Title){\\"$($p.Artist) — $($p.Title)\\"}}"`,
+    linux: `playerctl metadata --format "{{artist}} — {{title}}" 2>/dev/null`
+  };
+
+  const cmd = cmds[platform];
+  if (!cmd) return Promise.resolve(null);
+  return new Promise(resolve => {
+    exec(cmd, (err, stdout) => {
+      const result = stdout?.trim();
+      resolve(result && result.length > 0 ? result : null);
+    });
+  });
+}
+
 function sendOSMediaKey(action) {
   const { exec } = require('child_process');
   const platform = require('os').platform();
@@ -518,6 +603,21 @@ function fillTemplate(template, vars) {
 // --- Command implementations ---
 
 async function cmdSong(user) {
+  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'jellyfin';
+  if (mediaMode === 'os') {
+    try {
+      const song = await getOSNowPlaying();
+      if (!song) {
+        addLog('system', '!song', `${user} — nothing playing`);
+        await sendChatMessage(`@${user} — Nothing is playing right now.`);
+        return;
+      }
+      addLog('system', '!song', `${user} → ${song}`);
+      const tmpl = state.commands.song?.response;
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
+    } catch (err) { addLog('system', '!song', err.message, false); }
+    return;
+  }
   try {
     const session = await getActiveSession();
     if (!session) {
@@ -713,6 +813,12 @@ async function handleSongRequest(user, query, source) {
 app.post('/media', async (req, res) => {
   const { action } = req.body;
   if (action === 'song') {
+    if ((process.env.MEDIA_CONTROL_MODE || 'jellyfin') === 'os') {
+      try {
+        const song = await getOSNowPlaying();
+        return res.json(song ? { song } : { nothing: true });
+      } catch (err) { return res.status(500).json({ error: err.message }); }
+    }
     try {
       const session = await getActiveSession();
       if (!session) return res.json({ nothing: true });
@@ -829,6 +935,7 @@ app.post('/api/redeems', (req, res) => {
   if (typeof redeems !== 'object') return res.status(400).json({ error: 'Invalid' });
   state.redeemActions = redeems;
   process.env.REDEEM_ACTIONS = JSON.stringify(redeems);
+  persistEnv();
   addLog('system', 'settings', 'Redeem actions updated');
   res.json({ ok: true });
 });
@@ -846,6 +953,7 @@ app.post('/api/commands', (req, res) => {
     }
   }
   process.env.COMMANDS_CONFIG = JSON.stringify(state.commands);
+  persistEnv();
   broadcast({ event: 'commands_update', commands: state.commands });
   addLog('system', 'settings', 'Command config updated');
   res.json({ ok: true });
@@ -868,6 +976,7 @@ app.post('/api/custom-commands', (req, res) => {
     };
   }
   process.env.CUSTOM_COMMANDS = JSON.stringify(state.customCommands);
+  persistEnv();
   broadcast({ event: 'custom_commands_update', commands: state.customCommands });
   addLog('system', 'settings', 'Custom commands updated');
   res.json({ ok: true });
@@ -916,6 +1025,7 @@ app.post('/settings', (req, res) => {
       modServer.listen(port, () => addLog('system', 'mod', `Mod server started on port ${port}`));
     }
   }
+  persistEnv();
   res.json({ ok: true, updated });
 });
 

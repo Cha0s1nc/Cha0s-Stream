@@ -9,7 +9,8 @@
     "electron": "electron .",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
-    "build:all": "electron-builder --mac --win"
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder --mac --win --linux"
   },
   "build": {
     "appId": "com.cha0sinc.listener",
@@ -39,6 +40,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "assets/icon.png",
+      "category": "Utility"
     }
   },
   "dependencies": {

@@ -1,0 +1,23 @@
+services:
+  listener:
+    image: ghcr.io/cha0s1nc/cha0s_listener:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Main dashboard
+      - "3001:3001"   # Mod queue (change if MOD_PORT differs)
+    volumes:
+      - ./.env:/app/.env          # Settings persistence
+      - ./sounds:/app/sounds      # Sound files
+    environment:
+      - DOTENV_CONFIG_PATH=/app/.env
+    # Uncomment if OBS runs on the same host as Docker (Linux servers)
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Check for updates every 5 minutes, only watch the listener container
+    command: --interval 300 listener
