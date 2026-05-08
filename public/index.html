@@ -936,7 +936,7 @@
       if (botBtn) clientId ? botBtn.classList.remove('disabled') : botBtn.classList.add('disabled');
     }
 
-    const TWITCH_SCOPES = 'user:read:chat channel:bot channel:read:redemptions user:read:whispers whispers:read moderator:read:chat_messages';
+    const TWITCH_SCOPES = 'user:read:chat user:write:chat channel:bot channel:read:redemptions user:read:whispers whispers:read moderator:read:chat_messages';
     const TWITCH_BOT_SCOPES = 'user:write:chat';
 
     async function startBotOAuth() {

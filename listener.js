@@ -890,6 +890,7 @@ wss.on('connection', (ws) => {
 
 const TWITCH_SCOPES = [
   'user:read:chat',
+  'user:write:chat',
   'channel:bot',
   'channel:read:redemptions',
   'user:read:whispers',
