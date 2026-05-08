@@ -336,6 +336,53 @@
               <span class="save-status" id="cmd-save-status">✓ Saved</span>
               <button class="btn btn-primary" id="btn-save-commands">Save Commands</button>
             </div>
+
+            <div style="margin-top:28px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;">Custom Commands</span>
+                <button class="btn btn-secondary" id="btn-add-custom-cmd" style="font-size:11px;padding:5px 12px;">+ Add Command</button>
+              </div>
+              <div class="commands-table">
+                <div class="commands-table-header" style="grid-template-columns: 36px 110px 130px 100px 1fr 28px;">
+                  <span></span>
+                  <span>Command</span>
+                  <span>Permission</span>
+                  <span>Sources</span>
+                  <span>Response</span>
+                  <span></span>
+                </div>
+                <div id="custom-commands-list"><div style="padding:14px;font-size:12px;color:var(--text3)">No custom commands yet.</div></div>
+              </div>
+              <div id="custom-cmd-add-form" style="display:none;margin-top:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+                <div style="display:grid;grid-template-columns:110px 130px 100px 1fr auto;gap:8px;align-items:center;">
+                  <input class="setting-input" id="new-cmd-name" type="text" placeholder="!commandname" style="font-size:12px;padding:5px 8px;" />
+                  <select class="cmd-perm-select" id="new-cmd-perm">
+                    <option value="everyone">Everyone</option>
+                    <option value="subscriber">Subscribers+</option>
+                    <option value="vip">VIPs+</option>
+                    <option value="moderator">Moderators+</option>
+                    <option value="broadcaster">Broadcaster only</option>
+                  </select>
+                  <div class="sources-dropdown" id="sd-new">
+                    <div class="sources-trigger" onclick="toggleSourcesPanel('new', event)">
+                      <span id="sl-new">Chat</span>
+                      <span class="caret">▼</span>
+                    </div>
+                    <div class="sources-panel" id="sp-new">
+                      <div class="source-check-row"><input type="checkbox" id="sc-new-chat" checked onchange="toggleSource('new','chat',this.checked)" /><label for="sc-new-chat">Chat</label></div>
+                      <div class="source-check-row"><input type="checkbox" id="sc-new-whisper" onchange="toggleSource('new','whisper',this.checked)" /><label for="sc-new-whisper">Whisper</label></div>
+                      <div class="source-check-row"><input type="checkbox" id="sc-new-redemption_input" onchange="toggleSource('new','redemption_input',this.checked)" /><label for="sc-new-redemption_input">Redemption</label></div>
+                    </div>
+                  </div>
+                  <input class="setting-input" id="new-cmd-response" type="text" placeholder="Response text — supports {user}" style="font-size:12px;padding:5px 8px;" />
+                  <button class="btn btn-primary" onclick="addCustomCommand()" style="font-size:11px;padding:5px 12px;white-space:nowrap;">Add</button>
+                </div>
+              </div>
+              <div class="commands-save-bar">
+                <span class="save-status" id="custom-cmd-save-status">✓ Saved</span>
+                <button class="btn btn-primary" id="btn-save-custom-commands">Save Custom Commands</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -552,6 +599,17 @@
                 <div class="setting-label"><div class="setting-name">Port</div><div class="setting-desc">Port the listener runs on</div></div>
                 <input class="setting-input" id="cfg-listener-port" type="text" placeholder="3000" />
               </div>
+              <div class="setting-row">
+                <div class="setting-label"><div class="setting-name">Mod Queue</div><div class="setting-desc">Enable the mod queue page on a separate port</div></div>
+                <label class="toggle">
+                  <input type="checkbox" id="cfg-mod-enabled" checked />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="setting-row" id="mod-port-row">
+                <div class="setting-label"><div class="setting-name">Mod Queue Port</div><div class="setting-desc">Port for the mod queue page</div></div>
+                <input class="setting-input" id="cfg-mod-port" type="text" placeholder="3001" />
+              </div>
             </div>
 
             <div class="settings-actions">
@@ -597,6 +655,7 @@
           totalErrors = data.log.filter(l => !l.ok).length;
           updateStats();
           if (data.commands) { commandsConfig = data.commands; }
+          if (data.customCommands) { customCommandsConfig = data.customCommands; }
           // Apply modes from server
           if (data.mediaMode) setMediaModeUI(data.mediaMode);
           if (data.srMode) setSrModeUI(data.srMode);
@@ -630,6 +689,9 @@
         } else if (data.event === 'commands_update') {
           commandsConfig = data.commands;
           renderCommandsTable();
+        } else if (data.event === 'custom_commands_update') {
+          customCommandsConfig = data.commands;
+          renderCustomCommandsTable();
         } else if (data.event === 'oauth_bot_token') {
           const field = document.getElementById('cfg-twitch-bot-oauth');
           if (field) field.value = data.token;
@@ -775,12 +837,14 @@
         btn.classList.add('active');
         document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
         if (btn.dataset.tab === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); }
-        if (btn.dataset.tab === 'commands') renderCommandsTable();
+        if (btn.dataset.tab === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); }
       });
     });
 
     // --- Commands ---
     let commandsConfig = {};
+    let customCommandsConfig = {};
+    let newCmdSources = ['chat'];
     const PERM_LEVELS = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
     const PERM_LABELS = { everyone: 'Everyone', subscriber: 'Subscribers+', vip: 'VIPs+', moderator: 'Moderators+', broadcaster: 'Broadcaster only' };
 
@@ -887,6 +951,132 @@
 
     document.getElementById('btn-save-commands').addEventListener('click', saveCommands);
 
+    // --- Custom Commands ---
+    function renderCustomCommandsTable() {
+      const list = document.getElementById('custom-commands-list');
+      if (!list) return;
+      if (!Object.keys(customCommandsConfig).length) {
+        list.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text3)">No custom commands yet.</div>';
+        return;
+      }
+      list.innerHTML = Object.entries(customCommandsConfig).map(([name, cfg]) => `
+        <div class="command-row ${cfg.enabled ? '' : 'disabled'}" id="ccmd-row-${name}" style="grid-template-columns: 36px 110px 130px 100px 1fr 28px;">
+          <label class="toggle" title="${cfg.enabled ? 'Enabled' : 'Disabled'}">
+            <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="toggleCustomCommand('${name}', this.checked)" />
+            <span class="toggle-track"></span>
+          </label>
+          <span class="cmd-name">!${name}</span>
+          <select class="cmd-perm-select" onchange="setCustomCommandPerm('${name}', this.value)">
+            ${PERM_LEVELS.map(p => `<option value="${p}" ${cfg.permission === p ? 'selected' : ''}>${PERM_LABELS[p]}</option>`).join('')}
+          </select>
+          <div class="sources-dropdown" id="sd-c-${name}">
+            <div class="sources-trigger" onclick="toggleSourcesPanel('c-${name}', event)">
+              <span id="sl-c-${name}">${sourcesLabel(cfg.sources)}</span>
+              <span class="caret">▼</span>
+            </div>
+            <div class="sources-panel" id="sp-c-${name}">
+              ${ALL_SOURCES.map(s => `
+                <div class="source-check-row">
+                  <input type="checkbox" id="sc-c-${name}-${s}" ${(cfg.sources||[]).includes(s) ? 'checked' : ''}
+                    onchange="toggleCustomSource('${name}', '${s}', this.checked)" />
+                  <label for="sc-c-${name}-${s}">${SOURCE_LABELS[s]}</label>
+                </div>`).join('')}
+            </div>
+          </div>
+          <input class="setting-input" style="font-size:11px;padding:4px 7px;width:100%;"
+            type="text" placeholder="Response text"
+            value="${(cfg.response || '').replace(/"/g, '&quot;')}"
+            oninput="setCustomCommandResponse('${name}', this.value)"
+            title="Variables: {user}" />
+          <button onclick="deleteCustomCommand('${name}')" title="Delete" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0;line-height:1;">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function toggleCustomCommand(name, enabled) {
+      if (customCommandsConfig[name]) {
+        customCommandsConfig[name].enabled = enabled;
+        const row = document.getElementById(`ccmd-row-${name}`);
+        if (row) row.classList.toggle('disabled', !enabled);
+      }
+    }
+    function setCustomCommandPerm(name, perm) {
+      if (customCommandsConfig[name]) customCommandsConfig[name].permission = perm;
+    }
+    function setCustomCommandResponse(name, value) {
+      if (customCommandsConfig[name]) customCommandsConfig[name].response = value;
+    }
+    function toggleCustomSource(name, source, checked) {
+      if (!customCommandsConfig[name]) return;
+      const sources = customCommandsConfig[name].sources || [];
+      customCommandsConfig[name].sources = checked
+        ? [...new Set([...sources, source])]
+        : sources.filter(s => s !== source);
+      const label = document.getElementById(`sl-c-${name}`);
+      if (label) label.textContent = sourcesLabel(customCommandsConfig[name].sources);
+    }
+    function deleteCustomCommand(name) {
+      delete customCommandsConfig[name];
+      renderCustomCommandsTable();
+    }
+
+    // Override toggleSource for the "new command" form
+    const _origToggleSource = toggleSource;
+    function toggleSource(name, source, checked) {
+      if (name === 'new') {
+        newCmdSources = checked
+          ? [...new Set([...newCmdSources, source])]
+          : newCmdSources.filter(s => s !== source);
+        const label = document.getElementById('sl-new');
+        if (label) label.textContent = sourcesLabel(newCmdSources);
+        return;
+      }
+      _origToggleSource(name, source, checked);
+    }
+
+    function addCustomCommand() {
+      let name = (document.getElementById('new-cmd-name').value || '').replace(/^!/, '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const response = document.getElementById('new-cmd-response').value.trim();
+      const permission = document.getElementById('new-cmd-perm').value;
+      if (!name) { document.getElementById('new-cmd-name').focus(); return; }
+      if (!response) { document.getElementById('new-cmd-response').focus(); return; }
+      customCommandsConfig[name] = { enabled: true, permission, sources: [...newCmdSources], response };
+      renderCustomCommandsTable();
+      // Reset form
+      document.getElementById('new-cmd-name').value = '';
+      document.getElementById('new-cmd-response').value = '';
+      document.getElementById('new-cmd-perm').value = 'everyone';
+      newCmdSources = ['chat'];
+      document.getElementById('sl-new').textContent = 'Chat';
+      ['chat','whisper','redemption_input'].forEach(s => {
+        const cb = document.getElementById(`sc-new-${s}`);
+        if (cb) cb.checked = s === 'chat';
+      });
+    }
+
+    async function saveCustomCommands() {
+      try {
+        await fetch('/api/custom-commands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ commands: customCommandsConfig })
+        });
+        const status = document.getElementById('custom-cmd-save-status');
+        status.classList.add('visible'); setTimeout(() => status.classList.remove('visible'), 3000);
+      } catch (err) { console.error('Failed to save custom commands', err); }
+    }
+
+    document.getElementById('btn-save-custom-commands').addEventListener('click', saveCustomCommands);
+    document.getElementById('btn-add-custom-cmd').addEventListener('click', () => {
+      const form = document.getElementById('custom-cmd-add-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Load custom commands on startup
+    fetch('/api/custom-commands').then(r => r.json()).then(d => {
+      if (d.commands) { customCommandsConfig = d.commands; renderCustomCommandsTable(); }
+    }).catch(() => {});
+
     // --- Settings fields map ---
     const fields = {
       'cfg-jellyfin-url': 'JELLYFIN_URL',
@@ -905,8 +1095,17 @@
       'cfg-twitch-bot-oauth': 'TWITCH_BOT_OAUTH',
       'cfg-script-allowlist': 'SCRIPT_ALLOWLIST',
       'cfg-listener-port': 'LISTENER_PORT',
+      'cfg-mod-port': 'MOD_PORT',
       'cfg-sr-redeem-name': 'SONG_REQUEST_REDEEM_NAME'
     };
+
+    // Mod enabled toggle — hide/show port row
+    const modEnabledCb = document.getElementById('cfg-mod-enabled');
+    const modPortRow = document.getElementById('mod-port-row');
+    modEnabledCb.addEventListener('change', () => {
+      modPortRow.style.opacity = modEnabledCb.checked ? '1' : '0.4';
+      modPortRow.style.pointerEvents = modEnabledCb.checked ? '' : 'none';
+    });
 
     async function loadRedirectUris() {
       try {
@@ -1042,6 +1241,10 @@
         if (saved.MEDIA_CONTROL_MODE) setMediaModeUI(saved.MEDIA_CONTROL_MODE);
         if (saved.SONG_REQUEST_MODE) setSrModeUI(saved.SONG_REQUEST_MODE);
         document.getElementById('cfg-sr-enabled').checked = saved.SONG_REQUEST_ENABLED !== 'false';
+        const modEnabled = saved.MOD_ENABLED !== 'false';
+        document.getElementById('cfg-mod-enabled').checked = modEnabled;
+        modPortRow.style.opacity = modEnabled ? '1' : '0.4';
+        modPortRow.style.pointerEvents = modEnabled ? '' : 'none';
         updateOAuthLink();
       } catch {}
     }
@@ -1055,6 +1258,7 @@
       settings.MEDIA_CONTROL_MODE = mediaMode;
       settings.SONG_REQUEST_MODE = srMode;
       settings.SONG_REQUEST_ENABLED = document.getElementById('cfg-sr-enabled').checked ? 'true' : 'false';
+      settings.MOD_ENABLED = document.getElementById('cfg-mod-enabled').checked ? 'true' : 'false';
       if (isElectron) {
         await window.electronAPI.saveSettings(settings);
       } else {

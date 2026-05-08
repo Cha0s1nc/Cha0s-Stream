@@ -18,6 +18,10 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const PORT = process.env.LISTENER_PORT || 3000;
+const MOD_PORT = process.env.MOD_PORT || 3001;
+
+// modWss is created later — declared here so broadcast() can reach it
+let modWss = null;
 const OBS_HOST = process.env.OBS_HOST || 'localhost';
 const OBS_PORT = process.env.OBS_PORT || 4455;
 const OBS_PASSWORD = process.env.OBS_PASSWORD;
@@ -29,7 +33,8 @@ const OBS_PASSWORD = process.env.OBS_PASSWORD;
 const DEFAULT_COMMANDS = {
   song:      { enabled: true,  permission: 'everyone',    sources: ['chat','whisper'],                    response: 'Now playing: {song}',                          description: "Show what's currently playing" },
   sr:        { enabled: true,  permission: 'everyone',    sources: ['chat','whisper','redemption_input'], response: '@{user} — {result}',                           description: 'Request a song (!sr <query>)' },
-  playpause: { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '{result}',                                     description: 'Toggle play/pause' },
+  play:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '{result}',                                     description: 'Resume playback' },
+  pause:     { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '{result}',                                     description: 'Pause playback' },
   next:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '⏭ Skipped to next track',                      description: 'Skip to next track' },
   prev:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '⏮ Back to previous track',                     description: 'Go to previous track' },
   scene:     { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '',                                             description: 'Switch OBS scene (!scene <name>)' },
@@ -49,7 +54,8 @@ const state = {
   queue: [],
   wishlist: [],
   redeemActions: {},
-  commands: { ...DEFAULT_COMMANDS }
+  commands: { ...DEFAULT_COMMANDS },
+  customCommands: {}
 };
 
 // Load persisted configs from env
@@ -71,11 +77,18 @@ try {
   }
 } catch { console.log('Could not parse COMMANDS_CONFIG'); }
 
+try {
+  if (process.env.CUSTOM_COMMANDS) state.customCommands = JSON.parse(process.env.CUSTOM_COMMANDS);
+} catch { console.log('Could not parse CUSTOM_COMMANDS'); }
+
 // --- Broadcast / log ---
 function broadcast(data) {
   const msg = JSON.stringify(data);
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  [wss, modWss].forEach(ws => {
+    if (!ws) return;
+    ws.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) client.send(msg);
+    });
   });
 }
 
@@ -221,7 +234,8 @@ function sendOSMediaKey(action) {
   const { exec } = require('child_process');
   const platform = require('os').platform();
   const commands = {
-    playpause: { darwin: `osascript -e 'tell application "System Events" to key code 100'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
+    play:      { darwin: `osascript -e 'tell application "System Events" to key code 100'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
+    pause:     { darwin: `osascript -e 'tell application "System Events" to key code 100'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
     next:      { darwin: `osascript -e 'tell application "System Events" to key code 101'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"`, linux: `xdotool key XF86AudioNext` },
     prev:      { darwin: `osascript -e 'tell application "System Events" to key code 98'`,  win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]177)"`, linux: `xdotool key XF86AudioPrev` }
   };
@@ -401,22 +415,34 @@ async function dispatchCommand(permEvent, source, user, text) {
   const cmd = parts[0].toLowerCase();
   const args = parts.slice(1);
   const cfg = state.commands[cmd];
+  const custom = state.customCommands[cmd];
 
-  if (!cfg) return;
-  if (!cfg.enabled) return;
+  if (!cfg && !custom) return;
 
-  // Source gate — check if this command listens to this source
-  if (!cfg.sources || !cfg.sources.includes(source)) return;
+  const activeCfg = cfg || custom;
+  if (!activeCfg.enabled) return;
 
-  if (!checkPermission(permEvent, cfg.permission)) {
-    addLog('system', `!${cmd}`, `${user} (${source}) — permission denied (need ${cfg.permission})`, false);
+  // Source gate
+  if (!activeCfg.sources || !activeCfg.sources.includes(source)) return;
+
+  if (!checkPermission(permEvent, activeCfg.permission)) {
+    addLog('system', `!${cmd}`, `${user} (${source}) — permission denied (need ${activeCfg.permission})`, false);
+    return;
+  }
+
+  // Custom command — just send the response
+  if (custom && !cfg) {
+    const response = fillTemplate(custom.response || '', { user });
+    if (response) await sendChatMessage(response);
+    addLog('system', `!${cmd}`, `${user} — custom command`);
     return;
   }
 
   switch (cmd) {
     case 'song':       await cmdSong(user); break;
     case 'sr':         await cmdSongRequest(user, args.join(' ')); break;
-    case 'playpause':  await cmdMediaControl(user, 'playpause'); break;
+    case 'play':       await cmdMediaControl(user, 'play'); break;
+    case 'pause':      await cmdMediaControl(user, 'pause'); break;
     case 'next':       await cmdMediaControl(user, 'next'); break;
     case 'prev':       await cmdMediaControl(user, 'prev'); break;
     case 'scene':      await cmdScene(user, args.join(' ')); break;
@@ -515,13 +541,14 @@ async function cmdSongRequest(user, query) {
 
 async function cmdMediaControl(user, action) {
   const mediaMode = process.env.MEDIA_CONTROL_MODE || 'jellyfin';
-  const commandMap = { playpause: 'PlayPause', next: 'NextTrack', prev: 'PreviousTrack' };
+  const commandMap = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' };
+  const resultMap  = { play: '▶️ Resumed', pause: '⏸ Paused', next: '⏭ Skipped to next', prev: '⏮ Back to previous' };
   const tmpl = state.commands[action]?.response;
   if (mediaMode === 'os') {
     try {
       await sendOSMediaKey(action);
       addLog('system', `!${action}`, `${user} → OS media key`);
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: '▶️ Done' }));
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '▶️ Done' }));
     } catch (err) { addLog('system', `!${action}`, err.message, false); }
   } else {
     try {
@@ -529,11 +556,7 @@ async function cmdMediaControl(user, action) {
       if (!session) { addLog('jellyfin', `!${action}`, `${user} — no active session`, false); return; }
       await jellyfinRequest(`/Sessions/${session.Id}/Playing/${commandMap[action]}`, 'POST');
       addLog('jellyfin', `!${action}`, `${user} → ${commandMap[action]}`);
-      if (tmpl) {
-        const result = action === 'playpause' ? '⏯ Toggled play/pause' :
-                       action === 'next'      ? '⏭ Skipped to next'    : '⏮ Back to previous';
-        await sendChatMessage(fillTemplate(tmpl, { user, result }));
-      }
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '' }));
     } catch (err) { addLog('jellyfin', `!${action}`, err.message, false); }
   }
 }
@@ -697,7 +720,7 @@ app.post('/media', async (req, res) => {
       return res.json({ song: `${item.Artists?.[0] || item.AlbumArtist || 'Unknown'} — ${item.Name}` });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
-  const commandMap = { playpause: 'PlayPause', next: 'NextTrack', prev: 'PreviousTrack' };
+  const commandMap = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' };
   const command = commandMap[action];
   if (!command) return res.status(400).json({ error: `Unknown action: ${action}` });
   if (process.env.MEDIA_CONTROL_MODE === 'os') {
@@ -757,7 +780,7 @@ app.post('/api/queue/:id/approve', async (req, res) => {
   try {
     const session = await getActiveSession();
     if (!session) return res.status(404).json({ error: 'No active session' });
-    await jellyfinRequest(`/Sessions/${session.Id}/Playing`, 'POST', { ItemIds: [entry.resolvedItem.id], PlayCommand: 'PlayNext' });
+    await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${entry.resolvedItem.id}`, 'POST');
     entry.status = 'approved';
     broadcast({ event: 'queue_update', entry });
     addLog('jellyfin', 'queue', `Approved: ${entry.resolvedItem.artist} — ${entry.resolvedItem.name}`);
@@ -819,11 +842,34 @@ app.post('/api/commands', (req, res) => {
       if (typeof val.enabled === 'boolean') state.commands[key].enabled = val.enabled;
       if (PERMISSION_LEVELS.includes(val.permission)) state.commands[key].permission = val.permission;
       if (Array.isArray(val.sources)) state.commands[key].sources = val.sources;
+      if (typeof val.response === 'string') state.commands[key].response = val.response;
     }
   }
   process.env.COMMANDS_CONFIG = JSON.stringify(state.commands);
   broadcast({ event: 'commands_update', commands: state.commands });
   addLog('system', 'settings', 'Command config updated');
+  res.json({ ok: true });
+});
+
+app.get('/api/custom-commands', (req, res) => res.json({ commands: state.customCommands }));
+app.post('/api/custom-commands', (req, res) => {
+  const { commands } = req.body;
+  if (typeof commands !== 'object') return res.status(400).json({ error: 'Invalid' });
+  state.customCommands = {};
+  for (const [key, val] of Object.entries(commands)) {
+    const name = key.toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!name) continue;
+    state.customCommands[name] = {
+      enabled:    typeof val.enabled === 'boolean' ? val.enabled : true,
+      permission: PERMISSION_LEVELS.includes(val.permission) ? val.permission : 'everyone',
+      sources:    Array.isArray(val.sources) ? val.sources : ['chat'],
+      response:   typeof val.response === 'string' ? val.response : '',
+      description: typeof val.description === 'string' ? val.description : ''
+    };
+  }
+  process.env.CUSTOM_COMMANDS = JSON.stringify(state.customCommands);
+  broadcast({ event: 'custom_commands_update', commands: state.customCommands });
+  addLog('system', 'settings', 'Custom commands updated');
   res.json({ ok: true });
 });
 
@@ -838,7 +884,7 @@ app.get('/api/state', (req, res) => res.json({
 app.post('/settings', (req, res) => {
   const allowed = [
     'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
-    'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
+    'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
     'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
     'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH'
   ];
@@ -860,6 +906,16 @@ app.post('/settings', (req, res) => {
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
     if (process.env.TWITCH_OAUTH && process.env.TWITCH_CLIENT_ID) setTimeout(connectTwitchEventSub, 500);
   }
+  if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
+    const enabled = process.env.MOD_ENABLED !== 'false';
+    if (!enabled && modServer.listening) {
+      modWss.clients.forEach(c => c.terminate());
+      modServer.close(() => addLog('system', 'mod', 'Mod server stopped'));
+    } else if (enabled && !modServer.listening) {
+      const port = parseInt(process.env.MOD_PORT) || MOD_PORT;
+      modServer.listen(port, () => addLog('system', 'mod', `Mod server started on port ${port}`));
+    }
+  }
   res.json({ ok: true, updated });
 });
 
@@ -872,7 +928,8 @@ wss.on('connection', (ws) => {
     srRedeemName: process.env.SONG_REQUEST_REDEEM_NAME || '',
     srEnabled: process.env.SONG_REQUEST_ENABLED !== 'false',
     queue: state.queue, wishlist: state.wishlist,
-    commands: state.commands
+    commands: state.commands,
+    customCommands: state.customCommands
   }));
 });
 
@@ -1072,3 +1129,218 @@ app.get('/twitch/auth/callback', async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`Listener running on http://localhost:${PORT}`));
+
+// --- Mod server ---
+const modApp = express();
+modApp.use(express.json());
+
+const modServer = http.createServer(modApp);
+modWss = new WebSocketServer({ server: modServer });
+
+modWss.on('connection', (ws) => {
+  ws.send(JSON.stringify({
+    event: 'init',
+    queue: state.queue,
+    wishlist: state.wishlist,
+    jellyfin: state.jellyfin
+  }));
+});
+
+modApp.get('/api/queue', (req, res) => res.json({ queue: state.queue, wishlist: state.wishlist }));
+
+modApp.post('/api/queue/:id/approve', async (req, res) => {
+  const entry = state.queue.find(e => e.id === req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Not found' });
+  if (!entry.resolvedItem) return res.status(400).json({ error: 'No resolved item' });
+  try {
+    const session = await getActiveSession();
+    if (!session) return res.status(404).json({ error: 'No active session' });
+    await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${entry.resolvedItem.id}`, 'POST');
+    entry.status = 'approved';
+    broadcast({ event: 'queue_update', entry });
+    addLog('jellyfin', 'queue', `Approved (mod): ${entry.resolvedItem.artist} — ${entry.resolvedItem.name}`);
+    res.json({ ok: true });
+  } catch (err) { addLog('jellyfin', 'queue', `Approve failed: ${err.message}`, false); res.status(500).json({ error: err.message }); }
+});
+
+modApp.post('/api/queue/:id/skip', (req, res) => {
+  const idx = state.queue.findIndex(e => e.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const [entry] = state.queue.splice(idx, 1);
+  broadcast({ event: 'queue_remove', id: entry.id });
+  addLog('jellyfin', 'queue', `Denied (mod): ${entry.query}`);
+  res.json({ ok: true });
+});
+
+modApp.get('/', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cha0s Listener — Mod Queue</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e;
+    --border: #3a3a3c; --text: #f5f5f7; --text2: #aeaeb2; --text3: #6e6e73;
+    --accent: #0a84ff; --green: #32d74b; --red: #ff453a; --yellow: #ffd60a;
+    --radius: 12px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+  .dot.live { background: var(--green); }
+  .ws-label { font-size: 11px; color: var(--text3); }
+  .jellyfin-status { margin-left: auto; font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
+  .jellyfin-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+  .jellyfin-dot.ok { background: var(--green); }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px; }
+  section { margin-bottom: 28px; }
+  .section-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+  .empty { padding: 20px; text-align: center; font-size: 13px; color: var(--text3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .request-item { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--border); }
+  .request-item:last-child { border-bottom: none; }
+  .request-item.approved { opacity: 0.45; }
+  .request-info { flex: 1; min-width: 0; }
+  .request-song { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .request-meta { font-size: 11px; color: var(--text3); margin-top: 3px; }
+  .request-actions { display: flex; gap: 7px; flex-shrink: 0; }
+  .btn { border: none; border-radius: 8px; font-size: 12px; font-weight: 600; padding: 7px 14px; cursor: pointer; transition: opacity 0.15s; }
+  .btn:active { opacity: 0.7; }
+  .btn:disabled { opacity: 0.35; cursor: default; }
+  .btn-approve { background: var(--green); color: #000; }
+  .btn-deny   { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+  .status-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; flex-shrink: 0; }
+  .badge-pending  { background: rgba(255,214,10,0.15); color: var(--yellow); }
+  .badge-approved { background: rgba(50,215,75,0.15); color: var(--green); }
+  .wishlist-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .wishlist-item:last-child { border-bottom: none; }
+  .wishlist-song { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wishlist-user { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+  summary { cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
+  summary::before { content: '▶'; font-size: 9px; transition: transform 0.15s; }
+  details[open] summary::before { transform: rotate(90deg); }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="ws-dot"></div>
+  <h1>Mod Queue</h1>
+  <span class="ws-label" id="ws-label">connecting</span>
+  <div class="jellyfin-status">
+    <div class="jellyfin-dot" id="jf-dot"></div>
+    <span id="jf-label">Jellyfin</span>
+  </div>
+</header>
+<main>
+  <section>
+    <div class="section-title">Song Requests</div>
+    <div id="queue-container"><div class="empty">No pending requests.</div></div>
+  </section>
+  <details>
+    <summary>Wishlist</summary>
+    <div id="wishlist-container"><div class="empty">Wishlist is empty.</div></div>
+  </details>
+</main>
+<script>
+  let queue = [], wishlist = [];
+
+  function timeAgo(iso) {
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+
+  function renderQueue() {
+    const el = document.getElementById('queue-container');
+    const items = queue.filter(e => e.status !== 'skip');
+    if (!items.length) { el.innerHTML = '<div class="empty">No pending requests.</div>'; return; }
+    el.innerHTML = '<div class="card">' + items.map(e => {
+      const song = e.resolvedItem ? (e.resolvedItem.artist + ' — ' + e.resolvedItem.name) : e.query;
+      const approved = e.status === 'approved';
+      return \`<div class="request-item \${approved ? 'approved' : ''}" id="qi-\${e.id}">
+        <div class="request-info">
+          <div class="request-song" title="\${song}">\${song}</div>
+          <div class="request-meta">by \${e.user} · \${timeAgo(e.addedAt)}</div>
+        </div>
+        <span class="status-badge \${approved ? 'badge-approved' : 'badge-pending'}">\${approved ? 'Queued' : 'Pending'}</span>
+        \${!approved ? \`<div class="request-actions">
+          <button class="btn btn-approve" onclick="approve('\${e.id}', this)">✓ Approve</button>
+          <button class="btn btn-deny"   onclick="deny('\${e.id}', this)">✕ Deny</button>
+        </div>\` : ''}
+      </div>\`;
+    }).join('') + '</div>';
+  }
+
+  function renderWishlist() {
+    const el = document.getElementById('wishlist-container');
+    if (!wishlist.length) { el.innerHTML = '<div class="empty">Wishlist is empty.</div>'; return; }
+    el.innerHTML = '<div class="card">' + wishlist.map(e =>
+      \`<div class="wishlist-item"><span class="wishlist-song">\${e.query}</span><span class="wishlist-user">\${e.user}</span></div>\`
+    ).join('') + '</div>';
+  }
+
+  async function approve(id, btn) {
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const r = await fetch('/api/queue/' + id + '/approve', { method: 'POST' });
+      if (!r.ok) { const d = await r.json(); alert(d.error || 'Failed'); btn.disabled = false; btn.textContent = '✓ Approve'; }
+    } catch (e) { alert('Network error'); btn.disabled = false; btn.textContent = '✓ Approve'; }
+  }
+
+  async function deny(id, btn) {
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      await fetch('/api/queue/' + id + '/skip', { method: 'POST' });
+    } catch (e) { alert('Network error'); btn.disabled = false; btn.textContent = '✕ Deny'; }
+  }
+
+  function connect() {
+    const ws = new WebSocket('ws://' + location.host);
+    ws.onopen = () => {
+      document.getElementById('ws-dot').classList.add('live');
+      document.getElementById('ws-label').textContent = 'live';
+    };
+    ws.onclose = () => {
+      document.getElementById('ws-dot').classList.remove('live');
+      document.getElementById('ws-label').textContent = 'reconnecting';
+      setTimeout(connect, 3000);
+    };
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.event === 'init') {
+        queue = data.queue || []; wishlist = data.wishlist || [];
+        const jfOk = data.jellyfin?.connected;
+        document.getElementById('jf-dot').classList.toggle('ok', !!jfOk);
+        document.getElementById('jf-label').textContent = jfOk ? 'Jellyfin connected' : 'Jellyfin offline';
+        renderQueue(); renderWishlist();
+      } else if (data.event === 'queue_add') {
+        queue.push(data.entry); renderQueue();
+      } else if (data.event === 'queue_update') {
+        const idx = queue.findIndex(e => e.id === data.entry.id);
+        if (idx !== -1) queue[idx] = data.entry; renderQueue();
+      } else if (data.event === 'queue_remove') {
+        queue = queue.filter(e => e.id !== data.id); renderQueue();
+      } else if (data.event === 'wishlist_add') {
+        wishlist.unshift(data.entry); renderWishlist();
+      } else if (data.event === 'wishlist_remove') {
+        wishlist = wishlist.filter(e => e.id !== data.id); renderWishlist();
+      } else if (data.event === 'status' && data.service === 'jellyfin') {
+        document.getElementById('jf-dot').classList.toggle('ok', data.connected);
+        document.getElementById('jf-label').textContent = data.connected ? 'Jellyfin connected' : 'Jellyfin offline';
+      }
+    };
+  }
+  connect();
+</script>
+</body>
+</html>`);
+});
+
+if (process.env.MOD_ENABLED !== 'false') {
+  modServer.listen(MOD_PORT, () => console.log(`Mod queue running on http://localhost:${MOD_PORT}`));
+}
