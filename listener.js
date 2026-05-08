@@ -1100,9 +1100,20 @@ function openBrowser(url) {
   });
 }
 
-function startOAuthFlow(clientId, scopes, flowType, res) {
+function getRedirectUri(req) {
+  // Use the actual request host so the callback works whether accessed via
+  // localhost, Tailscale IP, or any other hostname (important for Docker).
   const port = process.env.LISTENER_PORT || PORT;
-  const redirectUri = `http://localhost:${port}/twitch/auth/callback`;
+  if (req) {
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${port}`;
+    return `${proto}://${host}/twitch/auth/callback`;
+  }
+  return `http://localhost:${port}/twitch/auth/callback`;
+}
+
+function startOAuthFlow(clientId, scopes, flowType, res, req) {
+  const redirectUri = getRedirectUri(req);
   const stateToken = crypto.randomBytes(16).toString('hex');
   const clientSecret = process.env.TWITCH_CLIENT_SECRET;
 
@@ -1126,28 +1137,28 @@ function startOAuthFlow(clientId, scopes, flowType, res) {
   pendingOAuthFlows.set(stateToken, flow);
 
   const authUrl = `https://id.twitch.tv/oauth2/authorize?` + new URLSearchParams(params);
+  // Best-effort: open browser on the server (works for desktop installs, no-ops on Docker)
   openBrowser(authUrl);
   addLog('system', 'twitch', `OAuth: opened browser (${flowType})`);
-  res.json({ ok: true, redirectUri });
+  // Always return authUrl so the frontend can open it / show a fallback link
+  res.json({ ok: true, redirectUri, authUrl });
 }
 
 // Single redirect URI — only ONE URL to register in dev.twitch.tv
 app.get('/twitch/auth/info', (req, res) => {
-  const port = process.env.LISTENER_PORT || PORT;
-  const uri = `http://localhost:${port}/twitch/auth/callback`;
-  res.json({ broadcaster: uri, bot: uri });
+  res.json({ broadcaster: getRedirectUri(req), bot: getRedirectUri(req) });
 });
 
 app.post('/twitch/auth/start', (req, res) => {
   const clientId = process.env.TWITCH_CLIENT_ID || req.body?.clientId || '';
   if (!clientId) return res.status(400).json({ error: 'No Client ID configured' });
-  startOAuthFlow(clientId, TWITCH_SCOPES, 'broadcaster', res);
+  startOAuthFlow(clientId, TWITCH_SCOPES, 'broadcaster', res, req);
 });
 
 app.post('/twitch/auth/bot/start', (req, res) => {
   const clientId = process.env.TWITCH_CLIENT_ID || req.body?.clientId || '';
   if (!clientId) return res.status(400).json({ error: 'No Client ID configured' });
-  startOAuthFlow(clientId, TWITCH_BOT_SCOPES, 'bot', res);
+  startOAuthFlow(clientId, TWITCH_BOT_SCOPES, 'bot', res, req);
 });
 
 // Twitch redirects here with ?code=xxx&state=xxx — exchange the code server-side
