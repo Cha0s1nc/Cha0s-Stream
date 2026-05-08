@@ -494,7 +494,11 @@ function fillTemplate(template, vars) {
 async function cmdSong(user) {
   try {
     const session = await getActiveSession();
-    if (!session) { addLog('jellyfin', '!song', `${user} — nothing playing`); return; }
+    if (!session) {
+      addLog('jellyfin', '!song', `${user} — nothing playing`);
+      await sendChatMessage(`@${user} — Nothing is playing right now.`);
+      return;
+    }
     const item = session.NowPlayingItem;
     const artist = item.Artists?.[0] || item.AlbumArtist || 'Unknown Artist';
     const song = `${artist} — ${item.Name}`;
