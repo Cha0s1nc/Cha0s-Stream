@@ -20,4 +20,4 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     # Check for updates every 5 minutes, only watch the listener container
-    command: --interval 300 listener
+    command: ["--interval", "300", "listener"]
