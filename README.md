@@ -246,7 +246,7 @@ npm run build:all      # All platforms
 
 Output goes to the `dist/` folder.
 
-### Build Docker image locally
+### Build Docker image locally (Do at your own risk, Docker release is not updated)
 
 ```bash
 docker build -t cha0s_listener .
