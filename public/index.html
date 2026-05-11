@@ -204,6 +204,17 @@
     .source-check-row input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; cursor: pointer; flex-shrink: 0; }
     .source-check-row label { font-size: 12px; color: var(--text2); cursor: pointer; }
     /* OAuth link row */
+    .plugin-card { border-bottom: 1px solid var(--border); padding: 14px 16px; }
+    .plugin-card:last-child { border-bottom: none; }
+    .plugin-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .plugin-name { font-size: 14px; font-weight: 600; color: var(--text1); }
+    .plugin-version { font-size: 11px; color: var(--text3); background: var(--bg3); padding: 1px 6px; border-radius: 4px; }
+    .plugin-author { font-size: 11px; color: var(--text3); }
+    .plugin-desc { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+    .plugin-actions { display: flex; gap: 8px; align-items: center; }
+    .plugin-panel { margin-top: 12px; padding: 12px; background: var(--bg3); border-radius: 8px; border: 1px solid var(--border); font-size: 13px; }
+    .btn-danger-sm { font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255,80,80,0.4); color: #ff6060; background: transparent; cursor: pointer; }
+    .btn-danger-sm:hover { background: rgba(255,80,80,0.1); }
     .oauth-link-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--border); background: rgba(110,79,246,0.06); }
     .oauth-link-row span { font-size: 11px; color: var(--text3); flex: 1; }
     .oauth-link { font-size: 11px; font-weight: 600; color: var(--accent); text-decoration: none; padding: 4px 10px; border: 1px solid rgba(110,79,246,0.4); border-radius: 6px; white-space: nowrap; transition: all 0.15s; }
@@ -223,6 +234,7 @@
           <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
           <button class="tab-btn" data-tab="commands">Commands</button>
           <button class="tab-btn" data-tab="requests">Requests</button>
+          <button class="tab-btn" data-tab="plugins">Plugins</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
         <div class="ws-pill">
@@ -414,6 +426,27 @@
                 </div>
                 <div class="requests-list" id="wishlist-list">
                   <div class="empty-state" style="padding:20px 0">No wishlist items</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Plugins tab -->
+        <div class="panel-view" id="tab-plugins">
+          <div class="settings-view">
+            <div class="settings-section">
+              <div class="settings-section-title">Plugins</div>
+              <div class="settings-group">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);">
+                  <span style="font-size:13px;color:var(--text2);">Drop a <code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:12px;">.js</code> plugin file to install it.</span>
+                  <label class="btn-secondary" style="cursor:pointer;padding:6px 14px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;">
+                    ＋ Import Plugin
+                    <input type="file" id="plugin-file-input" accept=".js" style="display:none;" onchange="importPlugin(this)">
+                  </label>
+                </div>
+                <div id="plugin-list" style="padding:8px 0;">
+                  <div style="padding:24px;text-align:center;color:var(--text3);font-size:13px;">No plugins installed.</div>
                 </div>
               </div>
             </div>
@@ -656,6 +689,7 @@
           updateStats();
           if (data.commands) { commandsConfig = data.commands; }
           if (data.customCommands) { customCommandsConfig = data.customCommands; }
+          if (data.plugins) { renderPlugins(data.plugins); }
           // Apply modes from server
           if (data.mediaMode) setMediaModeUI(data.mediaMode);
           if (data.srMode) setSrModeUI(data.srMode);
@@ -692,6 +726,10 @@
         } else if (data.event === 'custom_commands_update') {
           customCommandsConfig = data.commands;
           renderCustomCommandsTable();
+        } else if (data.event === 'plugins_update') {
+          loadPlugins();
+        } else if (data.event === 'plugin_data') {
+          dispatchPluginData(data.pluginId, data.data);
         } else if (data.event === 'oauth_bot_token') {
           const field = document.getElementById('cfg-twitch-bot-oauth');
           if (field) field.value = data.token;
@@ -837,6 +875,7 @@
         btn.classList.add('active');
         document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
         if (btn.dataset.tab === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); }
+        if (btn.dataset.tab === 'plugins') { loadPlugins(); }
         if (btn.dataset.tab === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); }
       });
     });
@@ -1052,6 +1091,95 @@
         const cb = document.getElementById(`sc-new-${s}`);
         if (cb) cb.checked = s === 'chat';
       });
+    }
+
+    // --- Plugin system ---
+    let pluginsData = [];
+
+    function renderPlugins(plugins) {
+      pluginsData = plugins;
+      const el = document.getElementById('plugin-list');
+      if (!el) return;
+      if (!plugins.length) {
+        el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px;">No plugins installed.</div>';
+        return;
+      }
+      el.innerHTML = plugins.map(p => `
+        <div class="plugin-card" id="plugin-card-${p.id}">
+          <div class="plugin-header">
+            <span class="plugin-name">${p.name}</span>
+            <span class="plugin-version">v${p.version}</span>
+            ${p.author ? `<span class="plugin-author">by ${p.author}</span>` : ''}
+          </div>
+          ${p.description ? `<div class="plugin-desc">${p.description}</div>` : ''}
+          <div class="plugin-actions">
+            <label class="toggle-label" style="gap:6px;font-size:12px;">
+              <input type="checkbox" class="toggle-input" ${p.enabled ? 'checked' : ''}
+                onchange="togglePlugin('${p.id}', this.checked)">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              ${p.enabled ? 'Enabled' : 'Disabled'}
+            </label>
+            <button class="btn-danger-sm" onclick="deletePlugin('${p.id}', '${p.name}')">Remove</button>
+          </div>
+          ${p.panel ? `<div class="plugin-panel" id="plugin-panel-${p.id}">${p.panel}</div>` : ''}
+        </div>
+      `).join('');
+      // Run any scripts inside plugin panels
+      plugins.forEach(p => {
+        if (!p.panel) return;
+        const container = document.getElementById(`plugin-panel-${p.id}`);
+        if (!container) return;
+        container.querySelectorAll('script').forEach(oldScript => {
+          const s = document.createElement('script');
+          s.textContent = oldScript.textContent;
+          oldScript.replaceWith(s);
+        });
+      });
+    }
+
+    async function loadPlugins() {
+      try {
+        const r = await fetch('/api/plugins');
+        const data = await r.json();
+        renderPlugins(data.plugins || []);
+      } catch {}
+    }
+
+    async function togglePlugin(id, enabled) {
+      await fetch(`/api/plugins/${id}/toggle`, { method: 'POST' });
+      const card = document.getElementById(`plugin-card-${id}`);
+      if (card) {
+        const label = card.querySelector('.toggle-label');
+        if (label) label.lastChild.textContent = ' ' + (enabled ? 'Enabled' : 'Disabled');
+      }
+    }
+
+    async function deletePlugin(id, name) {
+      if (!confirm(`Remove plugin "${name}"?`)) return;
+      await fetch(`/api/plugins/${id}`, { method: 'DELETE' });
+      await loadPlugins();
+    }
+
+    async function importPlugin(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const content = await file.text();
+      try {
+        const r = await fetch('/api/plugins/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, content })
+        });
+        const data = await r.json();
+        if (!r.ok) { alert(data.error || 'Failed to load plugin'); return; }
+        await loadPlugins();
+      } catch (err) { alert('Import failed: ' + err.message); }
+      input.value = '';
+    }
+
+    // Forward plugin_data WebSocket events to panels
+    function dispatchPluginData(pluginId, data) {
+      window.dispatchEvent(new CustomEvent('plugin_data', { detail: { pluginId, data } }));
     }
 
     async function saveCustomCommands() {

@@ -100,7 +100,8 @@ const state = {
   wishlist: [],
   redeemActions: {},
   commands: { ...DEFAULT_COMMANDS },
-  customCommands: {}
+  customCommands: {},
+  pluginCommands: {}
 };
 
 // Load persisted configs from env
@@ -125,6 +126,91 @@ try {
 try {
   if (process.env.CUSTOM_COMMANDS) state.customCommands = JSON.parse(process.env.CUSTOM_COMMANDS);
 } catch { console.log('Could not parse CUSTOM_COMMANDS'); }
+
+// --- Plugin System ---
+const EventEmitter = require('events');
+const pluginEvents = new EventEmitter();
+pluginEvents.setMaxListeners(50);
+
+const PLUGINS_DIR = require('path').join(__dirname, 'plugins');
+const PLUGIN_STORE_PATH = require('path').join(__dirname, 'plugin-store.json');
+const fs = require('fs');
+
+// Persistent key-value store for plugins, namespaced by plugin id
+let pluginStore = {};
+try { pluginStore = JSON.parse(fs.readFileSync(PLUGIN_STORE_PATH, 'utf8')); } catch {}
+function savePluginStore() {
+  try { fs.writeFileSync(PLUGIN_STORE_PATH, JSON.stringify(pluginStore, null, 2)); } catch {}
+}
+
+// Registry of loaded plugins: id -> { manifest, filePath, enabled }
+const loadedPlugins = new Map();
+
+function createPluginApi(pluginId) {
+  return {
+    addCommand(name, config) {
+      state.pluginCommands[name.toLowerCase()] = { ...config, pluginId };
+    },
+    removeCommand(name) {
+      delete state.pluginCommands[name.toLowerCase()];
+    },
+    on(event, handler)  { pluginEvents.on(event, handler); },
+    off(event, handler) { pluginEvents.off(event, handler); },
+    sendChat: (text) => sendChatMessage(text),
+    get obs() { return obs; },
+    jellyfin: (path, method = 'GET', body = null) => jellyfinRequest(path, method, body),
+    log(detail, ok = true) { addLog('plugin', pluginId, detail, ok); },
+    broadcast(data) { broadcast({ event: 'plugin_data', pluginId, data }); },
+    store: {
+      get(key)          { return pluginStore[pluginId]?.[key]; },
+      set(key, value)   { if (!pluginStore[pluginId]) pluginStore[pluginId] = {}; pluginStore[pluginId][key] = value; savePluginStore(); },
+      delete(key)       { if (pluginStore[pluginId]) { delete pluginStore[pluginId][key]; savePluginStore(); } },
+      getAll()          { return { ...(pluginStore[pluginId] || {}) }; }
+    },
+    getSetting: (key)        => process.env[key],
+    setSetting: (key, value) => { process.env[key] = value; persistEnv(); }
+  };
+}
+
+function loadPlugin(filePath) {
+  try {
+    delete require.cache[require.resolve(filePath)];
+    const manifest = require(filePath);
+    if (!manifest.id || !manifest.name || typeof manifest.register !== 'function') {
+      console.log(`Plugin ${filePath}: missing required fields (id, name, register)`);
+      return null;
+    }
+    // Remove old commands from this plugin if reloading
+    for (const [cmd, cfg] of Object.entries(state.pluginCommands)) {
+      if (cfg.pluginId === manifest.id) delete state.pluginCommands[cmd];
+    }
+    // Remove old event listeners from this plugin
+    pluginEvents.removeAllListeners();
+    const enabled = pluginStore[`__enabled_${manifest.id}`] !== false;
+    if (enabled) {
+      const api = createPluginApi(manifest.id);
+      manifest.register(api);
+    }
+    loadedPlugins.set(manifest.id, { manifest, filePath, enabled });
+    addLog('plugin', 'load', `Loaded: ${manifest.name} v${manifest.version || '?'}${enabled ? '' : ' (disabled)'}`);
+    return manifest;
+  } catch (err) {
+    console.log(`Plugin load error (${require('path').basename(filePath)}):`, err.message);
+    addLog('plugin', 'load', `Failed to load ${require('path').basename(filePath)}: ${err.message}`, false);
+    return null;
+  }
+}
+
+function loadAllPlugins() {
+  try {
+    if (!fs.existsSync(PLUGINS_DIR)) fs.mkdirSync(PLUGINS_DIR, { recursive: true });
+    const files = fs.readdirSync(PLUGINS_DIR).filter(f => f.endsWith('.js'));
+    for (const file of files) loadPlugin(require('path').join(PLUGINS_DIR, file));
+  } catch (err) { console.log('Plugin directory error:', err.message); }
+}
+
+// Load plugins after server is ready (so addLog etc. are available)
+process.nextTick(loadAllPlugins);
 
 // --- Broadcast / log ---
 function broadcast(data) {
@@ -472,9 +558,10 @@ if (process.env.TWITCH_OAUTH && process.env.TWITCH_CLIENT_ID) {
 
 // --- Chat command dispatcher ---
 async function handleChatMessage(event) {
-  await dispatchCommand(event, 'chat',
-    event?.chatter_user_name || 'unknown',
-    event?.message?.text || '');
+  const user = event?.chatter_user_name || 'unknown';
+  const text = event?.message?.text || '';
+  pluginEvents.emit('chat', { user, text, event });
+  await dispatchCommand(event, 'chat', user, text);
 }
 
 async function handleWhisperMessage(event) {
@@ -520,6 +607,23 @@ async function dispatchCommand(permEvent, source, user, text) {
     const response = fillTemplate(custom.response || '', { user });
     if (response) await sendChatMessage(response);
     addLog('system', `!${cmd}`, `${user} — custom command`);
+    return;
+  }
+
+  // Plugin command
+  const pluginCmd = state.pluginCommands[cmd];
+  if (pluginCmd && !cfg) {
+    if (!pluginCmd.sources || !pluginCmd.sources.includes(source)) return;
+    if (!checkPermission(permEvent, pluginCmd.permission || 'everyone')) {
+      addLog('plugin', `!${cmd}`, `${user} — permission denied`, false);
+      return;
+    }
+    try {
+      await pluginCmd.handler({ user, args, source, event: permEvent });
+      addLog('plugin', `!${cmd}`, `${user} (${source})`);
+    } catch (err) {
+      addLog('plugin', `!${cmd}`, `Error: ${err.message}`, false);
+    }
     return;
   }
 
@@ -755,6 +859,7 @@ async function cmdKillswitch(user) {
 
 // --- Redeem handler ---
 async function handleRedeem(redeemTitle, user, input) {
+  pluginEvents.emit('redeem', { title: redeemTitle, user, input });
   const action = state.redeemActions[redeemTitle];
   if (!action) {
     const srMode = process.env.SONG_REQUEST_MODE || 'chat';
@@ -982,6 +1087,75 @@ app.post('/api/custom-commands', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Plugin API ---
+app.get('/api/plugins', (req, res) => {
+  const plugins = Array.from(loadedPlugins.values()).map(({ manifest, filePath, enabled }) => ({
+    id:          manifest.id,
+    name:        manifest.name,
+    version:     manifest.version  || '1.0.0',
+    description: manifest.description || '',
+    author:      manifest.author   || '',
+    panel:       manifest.panel    || null,
+    enabled,
+    file:        require('path').basename(filePath)
+  }));
+  res.json({ plugins });
+});
+
+app.post('/api/plugins/:id/toggle', (req, res) => {
+  const entry = loadedPlugins.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Plugin not found' });
+  entry.enabled = !entry.enabled;
+  pluginStore[`__enabled_${req.params.id}`] = entry.enabled;
+  savePluginStore();
+  // Remove commands registered by this plugin then reload
+  for (const [cmd, cfg] of Object.entries(state.pluginCommands)) {
+    if (cfg.pluginId === req.params.id) delete state.pluginCommands[cmd];
+  }
+  pluginEvents.removeAllListeners();
+  loadPlugin(entry.filePath);
+  broadcast({ event: 'plugins_update' });
+  res.json({ ok: true, enabled: entry.enabled });
+});
+
+app.post('/api/plugins/upload', (req, res) => {
+  const { filename, content } = req.body;
+  if (!filename || !content) return res.status(400).json({ error: 'Missing filename or content' });
+  if (!filename.endsWith('.js')) return res.status(400).json({ error: 'Only .js files are allowed' });
+  const safeName = require('path').basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath = require('path').join(PLUGINS_DIR, safeName);
+  try {
+    fs.writeFileSync(filePath, content, 'utf8');
+    const manifest = loadPlugin(filePath);
+    if (!manifest) { fs.unlinkSync(filePath); return res.status(400).json({ error: 'Plugin failed to load — check format' }); }
+    broadcast({ event: 'plugins_update' });
+    res.json({ ok: true, id: manifest.id, name: manifest.name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/plugins/:id', (req, res) => {
+  const entry = loadedPlugins.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Plugin not found' });
+  try { fs.unlinkSync(entry.filePath); } catch {}
+  for (const [cmd, cfg] of Object.entries(state.pluginCommands)) {
+    if (cfg.pluginId === req.params.id) delete state.pluginCommands[cmd];
+  }
+  loadedPlugins.delete(req.params.id);
+  delete pluginStore[req.params.id];
+  delete pluginStore[`__enabled_${req.params.id}`];
+  savePluginStore();
+  pluginEvents.removeAllListeners();
+  // Re-register remaining enabled plugins' events
+  for (const { manifest, filePath, enabled } of loadedPlugins.values()) {
+    if (enabled) { try { const m = require(filePath); m.register(createPluginApi(manifest.id)); } catch {} }
+  }
+  broadcast({ event: 'plugins_update' });
+  addLog('plugin', 'unload', `Removed: ${entry.manifest.name}`);
+  res.json({ ok: true });
+});
+
 app.get('/api/state', (req, res) => res.json({
   obs: state.obs, jellyfin: state.jellyfin, twitch: state.twitch, log: state.log,
   mediaMode: process.env.MEDIA_CONTROL_MODE || 'jellyfin',
@@ -1049,7 +1223,12 @@ wss.on('connection', (ws) => {
     srEnabled: process.env.SONG_REQUEST_ENABLED !== 'false',
     queue: state.queue, wishlist: state.wishlist,
     commands: state.commands,
-    customCommands: state.customCommands
+    customCommands: state.customCommands,
+    plugins: Array.from(loadedPlugins.values()).map(({ manifest, enabled }) => ({
+      id: manifest.id, name: manifest.name, version: manifest.version || '1.0.0',
+      description: manifest.description || '', author: manifest.author || '',
+      panel: manifest.panel || null, enabled
+    }))
   }));
 });
 

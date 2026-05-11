@@ -1,8 +1,0 @@
-node_modules
-dist
-electron
-assets
-.env
-*.md
-*.icns
-*.ico
