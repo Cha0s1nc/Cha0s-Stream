@@ -1113,12 +1113,14 @@
           </div>
           ${p.description ? `<div class="plugin-desc">${p.description}</div>` : ''}
           <div class="plugin-actions">
-            <label class="toggle-label" style="gap:6px;font-size:12px;">
-              <input type="checkbox" class="toggle-input" ${p.enabled ? 'checked' : ''}
-                onchange="togglePlugin('${p.id}', this.checked)">
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              ${p.enabled ? 'Enabled' : 'Disabled'}
-            </label>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <label class="toggle" title="${p.enabled ? 'Enabled' : 'Disabled'}">
+                <input type="checkbox" ${p.enabled ? 'checked' : ''}
+                  onchange="togglePlugin('${p.id}', this.checked)">
+                <span class="toggle-track"></span>
+              </label>
+              <span id="plugin-status-${p.id}" style="font-size:12px;color:var(--text2);">${p.enabled ? 'Enabled' : 'Disabled'}</span>
+            </div>
             <button class="btn-danger-sm" onclick="deletePlugin('${p.id}', '${p.name}')">Remove</button>
           </div>
           ${p.panel ? `<div class="plugin-panel" id="plugin-panel-${p.id}">${p.panel}</div>` : ''}
@@ -1129,10 +1131,9 @@
         if (!p.panel) return;
         const container = document.getElementById(`plugin-panel-${p.id}`);
         if (!container) return;
-        container.querySelectorAll('script').forEach(oldScript => {
-          const s = document.createElement('script');
-          s.textContent = oldScript.textContent;
-          oldScript.replaceWith(s);
+        container.querySelectorAll('script').forEach(s => {
+          try { new Function(s.textContent)(); } catch(e) { console.warn('Plugin panel script error:', e); }
+          s.remove();
         });
       });
     }
@@ -1147,11 +1148,8 @@
 
     async function togglePlugin(id, enabled) {
       await fetch(`/api/plugins/${id}/toggle`, { method: 'POST' });
-      const card = document.getElementById(`plugin-card-${id}`);
-      if (card) {
-        const label = card.querySelector('.toggle-label');
-        if (label) label.lastChild.textContent = ' ' + (enabled ? 'Enabled' : 'Disabled');
-      }
+      const statusEl = document.getElementById(`plugin-status-${id}`);
+      if (statusEl) statusEl.textContent = enabled ? 'Enabled' : 'Disabled';
     }
 
     async function deletePlugin(id, name) {
