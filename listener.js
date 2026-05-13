@@ -421,6 +421,8 @@ let twitchReconnectTimer = null;
 let twitchSessionId = null;
 let twitchKeepaliveTimer = null;
 let twitchKeepaliveTimeout = 15000;
+let twitchIsReconnect = false;   // true when connecting via session_reconnect URL
+let twitchReconnectAttempts = 0; // for exponential backoff
 
 async function getTwitchUserId(channelName, token) {
   const bearerToken = token.replace(/^oauth:/i, '');
@@ -468,14 +470,19 @@ function attachTwitchHandlers(socket) {
       twitchSessionId = msg.payload?.session?.id;
       const twKeepalive = msg.payload?.session?.keepalive_timeout_seconds;
       if (twKeepalive) twitchKeepaliveTimeout = (twKeepalive + 5) * 1000;
+      twitchReconnectAttempts = 0;
       state.twitch.connected = true;
       broadcast({ event: 'status', service: 'twitch', connected: true });
-      addLog('system', 'twitch', 'EventSub connected');
+      const wasReconnect = twitchIsReconnect;
+      twitchIsReconnect = false;
+      addLog('system', 'twitch', wasReconnect ? 'EventSub reconnected (subscriptions migrated)' : 'EventSub connected');
 
+      // Only subscribe on the initial connection — Twitch migrates subscriptions
+      // automatically during session_reconnect, so re-subscribing creates duplicates.
       const channel = process.env.TWITCH_CHANNEL;
       const token = process.env.TWITCH_OAUTH;
       const clientId = process.env.TWITCH_CLIENT_ID;
-      if (channel && token && clientId) {
+      if (!wasReconnect && channel && token && clientId) {
         try {
           const broadcasterId = await getTwitchUserId(channel, token);
           if (broadcasterId) {
@@ -505,8 +512,10 @@ function attachTwitchHandlers(socket) {
     if (type === 'session_reconnect') {
       const url = msg.payload?.session?.reconnect_url;
       if (url) {
+        addLog('system', 'twitch', 'Twitch requested reconnect — switching socket');
         const oldSocket = twitchWs;
         const newSocket = new WebSocket(url);
+        twitchIsReconnect = true;
         twitchWs = newSocket;
         attachTwitchHandlers(newSocket);
         newSocket.once('open', () => oldSocket.close());
@@ -538,11 +547,16 @@ function attachTwitchHandlers(socket) {
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
     state.twitch.connected = false;
     broadcast({ event: 'status', service: 'twitch', connected: false });
-    addLog('system', 'twitch', 'EventSub disconnected — reconnecting in 15s', false);
-    twitchReconnectTimer = setTimeout(connectTwitchEventSub, 15000);
+    // Exponential backoff: 5s, 10s, 20s, 40s … capped at 120s
+    const delay = Math.min(5000 * Math.pow(2, twitchReconnectAttempts), 120000);
+    twitchReconnectAttempts++;
+    addLog('system', 'twitch', `EventSub disconnected — reconnecting in ${delay / 1000}s (attempt ${twitchReconnectAttempts})`, false);
+    twitchReconnectTimer = setTimeout(connectTwitchEventSub, delay);
   });
 
-  socket.on('error', (err) => { console.log('Twitch EventSub error:', err.message); });
+  socket.on('error', (err) => {
+    addLog('system', 'twitch', `WebSocket error: ${err.message}`, false);
+  });
 }
 
 function connectTwitchEventSub() {
