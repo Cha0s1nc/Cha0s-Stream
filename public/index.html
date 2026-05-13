@@ -197,7 +197,7 @@
     .sources-trigger { font-family: var(--font); font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 5px 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; white-space: nowrap; user-select: none; transition: border-color 0.15s; min-width: 90px; justify-content: space-between; }
     .sources-trigger:hover { border-color: var(--accent); }
     .sources-trigger .caret { font-size: 9px; opacity: 0.5; }
-    .sources-panel { display: none; position: absolute; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px; z-index: 100; min-width: 160px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+    .sources-panel { display: none; position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px; z-index: 1000; min-width: 160px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
     .sources-panel.open { display: block; }
     .source-check-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; cursor: pointer; }
     .source-check-row:hover { background: var(--surface2); }
@@ -942,7 +942,28 @@
       document.querySelectorAll('.sources-panel.open').forEach(p => {
         if (p.id !== `sp-${name}`) p.classList.remove('open');
       });
-      document.getElementById(`sp-${name}`)?.classList.toggle('open');
+      const panel = document.getElementById(`sp-${name}`);
+      if (!panel) return;
+      if (panel.classList.contains('open')) { panel.classList.remove('open'); return; }
+
+      // Position panel using fixed coords so it escapes overflow:hidden containers
+      const trigger = document.getElementById(`sd-${name}`)?.querySelector('.sources-trigger');
+      if (trigger) {
+        const rect = trigger.getBoundingClientRect();
+        const panelHeight = 110; // approximate height of 3-item panel
+        const spaceBelow = window.innerHeight - rect.bottom;
+        panel.style.left   = 'auto';
+        panel.style.right  = (window.innerWidth - rect.right) + 'px';
+        if (spaceBelow < panelHeight + 8) {
+          // Flip upward
+          panel.style.top    = 'auto';
+          panel.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        } else {
+          panel.style.top    = (rect.bottom + 4) + 'px';
+          panel.style.bottom = 'auto';
+        }
+      }
+      panel.classList.add('open');
     }
 
     // Close source panels when clicking outside
