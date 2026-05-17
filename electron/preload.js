@@ -5,5 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_, data) => callback(data)),
-  twitchOAuthPopup: (opts) => ipcRenderer.invoke('twitch-oauth-popup', opts)
+  twitchOAuthPopup: (opts) => ipcRenderer.invoke('twitch-oauth-popup', opts),
+  openDevTools: () => ipcRenderer.invoke('open-devtools'),
+  getDevMode:   () => ipcRenderer.invoke('get-dev-mode')
 });

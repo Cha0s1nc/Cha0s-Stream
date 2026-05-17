@@ -52,6 +52,11 @@ const { WebSocketServer, WebSocket } = require('ws');
 const OBSWebSocket = require('obs-websocket-js').default;
 const crypto = require('crypto');
 
+// Dev mode: set by Electron when a .debug file exists next to the exe,
+// or detected here directly for standalone `node listener.js` usage.
+const DEV_MODE = process.env.DEV_MODE === 'true' ||
+  (() => { try { return fs.existsSync(require('path').join(__dirname, '.debug')); } catch { return false; } })();
+
 const app = express();
 app.use(express.json());
 app.use(express.static(require('path').join(__dirname, 'public')));
@@ -1389,7 +1394,8 @@ wss.on('connection', (ws) => {
     alertMode: process.env.ALERT_MODE || 'browser_source',
     alertObsSource: process.env.ALERT_OBS_SOURCE || '',
     alertObsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000,
-    alertBrowserSourceUrl: `http://localhost:${PORT}/alerts`
+    alertBrowserSourceUrl: `http://localhost:${PORT}/alerts`,
+    devMode: DEV_MODE
   }));
 });
 

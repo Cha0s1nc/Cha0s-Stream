@@ -1,8 +1,19 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { fork } = require('child_process');
 const Store = require('electron-store');
 const { autoUpdater } = require('electron-updater');
+
+// --- Dev mode: presence of a .debug file next to the exe (or project root in dev) unlocks the Dev tab ---
+function getDebugFlagPath() {
+  return app.isPackaged
+    ? path.join(path.dirname(process.execPath), '.debug')
+    : path.join(__dirname, '..', '.debug');
+}
+function isDevMode() {
+  try { return fs.existsSync(getDebugFlagPath()); } catch { return false; }
+}
 
 // Configure auto-updater — manual download so user sees the popup first
 autoUpdater.autoDownload = false;
@@ -160,7 +171,7 @@ function startListener(config) {
 
   try {
     listenerProcess = fork(listenerPath, [], {
-      env: { ...process.env, ...config },
+      env: { ...process.env, ...config, DEV_MODE: isDevMode() ? 'true' : '' },
       silent: true
     });
   } catch (err) {
@@ -292,6 +303,12 @@ ipcMain.handle('updater:install', () => {
 ipcMain.handle('updater:dismiss', () => {
   if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close();
 });
+
+// IPC — dev mode helpers (only meaningful when .debug file is present)
+ipcMain.handle('open-devtools', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.openDevTools();
+});
+ipcMain.handle('get-dev-mode', () => isDevMode());
 
 // Twitch OAuth popup — opens an Electron BrowserWindow, intercepts the
 // http://localhost redirect before the browser tries to load port 80,

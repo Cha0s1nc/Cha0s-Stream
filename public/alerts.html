@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cha0s Alerts</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* Transparent background — required for OBS Browser Source */
+  body {
+    background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+    overflow: hidden;
+    width: 420px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column-reverse; /* stack from bottom up */
+    align-items: flex-start;
+    padding: 16px;
+    gap: 10px;
+  }
+
+  .alert {
+    width: 100%;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.65);
+    animation: slideIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    will-change: transform, opacity;
+  }
+
+  .alert.leaving {
+    animation: slideOut 0.35s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+  }
+
+  @keyframes slideIn {
+    from { transform: translateX(-130%); opacity: 0; }
+    to   { transform: translateX(0);     opacity: 1; }
+  }
+  @keyframes slideOut {
+    from { transform: translateX(0);     opacity: 1; }
+    to   { transform: translateX(-130%); opacity: 0; }
+  }
+
+  .alert-icon { font-size: 30px; flex-shrink: 0; line-height: 1; }
+
+  .alert-body { flex: 1; min-width: 0; }
+
+  .alert-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.8;
+    margin-bottom: 2px;
+  }
+
+  .alert-main {
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #fff;
+  }
+
+  .alert-sub {
+    font-size: 12px;
+    font-weight: 400;
+    opacity: 0.75;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #fff;
+  }
+
+  /* ── Type themes ── */
+  .alert-follow {
+    background: linear-gradient(135deg, #1e1a2e 0%, #2a1f4a 100%);
+    border-left: 4px solid #9b59b6;
+    color: #d7b4f5;
+  }
+  .alert-follow .alert-label { color: #c39ef0; }
+
+  .alert-cheer {
+    background: linear-gradient(135deg, #1c1a00 0%, #2e2a00 100%);
+    border-left: 4px solid #ffd60a;
+    color: #ffe566;
+  }
+  .alert-cheer .alert-label { color: #ffd60a; }
+
+  .alert-sub {
+    background: linear-gradient(135deg, #1f0a1a 0%, #380a2d 100%);
+    border-left: 4px solid #ff2d78;
+    color: #ffb3d1;
+  }
+  .alert-sub .alert-label { color: #ff6eb4; }
+
+  .alert-resub {
+    background: linear-gradient(135deg, #001a1f 0%, #002d38 100%);
+    border-left: 4px solid #0ee5ff;
+    color: #7df3ff;
+  }
+  .alert-resub .alert-label { color: #0ee5ff; }
+
+  .alert-giftsub {
+    background: linear-gradient(135deg, #1a1200 0%, #2e1f00 100%);
+    border-left: 4px solid #ff9f0a;
+    color: #ffd480;
+  }
+  .alert-giftsub .alert-label { color: #ffcc50; }
+</style>
+</head>
+<body>
+<script>
+  const DISPLAY_MS = 6000;
+  const MAX_VISIBLE = 4;
+
+  const TYPES = {
+    follow:  { icon: '💜', label: 'New Follower' },
+    cheer:   { icon: '⚡', label: 'Cheer' },
+    sub:     { icon: '⭐', label: 'New Subscriber' },
+    resub:   { icon: '🔁', label: 'Resubscribed' },
+    giftsub: { icon: '🎁', label: 'Gift Subs' },
+  };
+
+  function mainText(d) {
+    switch (d.type) {
+      case 'follow':  return `${d.user} just followed!`;
+      case 'cheer':   return `${d.user} cheered ${d.bits} bits!`;
+      case 'sub':     return `${d.user} subscribed! (${d.tier})`;
+      case 'resub':   return `${d.user} resubbed for ${d.months} month${d.months !== 1 ? 's' : ''}! (${d.tier})`;
+      case 'giftsub': return `${d.user} gifted ${d.count} sub${d.count !== 1 ? 's' : ''}! (${d.tier})`;
+      default:        return d.displayMessage || '';
+    }
+  }
+
+  function subText(d) {
+    if ((d.type === 'cheer' || d.type === 'resub') && d.message) return d.message;
+    return '';
+  }
+
+  function esc(s) {
+    return String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ── Alert queue & display ── */
+  const pending = [];
+  const active  = [];   // [{el, timer}]
+
+  function tryDequeue() {
+    if (pending.length === 0 || active.length >= MAX_VISIBLE) return;
+    showAlert(pending.shift());
+  }
+
+  function showAlert(data) {
+    const cfg  = TYPES[data.type] || { icon: '🔔', label: 'Alert' };
+    const main = esc(mainText(data));
+    const sub  = esc(subText(data));
+
+    const el = document.createElement('div');
+    el.className = `alert alert-${data.type}`;
+    el.innerHTML = `
+      <div class="alert-icon">${cfg.icon}</div>
+      <div class="alert-body">
+        <div class="alert-label">${cfg.label}</div>
+        <div class="alert-main">${main}</div>
+        ${sub ? `<div class="alert-sub">${sub}</div>` : ''}
+      </div>`;
+
+    // Prepend so newest appears at bottom (column-reverse stacking)
+    document.body.prepend(el);
+
+    const timer = setTimeout(() => dismiss(entry), DISPLAY_MS);
+    const entry = { el, timer };
+    active.push(entry);
+  }
+
+  function dismiss(entry) {
+    clearTimeout(entry.timer);
+    const idx = active.indexOf(entry);
+    if (idx !== -1) active.splice(idx, 1);
+
+    entry.el.classList.add('leaving');
+    entry.el.addEventListener('animationend', () => {
+      entry.el.remove();
+      tryDequeue();
+    }, { once: true });
+  }
+
+  function queueAlert(data) {
+    if (active.length < MAX_VISIBLE) {
+      showAlert(data);
+    } else {
+      pending.push(data);
+    }
+  }
+
+  /* ── WebSocket connection ── */
+  function connect() {
+    const ws = new WebSocket('ws://' + location.host);
+
+    ws.onmessage = (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+      if (data.event === 'alert') queueAlert(data);
+    };
+
+    ws.onclose = () => setTimeout(connect, 3000);
+    ws.onerror = () => {};
+  }
+
+  connect();
+</script>
+</body>
+</html>
