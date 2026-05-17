@@ -4,8 +4,8 @@ const { fork } = require('child_process');
 const Store = require('electron-store');
 const { autoUpdater } = require('electron-updater');
 
-// Configure auto-updater
-autoUpdater.autoDownload = true;
+// Configure auto-updater — manual download so user sees the popup first
+autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 
 // electron-store schema — all keys optional strings with safe defaults.
@@ -39,6 +39,9 @@ const STORE_SCHEMA = {
   SONG_REQUEST_ENABLED:     { type: 'string', default: 'true' },
   MOD_ENABLED:              { type: 'string', default: 'true' },
   MOD_PORT:                 { type: 'string', default: '3001' },
+  ALERT_MODE:               { type: 'string', default: 'browser_source' },
+  ALERT_OBS_SOURCE:         { type: 'string', default: '' },
+  ALERT_OBS_DURATION:       { type: 'string', default: '5000' },
 };
 
 let store;
@@ -55,6 +58,8 @@ try {
 
 let mainWindow;
 let listenerProcess;
+let updaterWindow = null;
+let pendingUpdateInfo = null; // holds update-available info until window is ready
 
 function getConfig() {
   return {
@@ -84,7 +89,63 @@ function getConfig() {
     REDEEM_ACTIONS: store.get('REDEEM_ACTIONS'),
     MOD_ENABLED: store.get('MOD_ENABLED'),
     MOD_PORT: store.get('MOD_PORT'),
+    ALERT_MODE: store.get('ALERT_MODE'),
+    ALERT_OBS_SOURCE: store.get('ALERT_OBS_SOURCE'),
+    ALERT_OBS_DURATION: store.get('ALERT_OBS_DURATION'),
   };
+}
+
+// --- Updater popup window ---
+async function fetchReleaseNotes(version) {
+  try {
+    const res = await fetch('https://api.github.com/repos/Cha0s1nc/cha0s_listener/releases/latest', {
+      headers: { 'User-Agent': 'cha0s-listener-updater' }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { notes: data.body || '', date: data.published_at || '', url: data.html_url || '' };
+  } catch {
+    return null;
+  }
+}
+
+function openUpdaterWindow(updateInfo) {
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.focus();
+    return;
+  }
+
+  updaterWindow = new BrowserWindow({
+    width: 560,
+    height: 640,
+    minWidth: 480,
+    minHeight: 500,
+    title: 'Update Available',
+    backgroundColor: '#111113',
+    autoHideMenuBar: true,
+    resizable: true,
+    parent: mainWindow || undefined,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'updater-preload.js')
+    }
+  });
+
+  updaterWindow.loadFile(path.join(__dirname, 'updater.html'));
+
+  updaterWindow.webContents.once('did-finish-load', async () => {
+    const release = await fetchReleaseNotes(updateInfo.version);
+    updaterWindow.webContents.send('updater:init', {
+      currentVersion: app.getVersion(),
+      newVersion: updateInfo.version,
+      releaseNotes: release?.notes || updateInfo.releaseNotes || '',
+      releaseDate: release?.date || '',
+      releaseUrl: release?.url || ''
+    });
+  });
+
+  updaterWindow.on('closed', () => { updaterWindow = null; });
 }
 
 function startListener(config) {
@@ -147,61 +208,89 @@ function createWindow() {
 }
 
 // --- Auto updater events ---
-autoUpdater.on('update-available', (info) => {
-  console.log(`Update available: v${info.version}`);
-  if (mainWindow) {
-    mainWindow.webContents.send('update-status', {
-      status: 'available',
-      version: info.version
-    });
+autoUpdater.on('checking-for-update', () => {
+  console.log('[updater] Checking for update...');
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.webContents.send('updater:log', 'Checking for update...');
   }
 });
 
-autoUpdater.on('update-not-available', () => {
-  console.log('App is up to date');
+autoUpdater.on('update-available', (info) => {
+  console.log(`[updater] Update available: v${info.version}`);
+  pendingUpdateInfo = info;
+  openUpdaterWindow(info);
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  console.log(`[updater] Up to date (v${info.version})`);
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.webContents.send('updater:log', `Already on the latest version (v${info.version}).`);
+  }
 });
 
 autoUpdater.on('download-progress', (progress) => {
-  const percent = Math.round(progress.percent);
-  console.log(`Downloading update: ${percent}%`);
-  if (mainWindow) {
-    mainWindow.webContents.send('update-status', {
-      status: 'downloading',
-      percent
+  const percent    = Math.round(progress.percent);
+  const mbps       = (progress.bytesPerSecond / 1024 / 1024).toFixed(2);
+  const transferred = (progress.transferred / 1024 / 1024).toFixed(1);
+  const total       = (progress.total / 1024 / 1024).toFixed(1);
+  console.log(`[updater] Downloading: ${percent}% — ${transferred}/${total} MB @ ${mbps} MB/s`);
+
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.webContents.send('updater:progress', {
+      percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+      logLine: `${percent}% — ${transferred} / ${total} MB  (${mbps} MB/s)`
     });
   }
 });
 
 autoUpdater.on('update-downloaded', (info) => {
-  console.log(`Update downloaded: v${info.version}`);
-  if (mainWindow) {
-    mainWindow.webContents.send('update-status', {
-      status: 'downloaded',
-      version: info.version
-    });
+  console.log(`[updater] Download complete: v${info.version}`);
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.webContents.send('updater:done', { version: info.version });
   }
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Update Ready',
-    message: `Cha0s Listener v${info.version} is ready to install.`,
-    detail: 'The update will be installed when you quit the app, or you can restart now.',
-    buttons: ['Restart Now', 'Later'],
-    defaultId: 0
-  }).then(({ response }) => {
-    if (response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
 });
 
 autoUpdater.on('error', (err) => {
-  console.error('Auto-updater error:', err.message);
+  console.error('[updater] Error:', err.message);
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.webContents.send('updater:error', { message: err.message });
+  }
 });
 
-// IPC for manual update check from renderer
+// IPC — renderer triggers an update check
 ipcMain.handle('check-for-updates', () => {
-  if (app.isPackaged) autoUpdater.checkForUpdates();
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdates().catch(err => console.error('[updater] Check error:', err.message));
+  } else {
+    // In dev: open the popup with fake data so UI can be tested
+    openUpdaterWindow({ version: '99.0.0', releaseNotes: '### Dev test\n- This is a development preview of the updater UI.' });
+  }
   return { ok: true };
+});
+
+// IPC — user clicked "Download Update"
+ipcMain.handle('updater:download', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (err) {
+    if (updaterWindow && !updaterWindow.isDestroyed()) {
+      updaterWindow.webContents.send('updater:error', { message: err.message });
+    }
+  }
+  return { ok: true };
+});
+
+// IPC — user clicked "Restart & Install"
+ipcMain.handle('updater:install', () => {
+  autoUpdater.quitAndInstall();
+});
+
+// IPC — user dismissed the updater window
+ipcMain.handle('updater:dismiss', () => {
+  if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close();
 });
 
 // Twitch OAuth popup — opens an Electron BrowserWindow, intercepts the

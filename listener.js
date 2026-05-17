@@ -11,7 +11,8 @@ const PERSIST_KEYS = [
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH',
   'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
-  'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS'
+  'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
+  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION'
 ];
 
 function persistEnv() {
@@ -273,6 +274,9 @@ obs.on('ConnectionClosed', () => {
 
 connectOBS();
 
+// Tracks active OBS source-flash timers so rapid alerts don't conflict
+const obsAlertTimers = new Map();
+
 // --- Jellyfin ---
 let jellyfinToken = null;
 let jellyfinUserId = null;
@@ -434,13 +438,13 @@ async function getTwitchUserId(channelName, token) {
   return data.data?.[0]?.id || null;
 }
 
-async function subscribeEventSub(sessionId, type, condition) {
+async function subscribeEventSub(sessionId, type, condition, version = '1') {
   const token = (process.env.TWITCH_OAUTH || '').replace(/^oauth:/i, '');
   const clientId = process.env.TWITCH_CLIENT_ID || '';
   const res = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Client-Id': clientId, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, version: '1', condition, transport: { method: 'websocket', session_id: sessionId } })
+    body: JSON.stringify({ type, version, condition, transport: { method: 'websocket', session_id: sessionId } })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -500,6 +504,23 @@ function attachTwitchHandlers(socket) {
                 broadcaster_user_id: broadcasterId
               });
             }
+            // Alert subscriptions — follow (v2), cheer, subscribe, resub, gift subs
+            await subscribeEventSub(twitchSessionId, 'channel.follow', {
+              broadcaster_user_id: broadcasterId,
+              moderator_user_id: broadcasterId
+            }, '2');
+            await subscribeEventSub(twitchSessionId, 'channel.cheer', {
+              broadcaster_user_id: broadcasterId
+            });
+            await subscribeEventSub(twitchSessionId, 'channel.subscribe', {
+              broadcaster_user_id: broadcasterId
+            });
+            await subscribeEventSub(twitchSessionId, 'channel.subscription.message', {
+              broadcaster_user_id: broadcasterId
+            });
+            await subscribeEventSub(twitchSessionId, 'channel.subscription.gift', {
+              broadcaster_user_id: broadcasterId
+            });
           }
         } catch (err) {
           addLog('system', 'twitch', `Subscription setup error: ${err.message}`, false);
@@ -538,6 +559,41 @@ function attachTwitchHandlers(socket) {
       }
       if (subType === 'user.whisper.message') {
         await handleWhisperMessage(event);
+      }
+      if (subType === 'channel.follow') {
+        const user = event?.user_name || 'someone';
+        addLog('system', 'alert', `New follow: ${user}`);
+        await triggerAlert({ type: 'follow', user });
+      }
+      if (subType === 'channel.cheer') {
+        const user = event?.is_anonymous ? 'anonymous' : (event?.user_name || 'anonymous');
+        const bits = event?.bits || 0;
+        const message = event?.message || '';
+        addLog('system', 'alert', `${user} cheered ${bits} bits`);
+        await triggerAlert({ type: 'cheer', user, bits, message });
+      }
+      if (subType === 'channel.subscribe') {
+        const user = event?.user_name || 'someone';
+        const tier = ({ '1000': 'Tier 1', '2000': 'Tier 2', '3000': 'Tier 3' })[event?.tier] || 'Tier 1';
+        if (!event?.is_gift) {
+          addLog('system', 'alert', `New sub: ${user} (${tier})`);
+          await triggerAlert({ type: 'sub', user, tier });
+        }
+      }
+      if (subType === 'channel.subscription.message') {
+        const user = event?.user_name || 'someone';
+        const tier = ({ '1000': 'Tier 1', '2000': 'Tier 2', '3000': 'Tier 3' })[event?.tier] || 'Tier 1';
+        const months = event?.cumulative_months || 1;
+        const message = event?.message?.text || '';
+        addLog('system', 'alert', `Resub: ${user} (${months} months, ${tier})`);
+        await triggerAlert({ type: 'resub', user, tier, months, message });
+      }
+      if (subType === 'channel.subscription.gift') {
+        const gifter = event?.is_anonymous ? 'anonymous' : (event?.user_name || 'anonymous');
+        const count = event?.total || 1;
+        const tier = ({ '1000': 'Tier 1', '2000': 'Tier 2', '3000': 'Tier 3' })[event?.tier] || 'Tier 1';
+        addLog('system', 'alert', `Gift subs: ${gifter} gifted ${count} (${tier})`);
+        await triggerAlert({ type: 'giftsub', user: gifter, count, tier });
       }
     }
   });
@@ -871,6 +927,52 @@ async function cmdKillswitch(user) {
   } catch (err) { addLog('obs', '!killswitch', err.message, false); }
 }
 
+// --- Alert trigger ---
+async function triggerAlert(alertData) {
+  const mode = process.env.ALERT_MODE || 'browser_source';
+  if (mode === 'disabled') return;
+
+  // Browser Source mode: push event to WebSocket clients — alerts.html picks it up
+  if (mode === 'browser_source' || mode === 'both') {
+    broadcast({ event: 'alert', ...alertData });
+  }
+
+  // OBS WebSocket mode: flash a named source on/off for a configurable duration
+  if ((mode === 'obs_websocket' || mode === 'both') && state.obs.connected) {
+    const sourceName = (process.env.ALERT_OBS_SOURCE || '').trim();
+    const duration = parseInt(process.env.ALERT_OBS_DURATION) || 5000;
+    if (!sourceName) return;
+
+    try {
+      const { scenes } = await obs.call('GetSceneList');
+      for (const scene of scenes) {
+        const { sceneItems } = await obs.call('GetSceneItemList', { sceneName: scene.sceneName });
+        const item = sceneItems.find(i => i.sourceName === sourceName);
+        if (item) {
+          // Show the source
+          await obs.call('SetSceneItemEnabled', {
+            sceneName: scene.sceneName, sceneItemId: item.sceneItemId, sceneItemEnabled: true
+          });
+          // Clear any existing hide-timer for this source so rapid alerts extend the display
+          if (obsAlertTimers.has(sourceName)) clearTimeout(obsAlertTimers.get(sourceName));
+          const timer = setTimeout(async () => {
+            obsAlertTimers.delete(sourceName);
+            try {
+              await obs.call('SetSceneItemEnabled', {
+                sceneName: scene.sceneName, sceneItemId: item.sceneItemId, sceneItemEnabled: false
+              });
+            } catch {}
+          }, duration);
+          obsAlertTimers.set(sourceName, timer);
+          break;
+        }
+      }
+    } catch (err) {
+      addLog('obs', 'alert', `Source flash failed: ${err.message}`, false);
+    }
+  }
+}
+
 // --- Redeem handler ---
 async function handleRedeem(redeemTitle, user, input) {
   pluginEvents.emit('redeem', { title: redeemTitle, user, input });
@@ -1048,6 +1150,46 @@ app.get('/api/jellyfin/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// --- Alerts route (Browser Source overlay) ---
+app.get('/alerts', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
+
+// --- Alerts config API ---
+app.get('/api/alerts/config', (req, res) => {
+  res.json({
+    mode: process.env.ALERT_MODE || 'browser_source',
+    obsSource: process.env.ALERT_OBS_SOURCE || '',
+    obsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000,
+    browserSourceUrl: `http://localhost:${PORT}/alerts`
+  });
+});
+
+app.post('/api/alerts/config', (req, res) => {
+  const { mode, obsSource, obsDuration } = req.body;
+  const validModes = ['browser_source', 'obs_websocket', 'both', 'disabled'];
+  if (mode && validModes.includes(mode)) process.env.ALERT_MODE = mode;
+  if (typeof obsSource === 'string') process.env.ALERT_OBS_SOURCE = obsSource;
+  if (obsDuration != null && !isNaN(parseInt(obsDuration))) process.env.ALERT_OBS_DURATION = String(parseInt(obsDuration));
+  persistEnv();
+  broadcast({ event: 'alerts_config_update', mode: process.env.ALERT_MODE, obsSource: process.env.ALERT_OBS_SOURCE, obsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000 });
+  addLog('system', 'settings', `Alert config updated — mode: ${process.env.ALERT_MODE}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/alerts/test', async (req, res) => {
+  const type = req.body.type || 'follow';
+  const testData = {
+    follow:   { type: 'follow', user: 'TestUser' },
+    cheer:    { type: 'cheer',  user: 'TestUser', bits: 100, message: 'PogChamp!' },
+    sub:      { type: 'sub',    user: 'TestUser', tier: 'Tier 1' },
+    resub:    { type: 'resub',  user: 'TestUser', tier: 'Tier 1', months: 6, message: 'Love the stream!' },
+    giftsub:  { type: 'giftsub', user: 'TestUser', count: 5, tier: 'Tier 1' }
+  };
+  const payload = testData[type] || testData.follow;
+  await triggerAlert(payload);
+  addLog('system', 'alert', `Test alert sent: ${type}`);
+  res.json({ ok: true });
+});
+
 app.get('/api/redeems', (req, res) => res.json({ redeems: state.redeemActions }));
 app.post('/api/redeems', (req, res) => {
   const { redeems } = req.body;
@@ -1182,7 +1324,8 @@ const SETTINGS_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
   'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
   'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
-  'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL'
+  'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
+  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION'
 ];
 
 app.get('/settings', (req, res) => {
@@ -1242,7 +1385,11 @@ wss.on('connection', (ws) => {
       id: manifest.id, name: manifest.name, version: manifest.version || '1.0.0',
       description: manifest.description || '', author: manifest.author || '',
       panel: manifest.panel || null, enabled
-    }))
+    })),
+    alertMode: process.env.ALERT_MODE || 'browser_source',
+    alertObsSource: process.env.ALERT_OBS_SOURCE || '',
+    alertObsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000,
+    alertBrowserSourceUrl: `http://localhost:${PORT}/alerts`
   }));
 });
 
@@ -1269,7 +1416,10 @@ const TWITCH_SCOPES = [
   'channel:read:redemptions',
   'user:read:whispers',
   'whispers:read',
-  'moderator:read:chat_messages'
+  'moderator:read:chat_messages',
+  'moderator:read:followers',
+  'bits:read',
+  'channel:read:subscriptions'
 ].join(' ');
 
 const TWITCH_BOT_SCOPES = 'user:write:chat';
