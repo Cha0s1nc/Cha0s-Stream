@@ -12,7 +12,7 @@ const PERSIST_KEYS = [
   'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
-  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION'
+  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG'
 ];
 
 function persistEnv() {
@@ -1159,21 +1159,46 @@ app.get('/api/jellyfin/search', async (req, res) => {
 app.get('/alerts', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
 
 // --- Alerts config API ---
+const ALERT_CUSTOM_DEFAULTS = {
+  position: 'bottom-left',
+  duration: 6000,
+  animation: 'slide-left',
+  maxVisible: 4,
+  customCSS: '',
+  types: {
+    follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!' },
+    cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!' },
+    sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})' },
+    resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})' },
+    giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})' }
+  }
+};
+
+function getAlertCustomConfig() {
+  try {
+    const raw = process.env.ALERT_CUSTOM_CONFIG;
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
 app.get('/api/alerts/config', (req, res) => {
   res.json({
     mode: process.env.ALERT_MODE || 'browser_source',
     obsSource: process.env.ALERT_OBS_SOURCE || '',
     obsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000,
-    browserSourceUrl: `http://localhost:${PORT}/alerts`
+    browserSourceUrl: `http://localhost:${PORT}/alerts`,
+    custom: getAlertCustomConfig() || ALERT_CUSTOM_DEFAULTS
   });
 });
 
 app.post('/api/alerts/config', (req, res) => {
-  const { mode, obsSource, obsDuration } = req.body;
+  const { mode, obsSource, obsDuration, custom } = req.body;
   const validModes = ['browser_source', 'obs_websocket', 'both', 'disabled'];
   if (mode && validModes.includes(mode)) process.env.ALERT_MODE = mode;
   if (typeof obsSource === 'string') process.env.ALERT_OBS_SOURCE = obsSource;
   if (obsDuration != null && !isNaN(parseInt(obsDuration))) process.env.ALERT_OBS_DURATION = String(parseInt(obsDuration));
+  if (custom && typeof custom === 'object') process.env.ALERT_CUSTOM_CONFIG = JSON.stringify(custom);
   persistEnv();
   broadcast({ event: 'alerts_config_update', mode: process.env.ALERT_MODE, obsSource: process.env.ALERT_OBS_SOURCE, obsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000 });
   addLog('system', 'settings', `Alert config updated — mode: ${process.env.ALERT_MODE}`);

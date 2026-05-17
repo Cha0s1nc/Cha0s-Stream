@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cha0s Alerts</title>
-<style>
+<style id="base-styles">
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   /* Transparent background — required for OBS Browser Source */
@@ -12,42 +12,29 @@
     background: transparent;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
     overflow: hidden;
-    width: 420px;
+    width: 100vw;
     height: 100vh;
     display: flex;
-    flex-direction: column-reverse; /* stack from bottom up */
-    align-items: flex-start;
     padding: 16px;
     gap: 10px;
   }
 
   .alert {
-    width: 100%;
+    width: 420px;
+    max-width: 100%;
     border-radius: 14px;
     padding: 14px 16px;
     display: flex;
     align-items: center;
     gap: 13px;
     box-shadow: 0 6px 28px rgba(0, 0, 0, 0.65);
-    animation: slideIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    background: rgba(20, 20, 25, 0.92);
+    border-left: 4px solid var(--alert-color, #9b59b6);
+    color: #fff;
     will-change: transform, opacity;
   }
 
-  .alert.leaving {
-    animation: slideOut 0.35s cubic-bezier(0.55, 0, 1, 0.45) forwards;
-  }
-
-  @keyframes slideIn {
-    from { transform: translateX(-130%); opacity: 0; }
-    to   { transform: translateX(0);     opacity: 1; }
-  }
-  @keyframes slideOut {
-    from { transform: translateX(0);     opacity: 1; }
-    to   { transform: translateX(-130%); opacity: 0; }
-  }
-
   .alert-icon { font-size: 30px; flex-shrink: 0; line-height: 1; }
-
   .alert-body { flex: 1; min-width: 0; }
 
   .alert-label {
@@ -55,8 +42,9 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    opacity: 0.8;
+    opacity: 0.9;
     margin-bottom: 2px;
+    color: var(--alert-color, #9b59b6);
   }
 
   .alert-main {
@@ -78,106 +66,110 @@
     text-overflow: ellipsis;
     color: #fff;
   }
-
-  /* ── Type themes ── */
-  .alert-follow {
-    background: linear-gradient(135deg, #1e1a2e 0%, #2a1f4a 100%);
-    border-left: 4px solid #9b59b6;
-    color: #d7b4f5;
-  }
-  .alert-follow .alert-label { color: #c39ef0; }
-
-  .alert-cheer {
-    background: linear-gradient(135deg, #1c1a00 0%, #2e2a00 100%);
-    border-left: 4px solid #ffd60a;
-    color: #ffe566;
-  }
-  .alert-cheer .alert-label { color: #ffd60a; }
-
-  .alert-sub {
-    background: linear-gradient(135deg, #1f0a1a 0%, #380a2d 100%);
-    border-left: 4px solid #ff2d78;
-    color: #ffb3d1;
-  }
-  .alert-sub .alert-label { color: #ff6eb4; }
-
-  .alert-resub {
-    background: linear-gradient(135deg, #001a1f 0%, #002d38 100%);
-    border-left: 4px solid #0ee5ff;
-    color: #7df3ff;
-  }
-  .alert-resub .alert-label { color: #0ee5ff; }
-
-  .alert-giftsub {
-    background: linear-gradient(135deg, #1a1200 0%, #2e1f00 100%);
-    border-left: 4px solid #ff9f0a;
-    color: #ffd480;
-  }
-  .alert-giftsub .alert-label { color: #ffcc50; }
 </style>
+<!-- Animation keyframes — overwritten by applyConfig() -->
+<style id="anim-styles"></style>
+<!-- User custom CSS — injected after applyConfig() -->
+<style id="custom-styles"></style>
 </head>
 <body>
 <script>
-  const DISPLAY_MS = 6000;
-  const MAX_VISIBLE = 4;
-
-  const TYPES = {
-    follow:  { icon: '💜', label: 'New Follower' },
-    cheer:   { icon: '⚡', label: 'Cheer' },
-    sub:     { icon: '⭐', label: 'New Subscriber' },
-    resub:   { icon: '🔁', label: 'Resubscribed' },
-    giftsub: { icon: '🎁', label: 'Gift Subs' },
+  // ── Defaults ────────────────────────────────────────────────
+  // These are overridden by whatever is saved in /api/alerts/config.
+  let CFG = {
+    position:   'bottom-left',
+    duration:   6000,
+    animation:  'slide-left',
+    maxVisible: 4,
+    customCSS:  '',
+    types: {
+      follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!',                         icon: '💜', label: 'New Follower'    },
+      cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!',                   icon: '⚡', label: 'Cheer'            },
+      sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})',                   icon: '⭐', label: 'New Subscriber'  },
+      resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})', icon: '🔁', label: 'Resubscribed'    },
+      giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})',          icon: '🎁', label: 'Gift Subs'       },
+    }
   };
 
-  function mainText(d) {
-    switch (d.type) {
-      case 'follow':  return `${d.user} just followed!`;
-      case 'cheer':   return `${d.user} cheered ${d.bits} bits!`;
-      case 'sub':     return `${d.user} subscribed! (${d.tier})`;
-      case 'resub':   return `${d.user} resubbed for ${d.months} month${d.months !== 1 ? 's' : ''}! (${d.tier})`;
-      case 'giftsub': return `${d.user} gifted ${d.count} sub${d.count !== 1 ? 's' : ''}! (${d.tier})`;
-      default:        return d.displayMessage || '';
+  // ── Config application ───────────────────────────────────────
+  function applyConfig() {
+    // Position → body flex direction + alignment
+    const p       = CFG.position || 'bottom-left';
+    const isBottom = p === 'bottom-left' || p === 'bottom-right';
+    const isLeft   = p === 'bottom-left'  || p === 'top-left';
+    document.body.style.flexDirection = isBottom ? 'column-reverse' : 'column';
+    document.body.style.alignItems    = isLeft   ? 'flex-start'     : 'flex-end';
+
+    // Animation keyframes
+    const anim = CFG.animation || 'slide-left';
+    let inFrom, inTo, outTo;
+    switch (anim) {
+      case 'slide-right': inFrom = 'translateX(130%)';  inTo = 'translateX(0)'; outTo = 'translateX(130%)';  break;
+      case 'slide-up':    inFrom = 'translateY(80px)';  inTo = 'translateY(0)'; outTo = 'translateY(80px)';  break;
+      case 'fade':        inFrom = 'translateX(0)';     inTo = 'translateX(0)'; outTo = 'translateX(0)';     break;
+      default:            inFrom = 'translateX(-130%)'; inTo = 'translateX(0)'; outTo = 'translateX(-130%)'; break; // slide-left
     }
+
+    document.getElementById('anim-styles').textContent = `
+      @keyframes alertIn  { from { transform: ${inFrom}; opacity: 0; } to { transform: ${inTo}; opacity: 1; } }
+      @keyframes alertOut { from { transform: ${inTo};   opacity: 1; } to { transform: ${outTo}; opacity: 0; } }
+      .alert         { animation: alertIn  0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+      .alert.leaving { animation: alertOut 0.35s cubic-bezier(0.55, 0,    1,    0.45) forwards; }
+    `;
+
+    // Custom CSS injected last so it can override anything
+    document.getElementById('custom-styles').textContent = CFG.customCSS || '';
   }
 
-  function subText(d) {
-    if ((d.type === 'cheer' || d.type === 'resub') && d.message) return d.message;
-    return '';
-  }
-
+  // ── Template formatting ───────────────────────────────────────
   function esc(s) {
     return String(s ?? '')
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  /* ── Alert queue & display ── */
+  function formatMsg(template, d) {
+    return template
+      .replace(/\{user\}/g,    esc(d.user    ?? ''))
+      .replace(/\{bits\}/g,    esc(String(d.bits    ?? '')))
+      .replace(/\{months\}/g,  esc(String(d.months  ?? '')))
+      .replace(/\{count\}/g,   esc(String(d.count   ?? '')))
+      .replace(/\{tier\}/g,    esc(d.tier    ?? ''))
+      .replace(/\{message\}/g, esc(d.message ?? ''));
+  }
+
+  // ── Alert queue & display ─────────────────────────────────────
   const pending = [];
-  const active  = [];   // [{el, timer}]
+  const active  = [];
 
   function tryDequeue() {
-    if (pending.length === 0 || active.length >= MAX_VISIBLE) return;
+    if (pending.length === 0 || active.length >= CFG.maxVisible) return;
     showAlert(pending.shift());
   }
 
   function showAlert(data) {
-    const cfg  = TYPES[data.type] || { icon: '🔔', label: 'Alert' };
-    const main = esc(mainText(data));
-    const sub  = esc(subText(data));
+    const typeCfg = CFG.types[data.type];
+    if (!typeCfg || !typeCfg.enabled) return;
+
+    const main = formatMsg(typeCfg.message, data);
+    // Show the viewer's chat message as subtitle for cheers and resubs
+    const sub  = (data.type === 'cheer' || data.type === 'resub') && data.message
+                   ? esc(data.message) : '';
 
     const el = document.createElement('div');
     el.className = `alert alert-${data.type}`;
+    el.style.setProperty('--alert-color', typeCfg.color);
     el.innerHTML = `
-      <div class="alert-icon">${cfg.icon}</div>
+      <div class="alert-icon">${typeCfg.icon}</div>
       <div class="alert-body">
-        <div class="alert-label">${cfg.label}</div>
+        <div class="alert-label">${typeCfg.label}</div>
         <div class="alert-main">${main}</div>
         ${sub ? `<div class="alert-sub">${sub}</div>` : ''}
       </div>`;
 
-    // Prepend so newest appears at bottom (column-reverse stacking)
+    // Prepend so newest appears at bottom in column-reverse mode
     document.body.prepend(el);
 
-    const timer = setTimeout(() => dismiss(entry), DISPLAY_MS);
+    const timer = setTimeout(() => dismiss(entry), CFG.duration);
     const entry = { el, timer };
     active.push(entry);
   }
@@ -186,7 +178,6 @@
     clearTimeout(entry.timer);
     const idx = active.indexOf(entry);
     if (idx !== -1) active.splice(idx, 1);
-
     entry.el.classList.add('leaving');
     entry.el.addEventListener('animationend', () => {
       entry.el.remove();
@@ -195,28 +186,45 @@
   }
 
   function queueAlert(data) {
-    if (active.length < MAX_VISIBLE) {
-      showAlert(data);
-    } else {
-      pending.push(data);
-    }
+    if (active.length < CFG.maxVisible) showAlert(data);
+    else pending.push(data);
   }
 
-  /* ── WebSocket connection ── */
+  // ── Config fetch ──────────────────────────────────────────────
+  async function loadConfig() {
+    try {
+      const r    = await fetch('/api/alerts/config');
+      const data = await r.json();
+      if (data.custom && typeof data.custom === 'object') {
+        const c = data.custom;
+        if (c.position   != null) CFG.position   = c.position;
+        if (c.duration   != null) CFG.duration   = Number(c.duration)   || CFG.duration;
+        if (c.animation  != null) CFG.animation  = c.animation;
+        if (c.maxVisible != null) CFG.maxVisible = Number(c.maxVisible) || CFG.maxVisible;
+        if (c.customCSS  != null) CFG.customCSS  = c.customCSS;
+        if (c.types && typeof c.types === 'object') {
+          for (const [type, overrides] of Object.entries(c.types)) {
+            if (CFG.types[type]) Object.assign(CFG.types[type], overrides);
+          }
+        }
+      }
+    } catch {}
+    applyConfig();
+  }
+
+  // ── WebSocket connection ──────────────────────────────────────
   function connect() {
     const ws = new WebSocket('ws://' + location.host);
-
     ws.onmessage = (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
       if (data.event === 'alert') queueAlert(data);
     };
-
     ws.onclose = () => setTimeout(connect, 3000);
     ws.onerror = () => {};
   }
 
-  connect();
+  loadConfig().then(() => connect());
 </script>
 </body>
 </html>
