@@ -192,6 +192,15 @@
     .cmd-perm-select { font-family: var(--font); font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; cursor: pointer; transition: border-color 0.15s; }
     .cmd-perm-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .commands-save-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 16px 0 0; }
+    .trigger-row { display: grid; grid-template-columns: 36px 110px 1fr 220px; align-items: start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .trigger-row:last-child { border-bottom: none; }
+    .trigger-event-label { font-size: 12px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+    .trigger-response-input, .trigger-script-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; transition: border-color 0.15s; }
+    .trigger-script-input { font-family: var(--font-mono); font-size: 11px; color: var(--text2); }
+    .trigger-response-input:focus, .trigger-script-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .trigger-response-input::placeholder, .trigger-script-input::placeholder { color: var(--text3); }
+    .trigger-vars-hint { font-size: 10px; color: var(--text3); margin-top: 3px; }
+
     /* Sources checkbox dropdown */
     .sources-dropdown { position: relative; }
     .sources-trigger { font-family: var(--font); font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 5px 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; white-space: nowrap; user-select: none; transition: border-color 0.15s; min-width: 90px; justify-content: space-between; }
@@ -447,6 +456,25 @@
               <div class="commands-save-bar">
                 <span class="save-status" id="custom-cmd-save-status">✓ Saved</span>
                 <button class="btn btn-primary" id="btn-save-custom-commands">Save Custom Commands</button>
+              </div>
+            </div>
+            <!-- Event Triggers -->
+            <div style="margin-top:28px;">
+              <div style="margin-bottom:10px;">
+                <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;">Event Triggers</span>
+                <p style="font-size:12px;color:var(--text3);margin-top:4px;">Automatically send a chat message when a Twitch event fires. Enable each type you want and save.</p>
+              </div>
+              <div class="commands-table">
+                <div class="commands-table-header" style="grid-template-columns:36px 110px 1fr 220px;">
+                  <span></span><span>Event</span>
+                  <span>Chat Response <span style="font-weight:400;opacity:0.6;">(leave blank to skip)</span></span>
+                  <span>Script Path <span style="font-weight:400;opacity:0.6;">(optional)</span></span>
+                </div>
+                <div id="triggers-list"></div>
+              </div>
+              <div class="commands-save-bar">
+                <span class="save-status" id="triggers-save-status">&#x2713; Saved</span>
+                <button class="btn btn-primary" id="btn-save-triggers">Save Triggers</button>
               </div>
             </div>
           </div>
@@ -1233,7 +1261,7 @@
         document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
         if (btn.dataset.tab === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); }
         if (btn.dataset.tab === 'plugins') { loadPlugins(); }
-        if (btn.dataset.tab === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); }
+        if (btn.dataset.tab === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); loadTriggers(); }
       });
     });
 
@@ -1571,6 +1599,7 @@
     }
 
     document.getElementById('btn-save-custom-commands').addEventListener('click', saveCustomCommands);
+    document.getElementById('btn-save-triggers').addEventListener('click', saveTriggers);
     document.getElementById('btn-add-custom-cmd').addEventListener('click', () => {
       const form = document.getElementById('custom-cmd-add-form');
       form.style.display = form.style.display === 'none' ? 'block' : 'none';
@@ -2156,6 +2185,81 @@
         const status = document.getElementById('alert-style-save-status');
         if (status) { status.classList.add('visible'); setTimeout(() => status.classList.remove('visible'), 3000); }
       } catch {}
+    }
+
+    // --- Event Triggers ---
+    var TRIGGER_META = {
+      follow:  { label: 'New Follow', icon: '💜', vars: '{user}' },
+      cheer:   { label: 'Cheer',      icon: '⚡',    vars: '{user}, {bits}, {message}' },
+      sub:     { label: 'New Sub',    icon: '⭐',    vars: '{user}, {tier}' },
+      resub:   { label: 'Resub',      icon: '🔁', vars: '{user}, {tier}, {months}, {message}' },
+      giftsub: { label: 'Gift Subs',  icon: '🎁', vars: '{user}, {count}, {tier}' }
+    };
+    var triggersConfig = {};
+
+    async function loadTriggers() {
+      try {
+        var r = await fetch('/api/triggers');
+        var data = await r.json();
+        if (data.triggers && typeof data.triggers === 'object') triggersConfig = data.triggers;
+      } catch(e) {}
+      renderTriggersTable();
+    }
+
+    function renderTriggersTable() {
+      var list = document.getElementById('triggers-list');
+      if (!list) return;
+      list.innerHTML = '';
+      var types = Object.keys(TRIGGER_META);
+      for (var i = 0; i < types.length; i++) {
+        var type = types[i];
+        var meta = TRIGGER_META[type];
+        var t = triggersConfig[type] || { enabled: false, response: '', script: '' };
+        var row = document.createElement('div');
+        row.className = 'trigger-row';
+        var safeResp   = (t.response || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+        var safeScript = (t.script   || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+        row.innerHTML =
+          '<label class="toggle" style="margin:auto;">'
+          + '<input type="checkbox" id="trigger-' + type + '-enabled"' + (t.enabled ? ' checked' : '') + '>'
+          + '<span class="toggle-track"></span>'
+          + '</label>'
+          + '<div class="trigger-event-label">' + meta.icon + ' ' + meta.label + '</div>'
+          + '<div>'
+          + '<input class="trigger-response-input" id="trigger-' + type + '-response" type="text" value="' + safeResp + '" placeholder="Chat message…" />'
+          + '<div class="trigger-vars-hint">Variables: ' + meta.vars + '</div>'
+          + '</div>'
+          + '<input class="trigger-script-input" id="trigger-' + type + '-script" type="text" value="' + safeScript + '" placeholder="C:\\path\\to\\script.bat" />';
+        list.appendChild(row);
+      }
+    }
+
+    async function saveTriggers() {
+      var triggers = {};
+      var types = Object.keys(TRIGGER_META);
+      for (var i = 0; i < types.length; i++) {
+        var type = types[i];
+        var enEl = document.getElementById('trigger-' + type + '-enabled');
+        var reEl = document.getElementById('trigger-' + type + '-response');
+        var scEl = document.getElementById('trigger-' + type + '-script');
+        triggers[type] = {
+          enabled:  enEl ? enEl.checked : false,
+          response: reEl ? reEl.value   : '',
+          script:   scEl ? scEl.value   : ''
+        };
+      }
+      try {
+        var r = await fetch('/api/triggers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ triggers: triggers })
+        });
+        if (r.ok) {
+          triggersConfig = triggers;
+          var s = document.getElementById('triggers-save-status');
+          if (s) { s.classList.add('visible'); setTimeout(function(){ s.classList.remove('visible'); }, 3000); }
+        }
+      } catch(e) {}
     }
 
     // --- Dev tab helpers ---

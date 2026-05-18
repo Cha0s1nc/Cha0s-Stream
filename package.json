@@ -1,6 +1,6 @@
 {
   "name": "cha0s-listener",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Cha0s_1nc's twitch bot tool, able to control OBS, Jellyfin, and more.",
   "author": {
     "name": "Cha0s1nc",
@@ -54,7 +54,6 @@
   "dependencies": {
     "dotenv": "^16.0.0",
     "electron-store": "^8.0.0",
-    "electron-updater": "^6.1.7",
     "express": "^4.18.2",
     "obs-websocket-js": "^5.0.3",
     "ws": "^8.14.2"

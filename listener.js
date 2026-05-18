@@ -12,7 +12,8 @@ const PERSIST_KEYS = [
   'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
-  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG'
+  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
+  'EVENT_TRIGGERS'
 ];
 
 function persistEnv() {
@@ -569,6 +570,7 @@ function attachTwitchHandlers(socket) {
         const user = event?.user_name || 'someone';
         addLog('system', 'alert', `New follow: ${user}`);
         await triggerAlert({ type: 'follow', user });
+        await fireTrigger('follow', { user });
       }
       if (subType === 'channel.cheer') {
         const user = event?.is_anonymous ? 'anonymous' : (event?.user_name || 'anonymous');
@@ -576,6 +578,7 @@ function attachTwitchHandlers(socket) {
         const message = event?.message || '';
         addLog('system', 'alert', `${user} cheered ${bits} bits`);
         await triggerAlert({ type: 'cheer', user, bits, message });
+        await fireTrigger('cheer', { user, bits, message });
       }
       if (subType === 'channel.subscribe') {
         const user = event?.user_name || 'someone';
@@ -583,6 +586,7 @@ function attachTwitchHandlers(socket) {
         if (!event?.is_gift) {
           addLog('system', 'alert', `New sub: ${user} (${tier})`);
           await triggerAlert({ type: 'sub', user, tier });
+          await fireTrigger('sub', { user, tier });
         }
       }
       if (subType === 'channel.subscription.message') {
@@ -592,6 +596,7 @@ function attachTwitchHandlers(socket) {
         const message = event?.message?.text || '';
         addLog('system', 'alert', `Resub: ${user} (${months} months, ${tier})`);
         await triggerAlert({ type: 'resub', user, tier, months, message });
+        await fireTrigger('resub', { user, tier, months, message });
       }
       if (subType === 'channel.subscription.gift') {
         const gifter = event?.is_anonymous ? 'anonymous' : (event?.user_name || 'anonymous');
@@ -599,6 +604,7 @@ function attachTwitchHandlers(socket) {
         const tier = ({ '1000': 'Tier 1', '2000': 'Tier 2', '3000': 'Tier 3' })[event?.tier] || 'Tier 1';
         addLog('system', 'alert', `Gift subs: ${gifter} gifted ${count} (${tier})`);
         await triggerAlert({ type: 'giftsub', user: gifter, count, tier });
+        await fireTrigger('giftsub', { user: gifter, count, tier });
       }
     }
   });
@@ -1217,6 +1223,89 @@ app.post('/api/alerts/test', async (req, res) => {
   const payload = testData[type] || testData.follow;
   await triggerAlert(payload);
   addLog('system', 'alert', `Test alert sent: ${type}`);
+  res.json({ ok: true });
+});
+
+
+// --- Event Triggers ---
+const EVENT_TRIGGER_DEFAULTS = {
+  follow:  { enabled: false, response: 'Welcome {user}, thanks for the follow! \u{1F49C}', script: '' },
+  cheer:   { enabled: false, response: 'Thanks for the {bits} bits, {user}! ⚡',       script: '' },
+  sub:     { enabled: false, response: 'Welcome to the squad, {user}! ⭐',             script: '' },
+  resub:   { enabled: false, response: '{user} has been subscribed for {months} months! \u{1F501}', script: '' },
+  giftsub: { enabled: false, response: '{user} just gifted {count} subs! \u{1F381}',       script: '' }
+};
+
+function getEventTriggers() {
+  try {
+    const raw = process.env.EVENT_TRIGGERS;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const out = {};
+      for (const [type, def] of Object.entries(EVENT_TRIGGER_DEFAULTS)) {
+        out[type] = Object.assign({}, def, parsed[type] || {});
+      }
+      return out;
+    }
+  } catch {}
+  return JSON.parse(JSON.stringify(EVENT_TRIGGER_DEFAULTS));
+}
+
+async function fireTrigger(type, vars) {
+  const triggers = getEventTriggers();
+  const t = triggers[type];
+  if (!t || !t.enabled) return;
+  if (t.response && t.response.trim()) {
+    const msg = t.response
+      .replace(/\{user\}/g,    vars.user    ?? '')
+      .replace(/\{bits\}/g,    String(vars.bits    ?? ''))
+      .replace(/\{months\}/g,  String(vars.months  ?? ''))
+      .replace(/\{count\}/g,   String(vars.count   ?? ''))
+      .replace(/\{tier\}/g,    vars.tier    ?? '')
+      .replace(/\{message\}/g, vars.message ?? '');
+    await sendChatMessage(msg).catch(err =>
+      addLog('system', 'trigger', `Chat response failed for ${type}: ${err.message}`, false)
+    );
+  }
+  if (t.script && t.script.trim()) {
+    try {
+      const allowlist = (process.env.SCRIPT_ALLOWLIST || '').split(',').map(s => s.trim()).filter(Boolean);
+      const { execFile } = require('child_process');
+      const path = require('path');
+      const scriptPath = path.resolve(t.script.trim());
+      const scriptDir  = path.dirname(scriptPath);
+      if (!allowlist.some(a => scriptPath.startsWith(path.resolve(a)))) {
+        addLog('system', 'trigger', `Script blocked (not allowlisted): ${scriptPath}`, false);
+        return;
+      }
+      const args = [type, vars.user ?? '', String(vars.bits ?? ''), String(vars.months ?? ''), String(vars.count ?? ''), vars.tier ?? ''];
+      execFile(scriptPath, args, { cwd: scriptDir, timeout: 10000 }, (err, stdout) => {
+        if (err) addLog('system', 'trigger', `Script error (${type}): ${err.message}`, false);
+        else if (stdout.trim()) addLog('system', 'trigger', `Script output (${type}): ${stdout.trim()}`);
+      });
+    } catch (err) {
+      addLog('system', 'trigger', `Script launch failed (${type}): ${err.message}`, false);
+    }
+  }
+}
+
+app.get('/api/triggers', (req, res) => {
+  res.json({ triggers: getEventTriggers() });
+});
+
+app.post('/api/triggers', (req, res) => {
+  const { triggers } = req.body;
+  if (!triggers || typeof triggers !== 'object') return res.status(400).json({ error: 'Invalid' });
+  const current = getEventTriggers();
+  for (const [type, val] of Object.entries(triggers)) {
+    if (!current[type]) continue;
+    if (typeof val.enabled  === 'boolean') current[type].enabled  = val.enabled;
+    if (typeof val.response === 'string')  current[type].response = val.response;
+    if (typeof val.script   === 'string')  current[type].script   = val.script;
+  }
+  process.env.EVENT_TRIGGERS = JSON.stringify(current);
+  persistEnv();
+  addLog('system', 'settings', 'Event triggers updated');
   res.json({ ok: true });
 });
 
