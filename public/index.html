@@ -192,7 +192,7 @@
     .cmd-perm-select { font-family: var(--font); font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; cursor: pointer; transition: border-color 0.15s; }
     .cmd-perm-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .commands-save-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 16px 0 0; }
-    .trigger-row { display: grid; grid-template-columns: 36px 110px 1fr 220px; align-items: start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .trigger-row { display: grid; grid-template-columns: 36px 110px 1fr 160px 160px; align-items: start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
     .trigger-row:last-child { border-bottom: none; }
     .trigger-event-label { font-size: 12px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; padding-top: 4px; }
     .trigger-response-input, .trigger-script-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; transition: border-color 0.15s; }
@@ -200,6 +200,10 @@
     .trigger-response-input:focus, .trigger-script-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .trigger-response-input::placeholder, .trigger-script-input::placeholder { color: var(--text3); }
     .trigger-vars-hint { font-size: 10px; color: var(--text3); margin-top: 3px; }
+    .sound-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: var(--surface2); border-radius: 7px; border: 1px solid var(--border); }
+    .sound-name { font-size: 12px; font-family: var(--font-mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+    .sounds-drop-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 18px; text-align: center; color: var(--text3); font-size: 12px; transition: border-color 0.2s; cursor: pointer; }
+    .sounds-drop-zone.drag-over { border-color: var(--accent); color: var(--text2); }
 
     /* Sources checkbox dropdown */
     .sources-dropdown { position: relative; }
@@ -232,7 +236,7 @@
 
     /* ── Alert appearance ── */
     .settings-group-subtitle { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; padding: 10px 14px 6px; border-top: 1px solid var(--border); background: var(--surface2); }
-    .alert-type-row { display: grid; grid-template-columns: 110px 36px 36px 1fr; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    .alert-type-row { display: grid; grid-template-columns: 110px 36px 36px 1fr 150px; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
     .alert-type-row:last-child { border-bottom: none; }
     .alert-type-name { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--text); }
     .color-swatch { -webkit-appearance: none; appearance: none; width: 32px; height: 26px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; padding: 2px; background: var(--surface2); }
@@ -465,9 +469,10 @@
                 <p style="font-size:12px;color:var(--text3);margin-top:4px;">Automatically send a chat message when a Twitch event fires. Enable each type you want and save.</p>
               </div>
               <div class="commands-table">
-                <div class="commands-table-header" style="grid-template-columns:36px 110px 1fr 220px;">
+                <div class="commands-table-header" style="grid-template-columns:36px 110px 1fr 160px 160px;">
                   <span></span><span>Event</span>
                   <span>Chat Response <span style="font-weight:400;opacity:0.6;">(leave blank to skip)</span></span>
+                  <span>Sound <span style="font-weight:400;opacity:0.6;">(name or URL)</span></span>
                   <span>Script Path <span style="font-weight:400;opacity:0.6;">(optional)</span></span>
                 </div>
                 <div id="triggers-list"></div>
@@ -732,6 +737,10 @@
                 <label class="toggle"><input type="checkbox" id="alert-type-follow-enabled" checked /><span class="toggle-track"></span></label>
                 <input type="color" class="color-swatch" id="alert-type-follow-color" value="#9b59b6" />
                 <input class="alert-msg-input" id="alert-type-follow-message" type="text" value="{user} just followed!" />
+                <div style="display:flex;gap:4px;">
+                  <input class="alert-msg-input" id="alert-type-follow-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" />
+                  <button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('follow')" title="Upload sound">📂</button>
+                </div>
               </div>
               <div class="alert-vars-hint">Variables: {user}</div>
 
@@ -741,6 +750,10 @@
                 <label class="toggle"><input type="checkbox" id="alert-type-cheer-enabled" checked /><span class="toggle-track"></span></label>
                 <input type="color" class="color-swatch" id="alert-type-cheer-color" value="#ffd60a" />
                 <input class="alert-msg-input" id="alert-type-cheer-message" type="text" value="{user} cheered {bits} bits!" />
+                <div style="display:flex;gap:4px;">
+                  <input class="alert-msg-input" id="alert-type-cheer-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" />
+                  <button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('cheer')" title="Upload sound">📂</button>
+                </div>
               </div>
               <div class="alert-vars-hint">Variables: {user} {bits} {message}</div>
 
@@ -750,6 +763,10 @@
                 <label class="toggle"><input type="checkbox" id="alert-type-sub-enabled" checked /><span class="toggle-track"></span></label>
                 <input type="color" class="color-swatch" id="alert-type-sub-color" value="#ff2d78" />
                 <input class="alert-msg-input" id="alert-type-sub-message" type="text" value="{user} subscribed! ({tier})" />
+                <div style="display:flex;gap:4px;">
+                  <input class="alert-msg-input" id="alert-type-sub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" />
+                  <button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('sub')" title="Upload sound">📂</button>
+                </div>
               </div>
               <div class="alert-vars-hint">Variables: {user} {tier}</div>
 
@@ -759,6 +776,10 @@
                 <label class="toggle"><input type="checkbox" id="alert-type-resub-enabled" checked /><span class="toggle-track"></span></label>
                 <input type="color" class="color-swatch" id="alert-type-resub-color" value="#0ee5ff" />
                 <input class="alert-msg-input" id="alert-type-resub-message" type="text" value="{user} resubbed for {months} months! ({tier})" />
+                <div style="display:flex;gap:4px;">
+                  <input class="alert-msg-input" id="alert-type-resub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" />
+                  <button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('resub')" title="Upload sound">📂</button>
+                </div>
               </div>
               <div class="alert-vars-hint">Variables: {user} {tier} {months} {message}</div>
 
@@ -768,6 +789,10 @@
                 <label class="toggle"><input type="checkbox" id="alert-type-giftsub-enabled" checked /><span class="toggle-track"></span></label>
                 <input type="color" class="color-swatch" id="alert-type-giftsub-color" value="#ff9f0a" />
                 <input class="alert-msg-input" id="alert-type-giftsub-message" type="text" value="{user} gifted {count} subs! ({tier})" />
+                <div style="display:flex;gap:4px;">
+                  <input class="alert-msg-input" id="alert-type-giftsub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" />
+                  <button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('giftsub')" title="Upload sound">📂</button>
+                </div>
               </div>
               <div class="alert-vars-hint">Variables: {user} {count} {tier}</div>
 
@@ -906,6 +931,26 @@
               </div>
             </div>
 
+
+            <!-- Sounds -->
+            <div class="settings-group" id="sounds-group">
+              <div class="settings-group-title">Sounds</div>
+              <div style="padding:10px 14px;display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <div style="font-size:12px;color:var(--text3);">Folder: <code id="sounds-dir-label" style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--text2);">sounds/</code></div>
+                  <label class="btn btn-secondary" style="cursor:pointer;font-size:12px;padding:5px 12px;">
+                    ⬆ Upload
+                    <input type="file" id="sounds-upload-input" accept=".mp3,.wav,.ogg,.flac" multiple style="display:none;" onchange="handleSoundsUpload(this)">
+                  </label>
+                </div>
+                <div class="sounds-drop-zone" id="sounds-drop-zone" onclick="document.getElementById('sounds-upload-input').click()">
+                  Drop .mp3 / .wav / .ogg / .flac files here, or click to browse
+                </div>
+                <div id="sounds-list" style="display:flex;flex-direction:column;gap:4px;">
+                  <div class="empty-state" style="padding:12px 0;font-size:12px;">No sounds yet</div>
+                </div>
+              </div>
+            </div>
             <div class="settings-actions">
               <span class="save-status" id="save-status">✓ Saved</span>
               <button class="btn btn-secondary" id="btn-check-updates" style="margin-right:auto">Check for Updates</button>
@@ -1259,7 +1304,7 @@
         document.querySelectorAll('.panel-view').forEach(v => v.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-        if (btn.dataset.tab === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); }
+        if (btn.dataset.tab === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadSounds(); }
         if (btn.dataset.tab === 'plugins') { loadPlugins(); }
         if (btn.dataset.tab === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); loadTriggers(); }
       });
@@ -2077,11 +2122,11 @@
     const ALERT_APPEARANCE_DEFAULTS = {
       position: 'bottom-left', animation: 'slide-left', duration: 6000, maxVisible: 4, customCSS: '',
       types: {
-        follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!' },
-        cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!' },
-        sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})' },
-        resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})' },
-        giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})' }
+        follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!',                         sound: '' },
+        cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!',                   sound: '' },
+        sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})',                   sound: '' },
+        resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})', sound: '' },
+        giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})',          sound: '' }
       }
     };
 
@@ -2127,9 +2172,11 @@
         const toggle = document.getElementById(`alert-type-${type}-enabled`);
         const color  = document.getElementById(`alert-type-${type}-color`);
         const msg    = document.getElementById(`alert-type-${type}-message`);
+        const snd    = document.getElementById(`alert-type-${type}-sound`);
         if (toggle) toggle.checked = cfg.enabled !== false;
         if (color)  color.value   = cfg.color   || '';
         if (msg)    msg.value     = cfg.message  || '';
+        if (snd)    snd.value     = cfg.sound    || '';
       }
     }
 
@@ -2171,9 +2218,11 @@
         const toggle = document.getElementById(`alert-type-${type}-enabled`);
         const color  = document.getElementById(`alert-type-${type}-color`);
         const msg    = document.getElementById(`alert-type-${type}-message`);
+        const snd    = document.getElementById(`alert-type-${type}-sound`);
         if (toggle) alertAppearance.types[type].enabled = toggle.checked;
         if (color  && color.value)  alertAppearance.types[type].color   = color.value;
         if (msg    && msg.value)    alertAppearance.types[type].message = msg.value;
+        if (snd)                    alertAppearance.types[type].sound   = snd.value || '';
       }
 
       try {
@@ -2214,10 +2263,11 @@
       for (var i = 0; i < types.length; i++) {
         var type = types[i];
         var meta = TRIGGER_META[type];
-        var t = triggersConfig[type] || { enabled: false, response: '', script: '' };
+        var t = triggersConfig[type] || { enabled: false, response: '', sound: '', script: '' };
         var row = document.createElement('div');
         row.className = 'trigger-row';
         var safeResp   = (t.response || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+        var safeSound  = (t.sound   || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
         var safeScript = (t.script   || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
         row.innerHTML =
           '<label class="toggle" style="margin:auto;">'
@@ -2228,6 +2278,10 @@
           + '<div>'
           + '<input class="trigger-response-input" id="trigger-' + type + '-response" type="text" value="' + safeResp + '" placeholder="Chat message…" />'
           + '<div class="trigger-vars-hint">Variables: ' + meta.vars + '</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:4px;">'
+          + '<input class="trigger-script-input" id="trigger-' + type + '-sound" type="text" value="' + safeSound + '" placeholder="alert or https://…" style="flex:1;min-width:0;" />'
+          + '<button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="triggerSoundUpload(\'' + type + '\')" title="Upload sound file">📂</button>'
           + '</div>'
           + '<input class="trigger-script-input" id="trigger-' + type + '-script" type="text" value="' + safeScript + '" placeholder="C:\\path\\to\\script.bat" />';
         list.appendChild(row);
@@ -2241,10 +2295,12 @@
         var type = types[i];
         var enEl = document.getElementById('trigger-' + type + '-enabled');
         var reEl = document.getElementById('trigger-' + type + '-response');
+        var soEl = document.getElementById('trigger-' + type + '-sound');
         var scEl = document.getElementById('trigger-' + type + '-script');
         triggers[type] = {
           enabled:  enEl ? enEl.checked : false,
           response: reEl ? reEl.value   : '',
+          sound:    soEl ? soEl.value   : '',
           script:   scEl ? scEl.value   : ''
         };
       }
@@ -2261,6 +2317,126 @@
         }
       } catch(e) {}
     }
+
+    // --- Sounds Manager ---
+    async function loadSounds() {
+      try {
+        var r = await fetch('/api/sounds');
+        var data = await r.json();
+        renderSoundsList(data.sounds || [], data.dir || '');
+      } catch(e) {}
+    }
+
+    function renderSoundsList(sounds, dir) {
+      var list = document.getElementById('sounds-list');
+      var label = document.getElementById('sounds-dir-label');
+      if (!list) return;
+      if (label && dir) label.textContent = dir;
+      if (!sounds.length) {
+        list.innerHTML = '<div class="empty-state" style="padding:12px 0;font-size:12px;">No sounds yet — upload some!</div>';
+        return;
+      }
+      list.innerHTML = '';
+      sounds.forEach(function(filename) {
+        var name = filename.replace(/\.[^.]+$/, '');
+        var item = document.createElement('div');
+        item.className = 'sound-item';
+        var safeFn = filename.replace(/'/g, "\\'");
+        var safeN  = name.replace(/'/g, "\\'");
+        item.innerHTML =
+          '<span class="sound-name" title="' + filename + '">' + filename + '</span>'
+          + '<div style="display:flex;gap:6px;flex-shrink:0;">'
+          + '<button class="btn btn-secondary btn-sm" onclick="previewSoundFile(\'' + safeN + '\')" title="Preview">&#9654;</button>'
+          + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#ff453a);" onclick="deleteSoundFile(\'' + safeFn + '\')" title="Delete">&#x2715;</button>'
+          + '</div>';
+        list.appendChild(item);
+      });
+    }
+
+    async function handleSoundsUpload(input) {
+      for (var i = 0; i < input.files.length; i++) {
+        await uploadSoundFile(input.files[i], null);
+      }
+      input.value = '';
+      loadSounds();
+    }
+
+    async function uploadSoundFile(file, fillTriggerType) {
+      try {
+        var r = await fetch('/api/sounds/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': file.name },
+          body: file
+        });
+        var data = await r.json();
+        if (r.ok) {
+          if (fillTriggerType) {
+            var el = document.getElementById('trigger-' + fillTriggerType + '-sound');
+            if (el) el.value = data.name;
+          }
+          return data;
+        }
+        console.error('Upload failed:', data.error);
+      } catch(e) { console.error('Upload error:', e); }
+      return null;
+    }
+
+    async function deleteSoundFile(filename) {
+      if (!window.confirm('Delete ' + filename + '?')) return;
+      try {
+        var r = await fetch('/api/sounds/' + encodeURIComponent(filename), { method: 'DELETE' });
+        if (r.ok) loadSounds();
+      } catch(e) {}
+    }
+
+    function previewSoundFile(name) {
+      fetch('/api/sounds').then(function(r) { return r.json(); }).then(function(data) {
+        var file = (data.sounds || []).find(function(f) { return f === name || f.startsWith(name + '.'); });
+        if (file) new Audio('/sounds/' + file).play();
+      });
+    }
+
+    function alertSoundUpload(type) {
+      var inp = document.getElementById('sound-upload-trigger-input');
+      if (!inp) return;
+      inp.onchange = async function() {
+        if (this.files[0]) {
+          var data = await uploadSoundFile(this.files[0], null);
+          if (data) {
+            var el = document.getElementById('alert-type-' + type + '-sound');
+            if (el) el.value = data.name;
+          }
+          this.value = '';
+        }
+      };
+      inp.click();
+    }
+
+    function triggerSoundUpload(type) {
+      var inp = document.getElementById('sound-upload-trigger-input');
+      if (!inp) return;
+      inp.onchange = async function() {
+        if (this.files[0]) { await uploadSoundFile(this.files[0], type); this.value = ''; }
+      };
+      inp.click();
+    }
+
+    // Drag-and-drop for sounds drop zone
+    (function() {
+      document.addEventListener('DOMContentLoaded', function() {
+        var zone = document.getElementById('sounds-drop-zone');
+        if (!zone) return;
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', function() { zone.classList.remove('drag-over'); });
+        zone.addEventListener('drop', async function(e) {
+          e.preventDefault();
+          zone.classList.remove('drag-over');
+          var files = Array.from(e.dataTransfer.files).filter(function(f) { return /\.(mp3|wav|ogg|flac)$/i.test(f.name); });
+          for (var i = 0; i < files.length; i++) await uploadSoundFile(files[i], null);
+          loadSounds();
+        });
+      });
+    })();
 
     // --- Dev tab helpers ---
     function devSetResult(id, text, isOk) {
@@ -2383,5 +2559,7 @@
 
     connect();
   </script>
-</body>
+
+    <input type="file" id="sound-upload-trigger-input" accept=".mp3,.wav,.ogg,.flac" style="display:none;">
+  </body>
 </html>

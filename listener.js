@@ -64,6 +64,7 @@ app.use(express.static(require('path').join(__dirname, 'public')));
 
 const SOUNDS_DIR = process.env.SOUNDS_DIR ||
   (require('path').join(process.pkg ? require('path').dirname(process.execPath) : __dirname, 'sounds'));
+require('fs').mkdirSync(SOUNDS_DIR, { recursive: true });
 app.use('/sounds', express.static(SOUNDS_DIR));
 
 const server = http.createServer(app);
@@ -880,6 +881,14 @@ async function cmdSound(user, sound) {
     addLog('sound', '!sound', `${user} → ${sound}`);
     return;
   }
+  // Absolute path support — works in Electron via file:// URL
+  if (path.isAbsolute(sound)) {
+    if (!fs.existsSync(sound)) { addLog('sound', '!sound', `File not found: ${sound}`, false); return; }
+    const fileUrl = 'file:///' + sound.replace(/\\/g, '/').replace(/^\//, '');
+    broadcast({ event: 'play_sound', url: fileUrl });
+    addLog('sound', '!sound', `${user} → ${sound}`);
+    return;
+  }
   const ext = ['mp3','wav','ogg','flac'].find(e => fs.existsSync(path.join(SOUNDS_DIR, `${sound}.${e}`)));
   if (!ext) { addLog('sound', '!sound', `File not found: ${sound}`, false); return; }
   broadcast({ event: 'play_sound', url: `/sounds/${sound}.${ext}` });
@@ -942,6 +951,13 @@ async function cmdKillswitch(user) {
 async function triggerAlert(alertData) {
   const mode = process.env.ALERT_MODE || 'browser_source';
   if (mode === 'disabled') return;
+
+  // Play alert sound if one is configured for this type
+  const alertCfg = getAlertCustomConfig() || ALERT_CUSTOM_DEFAULTS;
+  const alertTypeCfg = alertCfg.types?.[alertData.type];
+  if (alertTypeCfg?.sound && alertTypeCfg.sound.trim()) {
+    await cmdSound('alert', alertTypeCfg.sound.trim()).catch(() => {});
+  }
 
   // Browser Source mode: push event to WebSocket clients — alerts.html picks it up
   if (mode === 'browser_source' || mode === 'both') {
@@ -1077,6 +1093,36 @@ app.post('/sound', async (req, res) => {
   await cmdSound('http', req.body.sound);
   res.json({ ok: true });
 });
+
+// --- Sound file management ---
+const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac'];
+app.get('/api/sounds', (req, res) => {
+  const fs = require('fs'), path = require('path');
+  const files = fs.readdirSync(SOUNDS_DIR)
+    .filter(f => AUDIO_EXTS.includes(path.extname(f).toLowerCase())).sort();
+  res.json({ sounds: files, dir: SOUNDS_DIR });
+});
+app.post('/api/sounds/upload', express.raw({ type: '*/*', limit: '20mb' }), (req, res) => {
+  const fs = require('fs'), path = require('path');
+  const rawName = (req.headers['x-filename'] || 'upload.mp3').replace(/[/\\:*?"<>|]/g, '_');
+  const ext = path.extname(rawName).toLowerCase();
+  if (!AUDIO_EXTS.includes(ext)) return res.status(400).json({ error: 'Invalid file type' });
+  fs.writeFileSync(path.join(SOUNDS_DIR, rawName), req.body);
+  const name = path.basename(rawName, ext);
+  addLog('system', 'sounds', `Uploaded: ${rawName}`);
+  res.json({ ok: true, name, filename: rawName });
+});
+app.delete('/api/sounds/:filename', (req, res) => {
+  const fs = require('fs'), path = require('path');
+  const filename = req.params.filename;
+  if (/[\/\\]|\.\./u.test(filename) || !AUDIO_EXTS.includes(path.extname(filename).toLowerCase()))
+    return res.status(400).json({ error: 'Invalid filename' });
+  const filePath = path.join(SOUNDS_DIR, filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+  fs.unlinkSync(filePath);
+  addLog('system', 'sounds', `Deleted: ${filename}`);
+  res.json({ ok: true });
+});
 app.post('/scene', async (req, res) => {
   await cmdScene('http', req.body.scene);
   res.json({ ok: true });
@@ -1172,11 +1218,11 @@ const ALERT_CUSTOM_DEFAULTS = {
   maxVisible: 4,
   customCSS: '',
   types: {
-    follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!' },
-    cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!' },
-    sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})' },
-    resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})' },
-    giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})' }
+    follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!',                        sound: '' },
+    cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!',                  sound: '' },
+    sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})',                  sound: '' },
+    resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})', sound: '' },
+    giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})',          sound: '' }
   }
 };
 
@@ -1229,11 +1275,11 @@ app.post('/api/alerts/test', async (req, res) => {
 
 // --- Event Triggers ---
 const EVENT_TRIGGER_DEFAULTS = {
-  follow:  { enabled: false, response: 'Welcome {user}, thanks for the follow! \u{1F49C}', script: '' },
-  cheer:   { enabled: false, response: 'Thanks for the {bits} bits, {user}! ⚡',       script: '' },
-  sub:     { enabled: false, response: 'Welcome to the squad, {user}! ⭐',             script: '' },
-  resub:   { enabled: false, response: '{user} has been subscribed for {months} months! \u{1F501}', script: '' },
-  giftsub: { enabled: false, response: '{user} just gifted {count} subs! \u{1F381}',       script: '' }
+  follow:  { enabled: false, response: 'Welcome {user}, thanks for the follow! \u{1F49C}', sound: '', script: '' },
+  cheer:   { enabled: false, response: 'Thanks for the {bits} bits, {user}! ⚡',       sound: '', script: '' },
+  sub:     { enabled: false, response: 'Welcome to the squad, {user}! ⭐',             sound: '', script: '' },
+  resub:   { enabled: false, response: '{user} has been subscribed for {months} months! \u{1F501}', sound: '', script: '' },
+  giftsub: { enabled: false, response: '{user} just gifted {count} subs! \u{1F381}',       sound: '', script: '' }
 };
 
 function getEventTriggers() {
@@ -1265,6 +1311,11 @@ async function fireTrigger(type, vars) {
       .replace(/\{message\}/g, vars.message ?? '');
     await sendChatMessage(msg).catch(err =>
       addLog('system', 'trigger', `Chat response failed for ${type}: ${err.message}`, false)
+    );
+  }
+  if (t.sound && t.sound.trim()) {
+    await cmdSound('trigger', t.sound.trim()).catch(err =>
+      addLog('system', 'trigger', `Sound failed for ${type}: ${err.message}`, false)
     );
   }
   if (t.script && t.script.trim()) {
@@ -1301,6 +1352,7 @@ app.post('/api/triggers', (req, res) => {
     if (!current[type]) continue;
     if (typeof val.enabled  === 'boolean') current[type].enabled  = val.enabled;
     if (typeof val.response === 'string')  current[type].response = val.response;
+    if (typeof val.sound    === 'string')  current[type].sound    = val.sound;
     if (typeof val.script   === 'string')  current[type].script   = val.script;
   }
   process.env.EVENT_TRIGGERS = JSON.stringify(current);
