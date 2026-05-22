@@ -126,7 +126,7 @@ function openUpdaterWindow(updateInfo) {
   pendingDownload = {
     version:     updateInfo.version,
     downloadUrl: updateInfo.downloadUrl || null,
-    assetName:   updateInfo.assetName   || 'cha0s-stream-setup.exe',
+    assetName:   updateInfo.assetName   || null,
     releaseUrl:  updateInfo.releaseUrl  || '',
     destPath:    null,
   };
@@ -197,16 +197,29 @@ async function checkForUpdates() {
 
     console.log(`[updater] Update available: v${latestVersion}`);
 
-    // Find the Windows installer asset (.exe)
-    const asset = release.assets.find(a => /\.exe$/i.test(a.name));
+    // Find the right asset for this platform
+    const platform = process.platform;
+    const arch     = process.arch; // 'x64' or 'arm64'
+    let asset;
+
+    if (platform === 'win32') {
+      asset = release.assets.find(a => /\.exe$/i.test(a.name));
+    } else if (platform === 'darwin') {
+      // Prefer architecture-matched DMG (arm64 for Apple Silicon, x64 for Intel)
+      asset = release.assets.find(a => /\.dmg$/i.test(a.name) && a.name.includes(arch))
+           || release.assets.find(a => /\.dmg$/i.test(a.name));
+    } else {
+      // Linux — no direct download, fall back to release page
+      asset = null;
+    }
 
     openUpdaterWindow({
-      version:     latestVersion,
-      releaseNotes: release.body          || '',
-      releaseDate:  release.published_at  || '',
-      releaseUrl:   release.html_url      || '',
+      version:      latestVersion,
+      releaseNotes: release.body         || '',
+      releaseDate:  release.published_at || '',
+      releaseUrl:   release.html_url     || '',
       downloadUrl:  asset?.browser_download_url || null,
-      assetName:    asset?.name           || 'cha0s-stream-setup.exe',
+      assetName:    asset?.name          || null,
     });
 
   } catch (err) {
@@ -339,11 +352,18 @@ ipcMain.handle('updater:download', async () => {
 // IPC — user clicked "Restart & Install"
 ipcMain.handle('updater:install', () => {
   if (pendingDownload?.destPath) {
-    shell.openPath(pendingDownload.destPath).then(() => {
-      setTimeout(() => app.quit(), 1500);
-    });
+    if (process.platform === 'darwin') {
+      // Open the DMG in Finder — user drags the app to Applications to complete the update
+      shell.openPath(pendingDownload.destPath);
+      // Don't quit — the user still needs to do the drag-to-Applications step
+    } else {
+      // Windows: launch the installer and quit so it can replace the running exe
+      shell.openPath(pendingDownload.destPath).then(() => {
+        setTimeout(() => app.quit(), 1500);
+      });
+    }
   } else if (pendingDownload?.releaseUrl) {
-    // Fallback: no downloaded file, just open the release page
+    // Fallback: no downloaded file (Linux or missing asset) — open the release page
     shell.openExternal(pendingDownload.releaseUrl);
   }
 });
