@@ -387,7 +387,7 @@ function startListener(config) {
 
   try {
     listenerProcess = fork(listenerPath, [], {
-      env: { ...process.env, ...config, DEV_MODE: isDevMode() ? 'true' : '' },
+      env: { ...process.env, ...config, DEV_MODE: isDevMode() ? 'true' : '', ELECTRON_MODE: 'true' },
       silent: true
     });
   } catch (err) {
@@ -437,59 +437,165 @@ ipcMain.handle('open-devtools', () => {
 });
 ipcMain.handle('get-dev-mode', () => isDevMode());
 
-// ── IPC — Twitch OAuth popup ───────────────────────────────────────────────────
-// Opens an Electron BrowserWindow, intercepts the http://localhost redirect
-// before the browser tries to load port 80, and returns the token directly
-// without needing a callback server.
+// ── Twitch OAuth (PKCE, system browser, main-process owned) ───────────────────
+// Runs entirely in main.js so it survives listener restarts.
+// Spins up a one-time HTTP server on port 3773 per-auth-attempt, exchanges the
+// code via PKCE, fetches the username, saves to the store, restarts the listener,
+// and sends the result straight to the renderer via webContents.send.
 
-ipcMain.handle('twitch-oauth-popup', (event, { clientId, scopes }) => {
+const BUILTIN_CLIENT_ID   = '3u4lr8zav4saitil8q3fhrydcstta6';
+const OAUTH_CALLBACK_PORT = 3773;
+const TWITCH_SCOPES = [
+  'user:read:chat', 'user:write:chat', 'channel:bot',
+  'channel:read:redemptions', 'user:read:whispers', 'whispers:read',
+  'moderator:read:chat_messages', 'moderator:read:followers',
+  'bits:read', 'channel:read:subscriptions'
+].join(' ');
+const TWITCH_BOT_SCOPES = 'user:write:chat';
+
+function startTwitchOAuth(flowType) {
   return new Promise((resolve, reject) => {
-    const authWin = new BrowserWindow({
-      width: 600,
-      height: 700,
-      autoHideMenuBar: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true }
-    });
+    const customClientId = store.get('TWITCH_CLIENT_ID') || '';
+    const clientId       = customClientId || BUILTIN_CLIENT_ID;
+    const redirectUri    = `http://localhost:${OAUTH_CALLBACK_PORT}/twitch/auth/callback`;
+    const stateToken     = require('crypto').randomBytes(16).toString('hex');
+    const scopes         = flowType === 'bot' ? TWITCH_BOT_SCOPES : TWITCH_SCOPES;
 
+    // Use implicit grant flow (response_type=token) — no client_secret or PKCE exchange needed.
+    // Twitch returns the token in the URL fragment; we serve a tiny JS page that extracts it
+    // and forwards it to /twitch/auth/complete as a query param.
     const params = new URLSearchParams({
-      client_id:    clientId,
-      redirect_uri: 'http://localhost',
-      response_type: 'token',
-      scope:        scopes,
+      client_id: clientId, redirect_uri: redirectUri,
+      response_type: 'token', scope: scopes, state: stateToken,
       force_verify: 'true'
     });
 
-    authWin.loadURL(`https://id.twitch.tv/oauth2/authorize?${params}`);
-
     let settled = false;
+    let timeoutHandle = null;
+    let server = null;
+
+    function cleanup() {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      try { server?.close(); } catch {}
+    }
     function settle(fn) {
       if (settled) return;
       settled = true;
+      cleanup();
       fn();
-      authWin.destroy();
     }
 
-    function handleUrl(e, url) {
-      if (!url.startsWith('http://localhost')) return false;
-      e.preventDefault();
-      const hashIndex = url.indexOf('#');
-      if (hashIndex !== -1) {
-        const p     = new URLSearchParams(url.slice(hashIndex + 1));
-        const token = p.get('access_token');
-        if (token) { settle(() => resolve({ token: `oauth:${token}` })); return true; }
+    const pageStyle = `<style>
+      body{font-family:-apple-system,sans-serif;background:#111113;color:#f5f5f7;
+           display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+      .card{background:#1c1c1e;border:1px solid #3a3a3c;border-radius:12px;
+            padding:28px 36px;text-align:center;max-width:420px}
+      h2{margin:0 0 8px;font-size:18px}p{margin:0;font-size:13px;color:#aeaeb2}
+    </style>`;
+    const page = (icon, title, msg) =>
+      `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cha0s Stream</title>${pageStyle}</head>
+       <body><div class="card"><div style="font-size:32px">${icon}</div>
+       <h2>${title}</h2><p>${msg}</p></div></body></html>`;
+
+    server = http.createServer(async (req, res) => {
+      const url = new URL(req.url, `http://localhost:${OAUTH_CALLBACK_PORT}`);
+
+      // Step 1 — Twitch lands here with the token in the URL fragment (#access_token=...).
+      // Fragments are not sent to the server, so serve a tiny page that reads the hash
+      // and redirects to /twitch/auth/complete with the token as a query param.
+      if (url.pathname === '/twitch/auth/callback') {
+        const error = url.searchParams.get('error');
+        if (error) {
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(page('❌', 'Authorization cancelled', error));
+          return settle(() => reject(new Error(error)));
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+          <title>Cha0s Stream — Connecting…</title>${pageStyle}</head><body>
+          <div class="card"><h2>Connecting…</h2><p>Please wait.</p></div>
+          <script>
+            const h = window.location.hash.substring(1);
+            const p = new URLSearchParams(h);
+            const token = p.get('access_token');
+            const state = p.get('state');
+            if (token) {
+              fetch('/twitch/auth/complete?access_token=' + encodeURIComponent(token)
+                + '&state=' + encodeURIComponent(state || ''))
+                .then(r => r.text()).then(html => { document.body.innerHTML = html; });
+            } else {
+              document.querySelector('.card p').textContent = 'No token in response. Please try again.';
+            }
+          </script></body></html>`);
+        return;
       }
-      try {
-        const u   = new URL(url);
-        const err = u.searchParams.get('error');
-        if (err) { settle(() => reject(new Error(u.searchParams.get('error_description') || err))); return true; }
-      } catch {}
-      return false;
-    }
 
-    authWin.webContents.on('will-redirect', (e, url) => { handleUrl(e, url); });
-    authWin.webContents.on('will-navigate',  (e, url) => { handleUrl(e, url); });
-    authWin.on('closed', () => { if (!settled) { settled = true; reject(new Error('Cancelled')); } });
+      // Step 2 — JS page POSTed the token here as a query param.
+      if (url.pathname === '/twitch/auth/complete') {
+        const token = url.searchParams.get('access_token');
+        const state = url.searchParams.get('state');
+
+        if (!token || state !== stateToken) {
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(page('❌', 'Invalid request', 'State mismatch or missing token. Please try again.').replace('<body>', '<body>').replace('</body>', '</body>'));
+          return settle(() => reject(new Error('Invalid callback')));
+        }
+
+        let username = '';
+        try {
+          const ur = await fetch('https://api.twitch.tv/helix/users', {
+            headers: { 'Authorization': `Bearer ${token}`, 'Client-Id': clientId }
+          });
+          if (ur.ok) { const ud = await ur.json(); username = ud.data?.[0]?.login || ''; }
+        } catch {}
+
+        const successHtml = page('✅', flowType === 'bot' ? 'Bot authorized!' : 'Authorized!',
+          `Logged in as <strong>${username || 'unknown'}</strong>. You can close this tab.`);
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(successHtml);
+        settle(() => resolve({ token: `oauth:${token}`, username }));
+        return;
+      }
+
+      res.writeHead(404); res.end();
+    });
+
+    server.listen(OAUTH_CALLBACK_PORT, () => {
+      console.log(`[oauth] Callback server listening on port ${OAUTH_CALLBACK_PORT}`);
+      shell.openExternal(`https://id.twitch.tv/oauth2/authorize?${params}`);
+    });
+
+    server.on('error', (err) => {
+      settle(() => reject(new Error(`Auth server error (port ${OAUTH_CALLBACK_PORT}): ${err.message}`)));
+    });
+
+    timeoutHandle = setTimeout(() => {
+      settle(() => reject(new Error('Authorization timed out after 10 minutes')));
+    }, 600000);
   });
+}
+
+ipcMain.handle('twitch-auth-start', async (event, { flowType = 'broadcaster' } = {}) => {
+  try {
+    const { token, username } = await startTwitchOAuth(flowType);
+    if (flowType === 'bot') {
+      store.set('TWITCH_BOT_OAUTH', token);
+      if (username) store.set('TWITCH_BOT_USERNAME', username);
+    } else {
+      store.set('TWITCH_OAUTH', token);
+      if (username) store.set('TWITCH_CHANNEL', username);
+    }
+    startListener(getConfig());
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('oauth-result', { flowType, token, username, ok: true });
+    }
+    return { ok: true, token, username };
+  } catch (err) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('oauth-result', { flowType, ok: false, error: err.message });
+    }
+    return { ok: false, error: err.message };
+  }
 });
 
 // ── IPC — settings ─────────────────────────────────────────────────────────────

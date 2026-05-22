@@ -53,6 +53,13 @@ const { WebSocketServer, WebSocket } = require('ws');
 const OBSWebSocket = require('obs-websocket-js').default;
 const crypto = require('crypto');
 
+// Built-in Twitch app Client ID (PKCE public client — no secret needed).
+// Users can override this with their own by setting TWITCH_CLIENT_ID in Advanced settings.
+const BUILTIN_CLIENT_ID = '3u4lr8zav4saitil8q3fhrydcstta6';
+function getEffectiveClientId() {
+  return process.env.TWITCH_CLIENT_ID || BUILTIN_CLIENT_ID;
+}
+
 // Dev mode: set by Electron when a .debug file exists next to the exe,
 // or detected here directly for standalone `node listener.js` usage.
 const DEV_MODE = process.env.DEV_MODE === 'true' ||
@@ -434,11 +441,12 @@ let twitchKeepaliveTimer = null;
 let twitchKeepaliveTimeout = 15000;
 let twitchIsReconnect = false;   // true when connecting via session_reconnect URL
 let twitchReconnectAttempts = 0; // for exponential backoff
+let twitchAuthFailed = false;   // set true on 401/403; cleared when Twitch settings update
 
 async function getTwitchUserId(channelName, token) {
   const bearerToken = token.replace(/^oauth:/i, '');
   const res = await fetch(`https://api.twitch.tv/helix/users?login=${channelName}`, {
-    headers: { 'Authorization': `Bearer ${bearerToken}`, 'Client-Id': process.env.TWITCH_CLIENT_ID || '' }
+    headers: { 'Authorization': `Bearer ${bearerToken}`, 'Client-Id': getEffectiveClientId() }
   });
   if (!res.ok) throw new Error(`Twitch user lookup failed: ${res.status}`);
   const data = await res.json();
@@ -447,7 +455,7 @@ async function getTwitchUserId(channelName, token) {
 
 async function subscribeEventSub(sessionId, type, condition, version = '1') {
   const token = (process.env.TWITCH_OAUTH || '').replace(/^oauth:/i, '');
-  const clientId = process.env.TWITCH_CLIENT_ID || '';
+  const clientId = getEffectiveClientId();
   const res = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Client-Id': clientId, 'Content-Type': 'application/json' },
@@ -455,7 +463,15 @@ async function subscribeEventSub(sessionId, type, condition, version = '1') {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    addLog('system', 'twitch', `Subscription failed (${type}): ${err.message || res.status}`, false);
+    if (res.status === 401 || res.status === 403) {
+      twitchAuthFailed = true;
+      addLog('system', 'twitch',
+        `Token rejected (${res.status}) — check Twitch settings. Auto-reconnect paused.`, false);
+      // Close the WebSocket — the close handler will skip reconnect because twitchAuthFailed is set
+      if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
+    } else {
+      addLog('system', 'twitch', `Subscription failed (${type}): ${err.message || res.status}`, false);
+    }
   }
 }
 
@@ -492,8 +508,7 @@ function attachTwitchHandlers(socket) {
       // automatically during session_reconnect, so re-subscribing creates duplicates.
       const channel = process.env.TWITCH_CHANNEL;
       const token = process.env.TWITCH_OAUTH;
-      const clientId = process.env.TWITCH_CLIENT_ID;
-      if (!wasReconnect && channel && token && clientId) {
+      if (!wasReconnect && channel && token) {
         try {
           const broadcasterId = await getTwitchUserId(channel, token);
           if (broadcasterId) {
@@ -615,6 +630,11 @@ function attachTwitchHandlers(socket) {
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
     state.twitch.connected = false;
     broadcast({ event: 'status', service: 'twitch', connected: false });
+    // Don't reconnect if the token was rejected — wait for the user to fix their credentials
+    if (twitchAuthFailed) {
+      addLog('system', 'twitch', 'Auto-reconnect paused — update your Twitch token in settings to reconnect.', false);
+      return;
+    }
     // Exponential backoff: 5s, 10s, 20s, 40s … capped at 120s
     const delay = Math.min(5000 * Math.pow(2, twitchReconnectAttempts), 120000);
     twitchReconnectAttempts++;
@@ -629,12 +649,12 @@ function attachTwitchHandlers(socket) {
 
 function connectTwitchEventSub() {
   if (twitchReconnectTimer) { clearTimeout(twitchReconnectTimer); twitchReconnectTimer = null; }
-  if (!process.env.TWITCH_OAUTH || !process.env.TWITCH_CLIENT_ID) return;
+  if (!process.env.TWITCH_OAUTH) return;
   twitchWs = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
   attachTwitchHandlers(twitchWs);
 }
 
-if (process.env.TWITCH_OAUTH && process.env.TWITCH_CLIENT_ID) {
+if (process.env.TWITCH_OAUTH) {
   connectTwitchEventSub();
 }
 
@@ -728,9 +748,9 @@ async function dispatchCommand(permEvent, source, user, text) {
 // --- Chat response sender ---
 async function sendChatMessage(text) {
   if (!text) return;
-  const clientId = process.env.TWITCH_CLIENT_ID || '';
+  const clientId = getEffectiveClientId();
   const channel = process.env.TWITCH_CHANNEL || '';
-  if (!clientId || !channel) return;
+  if (!channel) return;
 
   // Use bot token if set, otherwise fall back to broadcaster token
   const rawToken = (process.env.TWITCH_BOT_OAUTH || process.env.TWITCH_OAUTH || '').replace(/^oauth:/i, '');
@@ -1523,9 +1543,10 @@ app.post('/settings', (req, res) => {
     checkJellyfinConnection();
   }
   if (updated.some(k => k.startsWith('TWITCH_'))) {
+    twitchAuthFailed = false;  // clear auth-failure latch so reconnect is allowed with new credentials
     if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
-    if (process.env.TWITCH_OAUTH && process.env.TWITCH_CLIENT_ID) setTimeout(connectTwitchEventSub, 500);
+    if (process.env.TWITCH_OAUTH) setTimeout(connectTwitchEventSub, 500);
   }
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
     const enabled = process.env.MOD_ENABLED !== 'false';
@@ -1566,20 +1587,21 @@ wss.on('connection', (ws) => {
 });
 
 // --- Twitch OAuth flow ---
-// Uses Authorization Code flow so the entire exchange happens server-side.
+// Uses Authorization Code + PKCE flow (no client secret needed).
+// A built-in Client ID is baked in; users can override it in Advanced settings.
 //
-// If TWITCH_CLIENT_SECRET is set: standard code + secret exchange.
-// If not: PKCE (public client) — no secret required, still server-side.
-//
-// Only ONE redirect URI to register in dev.twitch.tv:
-//   http://localhost:{PORT}/twitch/auth/callback
+// Redirect URIs to register in dev.twitch.tv:
+//   http://localhost:3773/twitch/auth/callback  ← dedicated auth port (primary)
+//   http://localhost:3000/twitch/auth/callback  ← fallbacks (in case port 3773 is blocked)
+//   http://localhost:3001/twitch/auth/callback
+//   http://localhost:3002/twitch/auth/callback
 //
 // Flow:
 //   1. POST /twitch/auth/start (or /bot/start) → opens system browser
 //   2. Twitch redirects to GET /twitch/auth/callback?code=xxx&state=xxx
-//   3. Server exchanges code → token (no browser JS needed)
-//   4. Server broadcasts oauth_token (or oauth_bot_token) via WebSocket
-//   5. Dashboard fills in the field and saves only the relevant token
+//   3. Server exchanges code → token via PKCE (no secret required)
+//   4. Server fetches username, auto-saves channel / bot-username, broadcasts via WebSocket
+//   5. Dashboard updates status and saves tokens
 
 const TWITCH_SCOPES = [
   'user:read:chat',
@@ -1595,6 +1617,11 @@ const TWITCH_SCOPES = [
 ].join(' ');
 
 const TWITCH_BOT_SCOPES = 'user:write:chat';
+
+// Dedicated auth port — always used as the primary redirect URI.
+// Falls back to LISTENER_PORT if this port can't be bound.
+const AUTH_PORT = 3773;
+let authServerPort = null;
 
 // Pending flows keyed by state token: { type, clientId, redirectUri, pkceVerifier, expiresAt }
 const pendingOAuthFlows = new Map();
@@ -1625,20 +1652,14 @@ function openBrowser(url) {
   });
 }
 
-function getRedirectUri(req) {
-  
-  // localhost, Tailscale IP, or any other hostname (important for remote access).
-  const port = process.env.LISTENER_PORT || PORT;
-  if (req) {
-    const proto = req.headers['x-forwarded-proto'] || 'http';
-    const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${port}`;
-    return `${proto}://${host}/twitch/auth/callback`;
-  }
+function getRedirectUri() {
+  // Prefer the dedicated auth port; fall back to the main app port if auth server didn't start.
+  const port = authServerPort || process.env.LISTENER_PORT || PORT;
   return `http://localhost:${port}/twitch/auth/callback`;
 }
 
-function startOAuthFlow(clientId, scopes, flowType, res, req) {
-  const redirectUri = getRedirectUri(req);
+function startOAuthFlow(clientId, scopes, flowType, res) {
+  const redirectUri = getRedirectUri();
   const stateToken = crypto.randomBytes(16).toString('hex');
   const clientSecret = process.env.TWITCH_CLIENT_SECRET;
 
@@ -1653,7 +1674,7 @@ function startOAuthFlow(clientId, scopes, flowType, res, req) {
   };
 
   if (!clientSecret) {
-    // No secret — use PKCE so the exchange is still secure
+    // No secret — use PKCE (always the case for the built-in client ID)
     flow.pkceVerifier = generateCodeVerifier();
     params.code_challenge = generateCodeChallenge(flow.pkceVerifier);
     params.code_challenge_method = 'S256';
@@ -1662,32 +1683,27 @@ function startOAuthFlow(clientId, scopes, flowType, res, req) {
   pendingOAuthFlows.set(stateToken, flow);
 
   const authUrl = `https://id.twitch.tv/oauth2/authorize?` + new URLSearchParams(params);
-  // Best-effort: open browser on the server (works for desktop installs)
+  // Open the system browser on behalf of the user (desktop installs)
   openBrowser(authUrl);
   addLog('system', 'twitch', `OAuth: opened browser (${flowType})`);
-  // Always return authUrl so the frontend can open it / show a fallback link
+  // Also return authUrl so the frontend can show a fallback link
   res.json({ ok: true, redirectUri, authUrl });
 }
 
-// Single redirect URI — only ONE URL to register in dev.twitch.tv
 app.get('/twitch/auth/info', (req, res) => {
-  res.json({ broadcaster: getRedirectUri(req), bot: getRedirectUri(req) });
+  res.json({ redirectUri: getRedirectUri() });
 });
 
 app.post('/twitch/auth/start', (req, res) => {
-  const clientId = process.env.TWITCH_CLIENT_ID || req.body?.clientId || '';
-  if (!clientId) return res.status(400).json({ error: 'No Client ID configured' });
-  startOAuthFlow(clientId, TWITCH_SCOPES, 'broadcaster', res, req);
+  startOAuthFlow(getEffectiveClientId(), TWITCH_SCOPES, 'broadcaster', res);
 });
 
 app.post('/twitch/auth/bot/start', (req, res) => {
-  const clientId = process.env.TWITCH_CLIENT_ID || req.body?.clientId || '';
-  if (!clientId) return res.status(400).json({ error: 'No Client ID configured' });
-  startOAuthFlow(clientId, TWITCH_BOT_SCOPES, 'bot', res, req);
+  startOAuthFlow(getEffectiveClientId(), TWITCH_BOT_SCOPES, 'bot', res);
 });
 
-// Twitch redirects here with ?code=xxx&state=xxx — exchange the code server-side
-app.get('/twitch/auth/callback', async (req, res) => {
+// Shared OAuth callback handler — mounted on both the main app and the dedicated auth server
+async function handleOAuthCallback(req, res) {
   const pageStyle = `<style>
     body { font-family: -apple-system, sans-serif; background: #111113; color: #f5f5f7;
            display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
@@ -1748,33 +1764,73 @@ app.get('/twitch/auth/callback', async (req, res) => {
     if (!tokenRes.ok || !tokenData.access_token) {
       const msg = tokenData.message || `HTTP ${tokenRes.status}`;
       addLog('system', 'twitch', `OAuth token exchange failed: ${msg}`, false);
-      return res.send(page('❌', 'Token exchange failed', msg + '<br><br>Check your Client ID and Secret in settings.'));
+      return res.send(page('❌', 'Token exchange failed', msg + '<br><br>Check your Client ID in Advanced settings.'));
     }
+
+    // Fetch the username for the account that just authorized
+    let username = '';
+    try {
+      const userRes = await fetch('https://api.twitch.tv/helix/users', {
+        headers: {
+          'Authorization': `Bearer ${tokenData.access_token}`,
+          'Client-Id': flow.clientId
+        }
+      });
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        username = userData.data?.[0]?.login || '';
+      }
+    } catch {}
 
     const oauthToken = `oauth:${tokenData.access_token}`;
 
     if (flow.type === 'bot') {
       process.env.TWITCH_BOT_OAUTH = oauthToken;
-      addLog('system', 'twitch', 'Bot OAuth token acquired');
-      broadcast({ event: 'oauth_bot_token', token: oauthToken });
-      res.send(page('✅', 'Bot authorized!', 'Token saved. You can close this tab.'));
+      if (username) { process.env.TWITCH_BOT_USERNAME = username; }
+      persistEnv();
+      addLog('system', 'twitch', `Bot OAuth token acquired${username ? ` (${username})` : ''}`);
+      broadcast({ event: 'oauth_bot_token', token: oauthToken, username });
+      res.send(page('✅', 'Bot authorized!', `Logged in as <strong>${username || 'unknown'}</strong>. You can close this tab.`));
     } else {
       process.env.TWITCH_OAUTH = oauthToken;
-      addLog('system', 'twitch', 'OAuth token acquired');
-      broadcast({ event: 'oauth_token', token: oauthToken });
+      if (username) { process.env.TWITCH_CHANNEL = username; }
+      persistEnv();
+      addLog('system', 'twitch', `OAuth token acquired${username ? ` (${username})` : ''}`);
+      broadcast({ event: 'oauth_token', token: oauthToken, username });
       // Reconnect EventSub with the fresh token
       if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
       if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
       setTimeout(connectTwitchEventSub, 500);
-      res.send(page('✅', 'Authorized!', 'Token saved. You can close this tab.'));
+      res.send(page('✅', 'Authorized!', `Logged in as <strong>${username || 'unknown'}</strong>. You can close this tab.`));
     }
   } catch (err) {
     addLog('system', 'twitch', `OAuth callback error: ${err.message}`, false);
     res.send(page('❌', 'Error', err.message));
   }
-});
+}
+
+// Mount callback on main app (handles fallback ports 3000–3002 for browser usage)
+app.get('/twitch/auth/callback', handleOAuthCallback);
 
 server.listen(PORT, () => console.log(`Listener running on http://localhost:${PORT}`));
+
+// --- Dedicated OAuth auth server (port 3773) ---
+// Skipped when running inside Electron — main.js owns the OAuth flow there and
+// spins up its own one-time server on port 3773 per-auth-attempt, which is far
+// more reliable than a persistent server that can be lost on listener restarts.
+if (!process.env.ELECTRON_MODE) {
+  const authApp = express();
+  const authServer = http.createServer(authApp);
+  authApp.get('/twitch/auth/callback', handleOAuthCallback);
+  authServer.listen(AUTH_PORT, () => {
+    authServerPort = AUTH_PORT;
+    console.log(`Auth server running on http://localhost:${AUTH_PORT}`);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`Auth port ${AUTH_PORT} already in use — OAuth will fall back to main app port`);
+    }
+  });
+}
 
 // --- Mod server ---
 const modApp = express();
