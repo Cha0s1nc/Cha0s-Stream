@@ -1,6 +1,6 @@
-# cha0s_listener
+# cha0s-stream
 
-An app that bridges Twitch chat commands to OBS and Jellyfin. Built with Node.js and Electron, featuring a live dashboard to monitor connections and commands in real time. Also available as a Docker container for headless server deployments.
+A stream management app that bridges Twitch events to OBS, Jellyfin, alerts, and more. Built with Node.js and Electron, featuring a live dashboard to monitor connections, commands, and song requests in real time.
 
 ---
 
@@ -11,21 +11,21 @@ An app that bridges Twitch chat commands to OBS and Jellyfin. Built with Node.js
 - OS media key control with system-level now playing detection (Spotify, Apple Music, etc.)
 - Song request queue with viewer-facing chat responses
 - Custom chat commands with per-command permission and source settings
+- Alert system — browser source overlay or OBS source flash for follows, cheers, subs, resubsubs, and gift subs
+- Event triggers — auto-respond to Twitch events with chat messages, sounds, or scripts
 - Mod queue page — a separate lightweight UI for mods to approve/deny song requests
 - Sound playback via local files or URLs
 - Shell script execution via allowlisted domains
+- Plugin system — drop a `.js` file in `plugins/` to extend the app
 - Live dashboard with command log, service status, and song request queue
-- Built-in settings UI — no `.env` file required for the desktop app
+- Built-in settings UI — no config files required for the desktop app
 - Cross-platform — Mac (`.dmg`), Windows (`.exe`), Linux (`.AppImage` / `.deb`)
-- Docker support for headless server deployments with auto-updates via Watchtower
 
 ---
 
 ## Installation
 
-### Desktop App
-
-Download the latest release for your platform from the [Releases](https://github.com/Cha0s1nc/cha0s_listener/releases) page.
+Download the latest release for your platform from the [Releases](https://github.com/Cha0s1nc/cha0s-stream/releases) page.
 
 - **Mac** — open the `.dmg` and drag the app to your Applications folder
 - **Windows** — run the `.exe` installer
@@ -35,36 +35,11 @@ On first launch, click the **Settings** tab and fill in your credentials. The ap
 
 > **Mac note:** Releases are unsigned. Right-click the app and choose **Open** the first time to bypass Gatekeeper.
 
-### Docker
-
-For running on a server without a desktop environment:
-
-```bash
-# 1. Create a directory for the listener
-mkdir cha0s_listener && cd cha0s_listener
-
-# 2. Download the compose file
-curl -O https://raw.githubusercontent.com/Cha0s1nc/cha0s_listener/main/docker-compose.yml
-
-# 3. Create an empty .env for settings persistence
-touch .env
-
-# 4. (Optional) Create a sounds folder
-mkdir sounds
-
-# 5. Start
-docker compose up -d
-```
-
-The dashboard will be available at `http://<server-ip>:3000`.
-
-Watchtower is included in the compose file and will automatically pull and restart the container whenever a new release is published, typically within 5 minutes.
-
 ---
 
 ## Configuration
 
-All settings are configured from within the app under the **Settings** tab. Changes are saved immediately and also written back to `.env` on disk, so they survive restarts and Docker container restarts.
+All settings are configured from within the app under the **Settings** tab. Changes are saved immediately.
 
 ### Jellyfin
 
@@ -85,8 +60,6 @@ All settings are configured from within the app under the **Settings** tab. Chan
 
 > OBS 28 or newer is required — WebSocket is built in.
 
-> **Docker note:** If OBS is running on the same host as Docker, uncomment `extra_hosts` in `docker-compose.yml` and set OBS Host to `host.docker.internal`.
-
 ### Twitch
 
 | Setting | Description |
@@ -94,8 +67,8 @@ All settings are configured from within the app under the **Settings** tab. Chan
 | Client ID / Secret | From your app at [dev.twitch.tv](https://dev.twitch.tv) |
 | Channel | Your Twitch channel name |
 | Broadcaster Token | Click **Authorize** to complete the OAuth flow |
-| Bot Username | Your bot account's Twitch username |
-| Bot Token | Click **Authorize Bot** to complete the bot OAuth flow |
+| Bot Username | Your bot account's Twitch username (optional) |
+| Bot Token | Click **Authorize Bot** to complete the bot OAuth flow (optional) |
 
 ### Media Control
 
@@ -117,7 +90,7 @@ The mod queue page is a lightweight UI accessible at `http://<ip>:3001` that let
 
 | Setting | Description |
 |---------|-------------|
-| Port | Port the listener runs on — default `3000`. Must match `LISTENER_URL` in the bot's `.env` |
+| Port | Port the app runs on — default `3000` |
 
 ---
 
@@ -144,7 +117,7 @@ All commands are configurable from the **Commands** tab. Each command has its ow
 
 ### Custom Commands
 
-Custom commands can be added from the **Commands** tab. Each custom command has a trigger word, permission level, source settings, and a response template. Responses support the `{user}` variable.
+Custom commands can be added from the **Commands** tab. Each has a trigger word, permission level, source settings, and a response template. Responses support the `{user}` variable.
 
 Examples:
 ```
@@ -155,22 +128,34 @@ Examples:
 
 ---
 
+## Alerts
+
+The alert system fires on follows, cheers, subs, resubsubs, and gift subs. Two delivery modes are available under **Settings → Alerts**:
+
+- **Browser Source** — add `http://localhost:3000/alerts` as a Browser Source in OBS. Alerts appear as an overlay automatically.
+- **OBS Source** — flashes a named OBS source visible for a configurable duration.
+
+Each alert type has its own toggle, accent color, and message template. Sounds can be attached to individual alert types.
+
+---
+
+## Event Triggers
+
+Under **Commands → Event Triggers**, you can configure automatic chat responses, sounds, and scripts that fire when Twitch events occur. Each trigger type (follow, cheer, sub, resub, gift sub) can be enabled independently.
+
+---
+
 ## Song Requests
 
-When `!sr` is enabled, viewers can request songs from your Jellyfin library. Requests appear in the **Requests** tab on the dashboard and on the mod queue page.
+When `!sr` is enabled, viewers can request songs from your Jellyfin library. Requests appear in the **Requests** tab and on the mod queue page.
 
-Two approval modes are available under **Settings → Song Requests**:
-
-- **Auto-approve** — requests are added to the Jellyfin queue immediately
-- **Manual** — requests wait in the queue for a mod or broadcaster to approve or deny
-
-Song requests can also be triggered via a Twitch channel point redemption — set the redemption name under **Settings → Song Requests → Redemption Name**.
+Song requests can also be triggered via a Twitch channel point redemption — set the redemption name under **Settings → Song Requests**.
 
 ---
 
 ## Mod Queue
 
-The mod queue page runs on a separate port (default `3001`) and shows only the song request queue with approve/deny controls. It's designed to be shared with mods via [Tailscale](https://tailscale.com) or exposed through a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) with Cloudflare Access for authentication.
+The mod queue page runs on a separate port (default `3001`) and shows only the song request queue with approve/deny controls. It's designed to be shared with mods via [Tailscale](https://tailscale.com) or exposed through a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
 Access it at `http://<ip>:3001`. The page updates live via WebSocket.
 
@@ -178,37 +163,22 @@ Access it at `http://<ip>:3001`. The page updates live via WebSocket.
 
 ## Sounds
 
-Sounds can be triggered with `!sound <name>` or via channel point redemptions.
+Sounds can be triggered with `!sound <name>`, via channel point redemptions, or attached to alerts and event triggers.
 
 ```
 !sound airhorn           → plays sounds/airhorn.mp3
 !sound https://...       → streams from URL directly
 ```
 
-Place `.mp3` or `.wav` files in the `sounds/` folder next to the app (or the mounted Docker volume).
+Upload sound files directly from **Settings → Sounds**, or drop them into the `sounds/` folder next to the app.
 
 ---
 
-## Dashboard
+## Plugins
 
-The live dashboard shows:
+Drop a `.js` file into the `plugins/` folder (or use **Plugins → Import Plugin**) to extend the app. Plugins can register chat commands, react to stream events, and render a live panel in the Plugins tab.
 
-- **Service status** — OBS, Jellyfin, and Twitch connection indicators
-- **Now Playing** — current track, updated every 15 seconds
-- **Command log** — every incoming command with timestamp, type, and success/failure
-- **Requests** — song request queue with approve/deny controls
-- **Commands** — per-command configuration
-- **Settings** — all configuration in one place
-
----
-
-## Networking
-
-The listener needs to be reachable by the bot. If they're on different machines, [Tailscale](https://tailscale.com) is the easiest way to connect them. Set `LISTENER_URL` in the bot's `.env` to the Tailscale IP of the machine running the listener:
-
-```env
-LISTENER_URL=http://x.x.x.x:3000
-```
+See [PLUGINS.md](PLUGINS.md) for the full plugin development guide.
 
 ---
 
@@ -222,8 +192,8 @@ LISTENER_URL=http://x.x.x.x:3000
 ### Setup
 
 ```bash
-git clone https://github.com/Cha0s1nc/cha0s_listener.git
-cd cha0s_listener
+git clone https://github.com/Cha0s1nc/cha0s-stream.git
+cd cha0s-stream
 npm install
 ```
 
@@ -246,20 +216,14 @@ npm run build:all      # All platforms
 
 Output goes to the `dist/` folder.
 
-### Build Docker image locally (Do at your own risk, Docker release is not updated)
-
-```bash
-docker build -t cha0s_listener .
-```
-
 ---
 
 ## Releases
 
-Electron builds are done manually and attached to [GitHub Releases](https://github.com/Cha0s1nc/cha0s_listener/releases). The Docker image is built and pushed to `ghcr.io/cha0s1nc/cha0s_listener` automatically on each new tag via GitHub Actions.
+Builds are done manually and attached to [GitHub Releases](https://github.com/Cha0s1nc/cha0s-stream/releases).
 
 ---
 
 ## Related
 
--  [DEPERECATED]  [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) — The Twitch bot that sends commands to this listener
+- [DEPRECATED] [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) — The original Twitch bot this app grew out of

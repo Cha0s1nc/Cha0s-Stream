@@ -7,7 +7,7 @@ const os     = require('os');
 const { fork } = require('child_process');
 const Store  = require('electron-store');
 
-const GITHUB_REPO = 'Cha0s1nc/cha0s_listener';
+const GITHUB_REPO = 'Cha0s1nc/cha0s-stream';
 
 // --- Dev mode: presence of a .debug file next to the exe (or project root in dev) unlocks the Dev tab ---
 function getDebugFlagPath() {
@@ -126,7 +126,7 @@ function openUpdaterWindow(updateInfo) {
   pendingDownload = {
     version:     updateInfo.version,
     downloadUrl: updateInfo.downloadUrl || null,
-    assetName:   updateInfo.assetName   || 'cha0s-listener-setup.exe',
+    assetName:   updateInfo.assetName   || 'cha0s-stream-setup.exe',
     releaseUrl:  updateInfo.releaseUrl  || '',
     destPath:    null,
   };
@@ -179,7 +179,7 @@ async function checkForUpdates() {
 
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'cha0s-listener-updater' }
+      headers: { 'User-Agent': 'cha0s-stream-updater' }
     });
     if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
     const release = await res.json();
@@ -206,7 +206,7 @@ async function checkForUpdates() {
       releaseDate:  release.published_at  || '',
       releaseUrl:   release.html_url      || '',
       downloadUrl:  asset?.browser_download_url || null,
-      assetName:    asset?.name           || 'cha0s-listener-setup.exe',
+      assetName:    asset?.name           || 'cha0s-stream-setup.exe',
     });
 
   } catch (err) {
@@ -227,7 +227,7 @@ function downloadFile(url, destPath, onProgress) {
     function request(url, redirects) {
       if (redirects > 10) { reject(new Error('Too many redirects')); return; }
       const lib = url.startsWith('https') ? https : http;
-      lib.get(url, { headers: { 'User-Agent': 'cha0s-listener-updater' } }, (res) => {
+      lib.get(url, { headers: { 'User-Agent': 'cha0s-stream-updater' } }, (res) => {
         // Follow redirects (GitHub assets redirect to S3)
         if ([301, 302, 307, 308].includes(res.statusCode)) {
           res.resume();
@@ -395,7 +395,7 @@ function createWindow() {
     height: 720,
     minWidth: 800,
     minHeight: 500,
-    title: 'Cha0s Listener',
+    title: 'Cha0s Stream',
     backgroundColor: '#111113',
     webPreferences: {
       nodeIntegration: false,

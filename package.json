@@ -1,7 +1,7 @@
 {
-  "name": "cha0s-listener",
+  "name": "cha0s-stream",
   "version": "1.4.0",
-  "description": "Cha0s_1nc's twitch bot tool, able to control OBS, Jellyfin, and more.",
+  "description": "Cha0s_1nc's stream management tool — OBS, Jellyfin, Twitch alerts, song requests, and more.",
   "author": {
     "name": "Cha0s1nc",
     "email": "cha0s@chaosinc.xyz"
@@ -17,8 +17,8 @@
     "build:all": "electron-builder --mac --win --linux"
   },
   "build": {
-    "appId": "com.cha0sinc.listener",
-    "productName": "Cha0s Listener",
+    "appId": "com.cha0sinc.stream",
+    "productName": "Cha0s Stream",
     "files": [
       "electron/**/*",
       "listener.js",
@@ -29,7 +29,7 @@
     "publish": {
       "provider": "github",
       "owner": "Cha0s1nc",
-      "repo": "cha0s_listener"
+      "repo": "cha0s-stream"
     },
     "mac": {
       "identity":"Cha0s_1nc_Development",

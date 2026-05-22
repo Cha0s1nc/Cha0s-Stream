@@ -2,7 +2,7 @@ const dotenvPath = process.env.DOTENV_CONFIG_PATH || require('path').join(__dirn
 require('dotenv').config({ path: dotenvPath });
 
 // Keys that should be written back to .env whenever they change so settings
-// survive process restarts and Docker container restarts.
+// survive process restarts.
 const PERSIST_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
   'OBS_HOST','OBS_PORT','OBS_PASSWORD',
@@ -298,7 +298,7 @@ async function authenticateJellyfin() {
     try {
       const res = await fetch(`${JELLYFIN_URL}/Users/AuthenticateByName`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Emby-Authorization': 'MediaBrowser Client="Cha0s Listener", Device="Cha0s", DeviceId="cha0s_listener", Version="1.0"' },
+        headers: { 'Content-Type': 'application/json', 'X-Emby-Authorization': 'MediaBrowser Client="Cha0s Stream", Device="Cha0s", DeviceId="cha0s_stream", Version="1.0"' },
         body: JSON.stringify({ Username: username, Pw: password })
       });
       if (res.ok) {
@@ -1626,8 +1626,8 @@ function openBrowser(url) {
 }
 
 function getRedirectUri(req) {
-  // Use the actual request host so the callback works whether accessed via
-  // localhost, Tailscale IP, or any other hostname (important for Docker).
+  
+  // localhost, Tailscale IP, or any other hostname (important for remote access).
   const port = process.env.LISTENER_PORT || PORT;
   if (req) {
     const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -1662,7 +1662,7 @@ function startOAuthFlow(clientId, scopes, flowType, res, req) {
   pendingOAuthFlows.set(stateToken, flow);
 
   const authUrl = `https://id.twitch.tv/oauth2/authorize?` + new URLSearchParams(params);
-  // Best-effort: open browser on the server (works for desktop installs, no-ops on Docker)
+  // Best-effort: open browser on the server (works for desktop installs)
   openBrowser(authUrl);
   addLog('system', 'twitch', `OAuth: opened browser (${flowType})`);
   // Always return authUrl so the frontend can open it / show a fallback link
@@ -1700,7 +1700,7 @@ app.get('/twitch/auth/callback', async (req, res) => {
   </style>`;
 
   function page(icon, title, msg) {
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cha0s Listener</title>${pageStyle}</head>
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cha0s Stream</title>${pageStyle}</head>
       <body><div class="card"><div>${icon}</div><h2>${title}</h2><p>${msg}</p></div></body></html>`;
   }
 
@@ -1824,7 +1824,7 @@ modApp.get('/', (req, res) => {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cha0s Listener — Mod Queue</title>
+<title>Cha0s Stream — Mod Queue</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
