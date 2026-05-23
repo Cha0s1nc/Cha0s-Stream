@@ -5,3 +5,4 @@ dist/
 /plugins
 plugin-store.json
 .debug
+/sounds
