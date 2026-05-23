@@ -385,9 +385,22 @@ function startListener(config) {
     listenerProcess = null;
   }
 
+  // In packaged builds, listener.js runs from inside the read-only app.asar.
+  // Any path derived from __dirname there (sounds, plugins, .env) will point
+  // inside the archive and fail on write.  Redirect writable paths to userData.
+  const extraEnv = app.isPackaged ? (() => {
+    const userData = app.getPath('userData');
+    return {
+      SOUNDS_DIR:         path.join(userData, 'sounds'),
+      PLUGINS_DIR:        path.join(userData, 'plugins'),
+      PLUGIN_STORE_PATH:  path.join(userData, 'plugin-store.json'),
+      DOTENV_CONFIG_PATH: path.join(userData, '.env'),
+    };
+  })() : {};
+
   try {
     listenerProcess = fork(listenerPath, [], {
-      env: { ...process.env, ...config, DEV_MODE: isDevMode() ? 'true' : '', ELECTRON_MODE: 'true' },
+      env: { ...process.env, ...config, DEV_MODE: isDevMode() ? 'true' : '', ELECTRON_MODE: 'true', ...extraEnv },
       silent: true
     });
   } catch (err) {

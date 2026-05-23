@@ -147,8 +147,8 @@ const EventEmitter = require('events');
 const pluginEvents = new EventEmitter();
 pluginEvents.setMaxListeners(50);
 
-const PLUGINS_DIR = require('path').join(__dirname, 'plugins');
-const PLUGIN_STORE_PATH = require('path').join(__dirname, 'plugin-store.json');
+const PLUGINS_DIR = process.env.PLUGINS_DIR || require('path').join(__dirname, 'plugins');
+const PLUGIN_STORE_PATH = process.env.PLUGIN_STORE_PATH || require('path').join(__dirname, 'plugin-store.json');
 const fs = require('fs');
 
 // Persistent key-value store for plugins, namespaced by plugin id
