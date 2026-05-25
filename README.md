@@ -33,7 +33,7 @@ Download the latest release for your platform from the [Releases](https://github
 
 On first launch, click the **Settings** tab and fill in your credentials. The app connects automatically and checks for updates on startup.
 
-> **Mac note:** Releases are unsigned. Right-click the app and choose **Open** the first time to bypass Gatekeeper.
+> **Mac note:** Releases are not notarized with Apple. You have to use **System Settings** to allow the app to open after trying to launch it once.
 
 ---
 
