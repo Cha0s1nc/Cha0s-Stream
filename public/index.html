@@ -803,6 +803,13 @@
                   <span style="font-size:11px;color:var(--text3);margin-left:4px;">— override any alert style</span>
                 </div>
                 <div class="custom-css-body" id="css-body">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+                    <span style="font-size:11px;color:var(--text3);">Paste CSS from the <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor ↗</a> or import a .css file:</span>
+                    <label class="btn btn-secondary" style="font-size:11px;padding:3px 10px;cursor:pointer;border-radius:5px;border:1px solid var(--border);">
+                      📂 Import .css
+                      <input type="file" id="css-file-input" accept=".css,text/css" style="display:none;" onchange="importCSSFile(this)">
+                    </label>
+                  </div>
                   <textarea class="css-textarea" id="cfg-alert-custom-css" placeholder="/* Target alert cards, e.g: */
 .alert { border-radius: 0; }
 .alert-follow { background: #1a0033; }
@@ -2166,6 +2173,21 @@
       const body   = document.getElementById('css-body');
       toggle.classList.toggle('open');
       body.classList.toggle('open');
+    }
+
+    function importCSSFile(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const ta = document.getElementById('cfg-alert-custom-css');
+        ta.value = e.target.result;
+        // Auto-expand the custom CSS section if it's collapsed
+        const body = document.getElementById('css-body');
+        if (!body.classList.contains('open')) toggleCustomCss();
+      };
+      reader.readAsText(file);
+      input.value = ''; // reset so same file can be re-imported
     }
 
     document.querySelectorAll('.seg-btn[data-alertpos]').forEach(btn => {
