@@ -107,9 +107,9 @@ const DEFAULT_COMMANDS = {
 
 // --- State ---
 const state = {
-  obs: { connected: false, reconnecting: false },
+  obs: { connected: false, reconnecting: false, failCount: 0, paused: false },
   jellyfin: { connected: false, lastChecked: null },
-  twitch: { connected: false },
+  twitch: { connected: false, failCount: 0, paused: false },
   log: [],
   queue: [],
   wishlist: [],
@@ -263,25 +263,39 @@ function checkPermission(chatEvent, required) {
 const obs = new OBSWebSocket();
 
 async function connectOBS() {
-  if (state.obs.connected || state.obs.reconnecting) return;
+  if (state.obs.connected || state.obs.reconnecting || state.obs.paused) return;
   state.obs.reconnecting = true;
   try {
     await obs.connect(`ws://${OBS_HOST}:${OBS_PORT}`, OBS_PASSWORD);
     state.obs.connected = true;
     state.obs.reconnecting = false;
-    broadcast({ event: 'status', service: 'obs', connected: true });
+    state.obs.failCount = 0;
+    state.obs.paused = false;
+    broadcast({ event: 'status', service: 'obs', connected: true, paused: false });
     addLog('obs', 'connect', 'OBS WebSocket connected');
   } catch (err) {
     state.obs.reconnecting = false;
     state.obs.connected = false;
-    broadcast({ event: 'status', service: 'obs', connected: false });
+    state.obs.failCount++;
+    if (state.obs.failCount >= 2) {
+      state.obs.paused = true;
+      broadcast({ event: 'status', service: 'obs', connected: false, paused: true });
+      addLog('obs', 'disconnect', 'OBS unavailable — click OBS in the status bar to retry', false);
+      return;
+    }
+    broadcast({ event: 'status', service: 'obs', connected: false, paused: false });
     setTimeout(connectOBS, 10000);
   }
 }
 
 obs.on('ConnectionClosed', () => {
+  // obs-websocket-js fires ConnectionClosed on both genuine disconnects AND failed
+  // connection attempts. Only treat it as a real disconnect if we were actually connected.
+  if (!state.obs.connected) return;
   state.obs.connected = false;
-  broadcast({ event: 'status', service: 'obs', connected: false });
+  state.obs.failCount = 0; // genuine disconnect — reset the failure counter
+  state.obs.paused = false;
+  broadcast({ event: 'status', service: 'obs', connected: false, paused: false });
   addLog('obs', 'disconnect', 'OBS connection lost — reconnecting...', false);
   setTimeout(connectOBS, 10000);
 });
@@ -362,16 +376,17 @@ async function checkJellyfinConnection() {
     await jellyfinRequest('/System/Info/Public');
     if (!state.jellyfin.connected) {
       state.jellyfin.connected = true;
-      broadcast({ event: 'status', service: 'jellyfin', connected: true });
+      broadcast({ event: 'status', service: 'jellyfin', connected: true, paused: false });
       addLog('jellyfin', 'connect', 'Jellyfin reachable');
     }
     state.jellyfin.lastChecked = new Date().toISOString();
   } catch {
     if (state.jellyfin.connected) {
       state.jellyfin.connected = false;
-      broadcast({ event: 'status', service: 'jellyfin', connected: false });
+      broadcast({ event: 'status', service: 'jellyfin', connected: false, paused: false });
       addLog('jellyfin', 'disconnect', 'Jellyfin unreachable', false);
     }
+    // Stay disconnected and keep polling silently — no log spam, no forced pause
   }
 }
 
@@ -499,7 +514,8 @@ function attachTwitchHandlers(socket) {
       if (twKeepalive) twitchKeepaliveTimeout = (twKeepalive + 5) * 1000;
       twitchReconnectAttempts = 0;
       state.twitch.connected = true;
-      broadcast({ event: 'status', service: 'twitch', connected: true });
+      state.twitch.paused = false;
+      broadcast({ event: 'status', service: 'twitch', connected: true, paused: false });
       const wasReconnect = twitchIsReconnect;
       twitchIsReconnect = false;
       addLog('system', 'twitch', wasReconnect ? 'EventSub reconnected (subscriptions migrated)' : 'EventSub connected');
@@ -632,10 +648,20 @@ function attachTwitchHandlers(socket) {
     broadcast({ event: 'status', service: 'twitch', connected: false });
     // Don't reconnect if the token was rejected — wait for the user to fix their credentials
     if (twitchAuthFailed) {
+      state.twitch.paused = true;
+      broadcast({ event: 'status', service: 'twitch', connected: false, paused: true });
       addLog('system', 'twitch', 'Auto-reconnect paused — update your Twitch token in settings to reconnect.', false);
       return;
     }
-    // Exponential backoff: 5s, 10s, 20s, 40s … capped at 120s
+    // Pause after 2 failed retry attempts — require manual reconnect
+    if (twitchReconnectAttempts >= 2) {
+      state.twitch.paused = true;
+      twitchReconnectAttempts = 0;
+      broadcast({ event: 'status', service: 'twitch', connected: false, paused: true });
+      addLog('system', 'twitch', 'Twitch unavailable — click Twitch in the status bar to retry', false);
+      return;
+    }
+    // Exponential backoff: 5s, 10s
     const delay = Math.min(5000 * Math.pow(2, twitchReconnectAttempts), 120000);
     twitchReconnectAttempts++;
     addLog('system', 'twitch', `EventSub disconnected — reconnecting in ${delay / 1000}s (attempt ${twitchReconnectAttempts})`, false);
@@ -1076,6 +1102,26 @@ async function handleSongRequest(user, query, source) {
     if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, query, result: `"${resolvedItem.artist} — ${resolvedItem.name}" added to the queue!` }));
   }
 }
+
+// --- Service reconnect ---
+app.post('/api/reconnect/:service', (req, res) => {
+  const { service } = req.params;
+  if (service === 'obs') {
+    state.obs.paused = false;
+    state.obs.failCount = 0;
+    connectOBS();
+  } else if (service === 'jellyfin') {
+    checkJellyfinConnection(); // triggers an immediate check outside the 30s cycle
+  } else if (service === 'twitch') {
+    state.twitch.paused = false;
+    twitchReconnectAttempts = 0;
+    twitchAuthFailed = false;
+    connectTwitchEventSub();
+  } else {
+    return res.status(400).json({ error: 'Unknown service' });
+  }
+  res.json({ ok: true });
+});
 
 // --- HTTP Routes (kept for external compat) ---
 app.post('/media', async (req, res) => {
