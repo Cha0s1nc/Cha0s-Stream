@@ -64,12 +64,31 @@
   .chat-colon { opacity: 0.5; margin-right: 4px; }
   .chat-text  { }
   .chat-ts    { font-size: 10px; color: rgba(255,255,255,0.35); margin-left: 7px; vertical-align: middle; }
+
+  .chat-emote {
+    height: 1.8em;
+    width: auto;
+    vertical-align: middle;
+    display: inline-block;
+    margin: 0 1px;
+    image-rendering: auto;
+  }
 </style>
 <!-- User custom CSS — injected after applyConfig() -->
 <style id="custom-styles"></style>
 </head>
 <body>
 <script>
+  // ── 7TV emote map (name → cdn url) ───────────────────────────────
+  let sevenTvEmotes = {};
+
+  async function loadEmotes() {
+    try {
+      const r = await fetch('/api/chat/emotes?t=' + Date.now());
+      if (r.ok) sevenTvEmotes = await r.json();
+    } catch {}
+  }
+
   // ── Defaults ─────────────────────────────────────────────────────
   let CFG = {
     maxMessages:    8,
@@ -126,6 +145,38 @@
     document.getElementById('custom-styles').textContent = CFG.customCSS || '';
   }
 
+  // ── Emote / fragment rendering ────────────────────────────────────
+  function renderFragment(fragment) {
+    // Twitch native emote
+    if (fragment.type === 'emote' && fragment.emoteId) {
+      const url = `https://static-cdn.jtvnw.net/emoticons/v2/${fragment.emoteId}/default/dark/2.0`;
+      return `<img class="chat-emote" src="${url}" alt="${esc(fragment.text)}" title="${esc(fragment.text)}">`;
+    }
+    // Text fragment — scan each word for 7TV emotes
+    const words = fragment.text.split(' ');
+    return words.map(word => {
+      const emoteUrl = sevenTvEmotes[word];
+      if (emoteUrl) {
+        return `<img class="chat-emote" src="${emoteUrl}" alt="${esc(word)}" title="${esc(word)}">`;
+      }
+      return esc(word);
+    }).join(' ');
+  }
+
+  function renderMessageBody(data) {
+    if (data.fragments && data.fragments.length > 0) {
+      return data.fragments.map(renderFragment).join('');
+    }
+    // Fallback: plain text + 7TV scan
+    return data.message.split(' ').map(word => {
+      const emoteUrl = sevenTvEmotes[word];
+      if (emoteUrl) {
+        return `<img class="chat-emote" src="${emoteUrl}" alt="${esc(word)}" title="${esc(word)}">`;
+      }
+      return esc(word);
+    }).join(' ');
+  }
+
   // ── Message display ───────────────────────────────────────────────
   function addMessage(data) {
     // Evict oldest first if over limit
@@ -152,7 +203,7 @@
     const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user);
     html += `<span class="chat-name" style="color:${colour}">${esc(data.user)}</span>`;
     html += `<span class="chat-colon">:</span>`;
-    html += `<span class="chat-text">${esc(data.message)}</span>`;
+    html += `<span class="chat-text">${renderMessageBody(data)}</span>`;
 
     // Timestamp
     if (CFG.showTimestamps) {
@@ -197,12 +248,17 @@
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
       if (data.event === 'chat') addMessage(data);
+      // Re-fetch emotes once broadcasterId is resolved on the server
+      if (data.event === 'seventv_ready') loadEmotes();
     };
     ws.onclose = () => setTimeout(connect, 3000);
     ws.onerror = () => {};
   }
 
-  loadConfig().then(() => connect());
+  loadConfig().then(() => {
+    loadEmotes();
+    connect();
+  });
 </script>
 </body>
 </html>

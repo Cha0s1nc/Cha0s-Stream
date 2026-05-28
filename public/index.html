@@ -77,8 +77,28 @@
     .stream-messages { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
     .stream-messages::-webkit-scrollbar { width: 4px; }
     .stream-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-    .chat-msg { font-size: 12px; padding: 3px 6px; border-radius: 4px; line-height: 1.4; }
-    .chat-user { font-weight: 600; margin-right: 4px; }
+    .stream-chat-input-wrap { display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface); align-items: center; }
+    .stream-chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--text1); outline: none; }
+    .stream-chat-input:focus { border-color: var(--accent); }
+    .stream-chat-input:disabled { opacity: 0.4; cursor: not-allowed; }
+    .stream-chat-send { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; flex-shrink: 0; transition: opacity 0.15s; }
+    .stream-chat-send:hover:not(:disabled) { opacity: 0.85; }
+    .stream-chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
+    .stream-chat-sender-btn { display: none; align-items: center; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 600; color: var(--text2); cursor: pointer; flex-shrink: 0; white-space: nowrap; transition: border-color 0.15s, color 0.15s; user-select: none; }
+    .stream-chat-sender-btn:hover { border-color: var(--accent); color: var(--text1); }
+    .stream-chat-sender-btn.active { display: flex; }
+    .stream-chat-sender-btn[data-sender="bot"] { border-color: rgba(145,71,255,0.4); color: #9147ff; }
+    .stream-chat-sender-btn[data-sender="broadcaster"] { border-color: rgba(255,68,68,0.4); color: #ff7070; }
+    .chat-msg { font-size: 12px; padding: 3px 6px; border-radius: 4px; line-height: 1.6; word-break: break-word; }
+    .chat-user { font-weight: 600; margin-right: 3px; }
+    .chat-badges { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 4px; }
+    .chat-badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 3px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.6; }
+    .chat-badge.sub         { background: rgba(145,71,255,0.15); color: #9147ff; }
+    .chat-badge.mod         { background: rgba(0,173,3,0.15);    color: #00ad03; }
+    .chat-badge.vip         { background: rgba(224,5,185,0.15);  color: #e005b9; }
+    .chat-badge.broadcaster { background: rgba(255,68,68,0.15);  color: #ff4444; }
+    .chat-badge.founder     { background: rgba(170,64,213,0.15); color: #aa40d5; }
+    .chat-emote { height: 1.4em; width: auto; vertical-align: middle; display: inline-block; margin: 0 1px; }
     .stream-event { font-size: 12px; padding: 6px 8px; background: var(--surface); border-radius: 6px; border-left: 2px solid var(--accent); }
     .log-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
     .filter-group { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
@@ -400,7 +420,7 @@
         </div>
         <div class="sub-panel" id="sub-stream">
           <div class="stream-wrap">
-            <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div></div>
+            <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div><div class="stream-chat-input-wrap"><button class="stream-chat-sender-btn" id="stream-chat-sender" title="Click to switch sender account"><span id="stream-chat-sender-icon">🤖</span><span id="stream-chat-sender-label">Bot</span></button><input class="stream-chat-input" id="stream-chat-input" type="text" placeholder="Send a message…" maxlength="500" autocomplete="off" /><button class="stream-chat-send" id="stream-chat-send">Send</button></div></div>
             <div class="stream-col"><div class="stream-col-header">Events</div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
           </div>
         </div>
@@ -534,25 +554,6 @@
             <div class="alert-style-save-bar"><span class="save-status" id="chat-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveChatConfig()">Save Chat Settings</button></div>
           </div>
 
-          <!-- ── Ticker Overlay ── -->
-          <div class="settings-group collapsed">
-            <div class="settings-group-title">Ticker Overlay</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source — recommended width: full canvas, height: 60px.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="ticker-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyTickerUrl()">Copy</button></div></div>
-            <div class="settings-group-subtitle">Events</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Follows</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-follow" checked /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Cheers</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-cheer" checked /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Subs</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-sub" checked /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Resubs</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-resub" checked /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Gift Subs</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-giftsub" checked /><span class="toggle-track"></span></label></div>
-            <div class="settings-group-subtitle">Style</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Scroll Speed</div></div><div class="seg-control"><button class="seg-btn" data-tickspeed="slow">Slow</button><button class="seg-btn active" data-tickspeed="normal">Normal</button><button class="seg-btn" data-tickspeed="fast">Fast</button></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Font Size (px)</div></div><input class="setting-input" id="cfg-tick-fontsize" type="number" min="10" max="24" placeholder="14" style="width:70px;" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Strip Height (px)</div></div><input class="setting-input" id="cfg-tick-height" type="number" min="24" max="80" placeholder="36" style="width:70px;" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Background</div><div class="setting-desc">Strip colour and opacity %.</div></div><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="cfg-tick-bg-color" value="#000000" style="width:34px;height:28px;padding:2px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;" /><input class="setting-input" id="cfg-tick-bg-opacity" type="number" min="0" max="100" placeholder="80" style="width:60px;" /><span style="font-size:11px;color:var(--text3);">%</span></div></div>
-            <div class="custom-css-wrap"><div class="custom-css-toggle" onclick="this.nextElementSibling.classList.toggle('open')"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— paste from Overlay Editor</span></div><div class="custom-css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">From <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor → Ticker tab ↗</a></span></div><textarea class="css-textarea" id="cfg-tick-custom-css" placeholder="/* .ticker { } .ticker-item { } */"></textarea><div class="css-classes-hint">.ticker · .ticker-track · .ticker-item · .ticker-icon · .ticker-label · .ticker-user</div></div></div>
-            <div class="alert-style-save-bar"><span class="save-status" id="ticker-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveTickerConfig()">Save Ticker Settings</button></div>
-          </div>
-
           <div class="settings-group">
             <div class="settings-group-title">Twitch</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div>
@@ -643,7 +644,7 @@
         document.getElementById(`tab-${panel}`)?.classList.add('active');
         const dashTabs = document.getElementById('dash-tabs');
         if (dashTabs) dashTabs.classList.toggle('visible', panel === 'dashboard');
-        if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadTickerConfig(); loadSounds(); }
+        if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadSounds(); }
         if (panel === 'plugins') { loadPlugins(); }
         // Collapse sidenav after click
         sidenav.classList.remove('expanded');
@@ -679,6 +680,8 @@
           updateService('obs', data.obs.connected, data.obs.paused);
           updateService('jellyfin', data.jellyfin.connected, data.jellyfin.paused);
           updateService('twitch', data.twitch?.connected || false, data.twitch?.paused || false);
+          // Pre-load emotes if Twitch is already connected on init
+          if (data.twitch?.connected) { streamTwitchWasConnected = true; loadStreamEmotes(); }
           data.log.forEach(entry => renderLog(entry, false));
           totalCommands = data.log.length;
           totalErrors = data.log.filter(l => !l.ok).length;
@@ -697,8 +700,21 @@
           updateSidebarCounts();
           // Dev mode: show the hidden dev nav item if .debug file is present
           if (data.devMode) { const devNav = document.getElementById('nav-item-dev'); if (devNav) devNav.style.display = ''; }
+          // Sender toggle: show bot option if bot credentials are configured
+          if (typeof updateSenderBtn === 'function') {
+            const senderBtn = document.getElementById('stream-chat-sender');
+            if (senderBtn) senderBtn.dataset.knownBot = data.botUsername || '';
+            updateSenderBtn(data.botUsername || '');
+          }
         } else if (data.event === 'status') {
           updateService(data.service, data.connected, data.paused || false);
+          // Load 7TV emotes when Twitch first connects (broadcasterId is now set)
+          if (data.service === 'twitch' && data.connected && !streamTwitchWasConnected) {
+            streamTwitchWasConnected = true;
+            loadStreamEmotes();
+          }
+        } else if (data.event === 'seventv_ready') {
+          loadStreamEmotes();
         } else if (data.event === 'play_sound') {
           const audio = new Audio(data.url);
           audio.play().catch(err => console.warn('Audio play failed:', err));
@@ -737,6 +753,12 @@
           if (data.username && usernameField) usernameField.value = data.username;
           if (btn) { btn.textContent = data.username ? `✓ ${data.username}` : '✓ Connected'; btn.disabled = false; }
           if (statusText) statusText.textContent = data.username ? `✓ Connected as ${data.username}` : '✓ Bot authorized.';
+          // Update sender toggle with new bot username
+          if (data.username && typeof updateSenderBtn === 'function') {
+            const senderBtn = document.getElementById('stream-chat-sender');
+            if (senderBtn) senderBtn.dataset.knownBot = data.username;
+            updateSenderBtn(data.username);
+          }
           const toSave = { TWITCH_BOT_OAUTH: data.token };
           if (data.username) toSave.TWITCH_BOT_USERNAME = data.username;
           if (isElectron) {
@@ -760,6 +782,10 @@
           } else {
             fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave) }).catch(() => {});
           }
+        } else if (data.event === 'chat') {
+          addStreamChatMessage(data);
+        } else if (data.event === 'alert') {
+          addStreamEvent(data);
         }
       };
     }
@@ -782,6 +808,183 @@
         if (connected) startSongPoll();
         else { clearInterval(songPollInterval); document.getElementById('np-track').textContent = '—'; }
       }
+    }
+
+    // ── Stream panel: 7TV emotes ──────────────────────────────────────
+    let streamSevenTvEmotes = {};
+    let streamTwitchWasConnected = false;
+
+    async function loadStreamEmotes(forceRefresh = false) {
+      try {
+        const url = '/api/chat/emotes?t=' + Date.now() + (forceRefresh ? '&refresh=1' : '');
+        const r = await fetch(url);
+        if (r.ok) streamSevenTvEmotes = await r.json();
+      } catch {}
+    }
+
+    function streamRenderFragment(fragment) {
+      if (fragment.type === 'emote' && fragment.emoteId) {
+        const url = `https://static-cdn.jtvnw.net/emoticons/v2/${fragment.emoteId}/default/dark/2.0`;
+        return `<img class="chat-emote" src="${url}" alt="${escHtml(fragment.text)}" title="${escHtml(fragment.text)}">`;
+      }
+      return fragment.text.split(' ').map(word => {
+        const emoteUrl = streamSevenTvEmotes[word];
+        return emoteUrl
+          ? `<img class="chat-emote" src="${emoteUrl}" alt="${escHtml(word)}" title="${escHtml(word)}">`
+          : escHtml(word);
+      }).join(' ');
+    }
+
+    function streamRenderBody(data) {
+      if (data.fragments && data.fragments.length > 0) {
+        return data.fragments.map(streamRenderFragment).join('');
+      }
+      return data.message.split(' ').map(word => {
+        const emoteUrl = streamSevenTvEmotes[word];
+        return emoteUrl
+          ? `<img class="chat-emote" src="${emoteUrl}" alt="${escHtml(word)}" title="${escHtml(word)}">`
+          : escHtml(word);
+      }).join(' ');
+    }
+
+    // ── Stream panel: Chat column ─────────────────────────────────────
+    const STREAM_CHAT_MAX = 80;
+    const FALLBACK_CHAT_COLOURS = ['#ff6b6b','#ff9f40','#ffd60a','#4ade80','#22d3ee','#818cf8','#e879f9','#fb7185'];
+    function chatNameColour(name) {
+      let h = 0;
+      for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
+      return FALLBACK_CHAT_COLOURS[Math.abs(h) % FALLBACK_CHAT_COLOURS.length];
+    }
+
+    const BADGE_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
+
+    function addStreamChatMessage(data) {
+      const container = document.getElementById('stream-chat');
+      if (!container) return;
+      container.querySelector('.empty-state')?.remove();
+
+      const colour = (data.color && data.color.length === 7) ? data.color : chatNameColour(data.user || '');
+
+      // Badges
+      let badgeHtml = '';
+      if (data.badges?.length) {
+        const pills = data.badges
+          .map(b => BADGE_MAP[b])
+          .filter(Boolean)
+          .map(cls => `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'host' : cls}</span>`);
+        if (pills.length) badgeHtml = `<span class="chat-badges">${pills.join('')}</span>`;
+      }
+
+      const el = document.createElement('div');
+      el.className = 'chat-msg';
+      el.innerHTML = `${badgeHtml}<span class="chat-user" style="color:${colour}">${escHtml(data.user)}</span><span style="opacity:0.5;margin-right:4px">:</span>${streamRenderBody(data)}`;
+      container.appendChild(el);
+      container.scrollTop = container.scrollHeight;
+      while (container.children.length > STREAM_CHAT_MAX) container.firstChild.remove();
+    }
+
+    // ── Stream panel: Chat send ───────────────────────────────────────
+    // 'bot' | 'broadcaster' — toggled by the sender button
+    let streamChatSender = 'bot';
+
+    function updateSenderBtn(botName) {
+      // botName: non-empty string = bot is configured; falsy = no bot
+      const btn   = document.getElementById('stream-chat-sender');
+      const icon  = document.getElementById('stream-chat-sender-icon');
+      const label = document.getElementById('stream-chat-sender-label');
+      if (!btn) return;
+
+      if (!botName) {
+        // No bot configured — hide toggle, always send as broadcaster
+        btn.classList.remove('active');
+        streamChatSender = 'broadcaster';
+        return;
+      }
+
+      btn.classList.add('active');
+      if (streamChatSender === 'bot') {
+        btn.dataset.sender = 'bot';
+        if (icon)  icon.textContent  = '🤖';
+        if (label) label.textContent = botName;
+      } else {
+        btn.dataset.sender = 'broadcaster';
+        if (icon)  icon.textContent  = '🙋';
+        if (label) label.textContent = 'Me';
+      }
+    }
+
+    async function sendStreamChatMessage() {
+      const input  = document.getElementById('stream-chat-input');
+      const btn    = document.getElementById('stream-chat-send');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text) return;
+      input.disabled = true;
+      btn.disabled   = true;
+      try {
+        const res = await fetch('/api/chat/send', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ message: text, sender: streamChatSender }),
+        });
+        if (res.ok) {
+          input.value = '';
+        } else {
+          const err = await res.json().catch(() => ({}));
+          console.warn('Chat send failed:', err.error || res.status);
+        }
+      } catch (e) {
+        console.warn('Chat send error:', e);
+      } finally {
+        input.disabled = false;
+        btn.disabled   = false;
+        input.focus();
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const input      = document.getElementById('stream-chat-input');
+      const sendBtn    = document.getElementById('stream-chat-send');
+      const senderBtn  = document.getElementById('stream-chat-sender');
+
+      if (sendBtn)   sendBtn.addEventListener('click', sendStreamChatMessage);
+      if (input)     input.addEventListener('keydown', e => { if (e.key === 'Enter') sendStreamChatMessage(); });
+
+      if (senderBtn) {
+        senderBtn.addEventListener('click', () => {
+          streamChatSender = streamChatSender === 'bot' ? 'broadcaster' : 'bot';
+          // Re-render with whichever bot name we last knew about
+          updateSenderBtn(senderBtn.dataset.knownBot || '');
+        });
+      }
+    });
+
+    // ── Stream panel: Events column ───────────────────────────────────
+    const STREAM_EVENTS_MAX = 40;
+    const ALERT_TYPE_META = {
+      follow:  { icon: '💜', label: 'Follow'   },
+      cheer:   { icon: '⚡', label: 'Cheer'    },
+      sub:     { icon: '⭐', label: 'Sub'      },
+      resub:   { icon: '🔁', label: 'Resub'    },
+      giftsub: { icon: '🎁', label: 'Gift Sub' },
+    };
+
+    function addStreamEvent(data) {
+      const container = document.getElementById('stream-events');
+      if (!container) return;
+      container.querySelector('.empty-state')?.remove();
+      const meta = ALERT_TYPE_META[data.type] || { icon: '🔔', label: data.type };
+      const detail = data.bits ? ` · ${data.bits} bits` : data.months ? ` · ${data.months} mo` : data.count ? ` · ×${data.count}` : '';
+      const el = document.createElement('div');
+      el.className = 'stream-event';
+      el.innerHTML = `${meta.icon} <strong>${escHtml(data.user)}</strong> <span style="opacity:0.6;font-size:11px">${meta.label}${escHtml(detail)}</span>`;
+      container.appendChild(el);
+      container.scrollTop = container.scrollHeight;
+      while (container.children.length > STREAM_EVENTS_MAX) container.firstChild.remove();
+    }
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     async function reconnectService(service) {
@@ -1915,64 +2118,6 @@
 
     function copyChatUrl() {
       const url = document.getElementById('chat-browser-url')?.textContent;
-      if (url && url !== 'loading…') navigator.clipboard.writeText(url).catch(() => {});
-    }
-
-    // --- Ticker Overlay Config ---
-    async function loadTickerConfig() {
-      try {
-        const r = await fetch('/api/ticker/config');
-        if (!r.ok) return;
-        const c = await r.json();
-        if (c.browserSourceUrl) document.getElementById('ticker-browser-url').textContent = c.browserSourceUrl;
-
-        // Speed
-        document.querySelectorAll('.seg-btn[data-tickspeed]').forEach(b => b.classList.toggle('active', b.dataset.tickspeed === (c.speed || 'normal')));
-
-        // Numeric fields
-        const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
-        set('cfg-tick-fontsize',   c.fontSize);
-        set('cfg-tick-height',     c.height);
-        set('cfg-tick-bg-opacity', c.bgOpacity);
-
-        // Color
-        if (c.bgColor) document.getElementById('cfg-tick-bg-color').value = c.bgColor;
-
-        // Event type toggles
-        const types = c.types || {};
-        ['follow','cheer','sub','resub','giftsub'].forEach(t => {
-          const el = document.getElementById(`cfg-tick-${t}`);
-          if (el) el.checked = types[t] !== false;
-        });
-
-        // Custom CSS
-        if (c.customCSS != null) document.getElementById('cfg-tick-custom-css').value = c.customCSS;
-      } catch {}
-    }
-
-    async function saveTickerConfig() {
-      const speedEl = document.querySelector('.seg-btn[data-tickspeed].active');
-      const types = {};
-      ['follow','cheer','sub','resub','giftsub'].forEach(t => {
-        types[t] = !!document.getElementById(`cfg-tick-${t}`)?.checked;
-      });
-      const cfg = {
-        speed:     speedEl ? speedEl.dataset.tickspeed : 'normal',
-        fontSize:  parseInt(document.getElementById('cfg-tick-fontsize')?.value)   || 14,
-        height:    parseInt(document.getElementById('cfg-tick-height')?.value)     || 36,
-        bgColor:   document.getElementById('cfg-tick-bg-color')?.value             || '#000000',
-        bgOpacity: parseInt(document.getElementById('cfg-tick-bg-opacity')?.value) ?? 80,
-        types,
-        customCSS: document.getElementById('cfg-tick-custom-css')?.value || '',
-      };
-      try {
-        await fetch('/api/ticker/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
-        showOverlaySaveStatus('ticker-save-status');
-      } catch {}
-    }
-
-    function copyTickerUrl() {
-      const url = document.getElementById('ticker-browser-url')?.textContent;
       if (url && url !== 'loading…') navigator.clipboard.writeText(url).catch(() => {});
     }
 

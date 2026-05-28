@@ -13,7 +13,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','TICKER_OVERLAY_CONFIG',
+  'CHAT_OVERLAY_CONFIG',
   'EVENT_TRIGGERS'
 ];
 
@@ -529,6 +529,13 @@ function attachTwitchHandlers(socket) {
         try {
           const broadcasterId = await getTwitchUserId(channel, token);
           if (broadcasterId) {
+            state.twitch.broadcasterId = broadcasterId;
+            // Invalidate the 7TV cache — broadcasterId just became available, so any
+            // cache built from the earlier connected broadcast was global-only.
+            sevenTvCacheTime           = 0;
+            sevenTvCacheHadBroadcaster = false;
+            // Tell all connected clients to re-fetch emotes now that we have the broadcaster ID
+            broadcast({ event: 'seventv_ready' });
             await subscribeEventSub(twitchSessionId, 'channel.chat.message', {
               broadcaster_user_id: broadcasterId, user_id: broadcasterId
             });
@@ -691,12 +698,17 @@ async function handleChatMessage(event) {
   const text = event?.message?.text || '';
   pluginEvents.emit('chat', { user, text, event });
   broadcast({
-    event:   'chat',
+    event:     'chat',
     user,
-    color:   event?.color || '',
-    badges:  (event?.badges || []).map(b => b.set_id),
-    message: text,
-    ts:      Date.now(),
+    color:     event?.color || '',
+    badges:    (event?.badges || []).map(b => b.set_id),
+    message:   text,
+    fragments: (event?.message?.fragments || []).map(f => ({
+      type:    f.type,
+      text:    f.text,
+      emoteId: f.emote?.id || null,
+    })),
+    ts:        Date.now(),
   });
   await dispatchCommand(event, 'chat', user, text);
 }
@@ -781,14 +793,22 @@ async function dispatchCommand(permEvent, source, user, text) {
 }
 
 // --- Chat response sender ---
-async function sendChatMessage(text) {
+async function sendChatMessage(text, sender = 'auto') {
   if (!text) return;
   const clientId = getEffectiveClientId();
   const channel = process.env.TWITCH_CHANNEL || '';
   if (!channel) return;
 
-  // Use bot token if set, otherwise fall back to broadcaster token
-  const rawToken = (process.env.TWITCH_BOT_OAUTH || process.env.TWITCH_OAUTH || '').replace(/^oauth:/i, '');
+  // Determine which credentials to use based on requested sender:
+  //   'broadcaster' → always use broadcaster token (TWITCH_OAUTH), send as broadcaster
+  //   'bot' / 'auto' → use bot token+username if configured, else fall back to broadcaster
+  const forcebroadcaster = sender === 'broadcaster';
+  const hasBotCreds = !forcebroadcaster && process.env.TWITCH_BOT_OAUTH && process.env.TWITCH_BOT_USERNAME;
+
+  const rawToken = (hasBotCreds
+    ? process.env.TWITCH_BOT_OAUTH
+    : (process.env.TWITCH_OAUTH || process.env.TWITCH_BOT_OAUTH || '')
+  ).replace(/^oauth:/i, '');
   if (!rawToken) return;
 
   try {
@@ -799,8 +819,8 @@ async function sendChatMessage(text) {
       return;
     }
 
-    // Sender is the bot account if username is set, otherwise broadcaster sends as themselves
-    const botUsername = process.env.TWITCH_BOT_USERNAME || '';
+    // Sender is the bot account if username is set and we're not forcing broadcaster
+    const botUsername = hasBotCreds ? (process.env.TWITCH_BOT_USERNAME || '') : '';
     const senderId = botUsername
       ? await getTwitchUserId(botUsername, rawToken)
       : broadcasterId;
@@ -1285,8 +1305,6 @@ app.get('/api/jellyfin/search', async (req, res) => {
 // --- Alerts route (Browser Source overlay) ---
 app.get('/alerts', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
 app.get('/chat',   (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'chat.html')));
-app.get('/ticker', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'ticker.html')));
-
 // ── Chat overlay config ──────────────────────────────────────────
 const CHAT_OVERLAY_DEFAULTS = {
   maxMessages: 8, lifetime: 30000,
@@ -1294,37 +1312,294 @@ const CHAT_OVERLAY_DEFAULTS = {
   showBadges: true, showTimestamps: false, position: 'left',
   customCSS: '',
 };
-const TICKER_OVERLAY_DEFAULTS = {
-  speed: 'normal', fontSize: 14, height: 36,
-  bgOpacity: 80, bgColor: '#000000',
-  types: { follow: true, cheer: true, sub: true, resub: true, giftsub: true },
-  customCSS: '',
-};
 function getChatOverlayConfig() {
   try { const r = process.env.CHAT_OVERLAY_CONFIG; if (r) return JSON.parse(r); } catch {}
-  return null;
-}
-function getTickerOverlayConfig() {
-  try { const r = process.env.TICKER_OVERLAY_CONFIG; if (r) return JSON.parse(r); } catch {}
   return null;
 }
 app.get('/api/chat/config', (req, res) => {
   res.json({ ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}), browserSourceUrl: `http://localhost:${PORT}/chat` });
 });
+app.post('/api/chat/send', async (req, res) => {
+  const text   = (req.body?.message || '').trim();
+  const sender = req.body?.sender || 'auto'; // 'bot' | 'broadcaster' | 'auto'
+  if (!text) return res.status(400).json({ error: 'No message' });
+  if (!state.twitch.connected) return res.status(503).json({ error: 'Twitch not connected' });
+  try {
+    await sendChatMessage(text, sender);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/chat/config', (req, res) => {
   if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
   process.env.CHAT_OVERLAY_CONFIG = JSON.stringify(req.body);
   persistEnv();
   res.json({ ok: true });
 });
-app.get('/api/ticker/config', (req, res) => {
-  res.json({ ...TICKER_OVERLAY_DEFAULTS, ...(getTickerOverlayConfig() || {}), browserSourceUrl: `http://localhost:${PORT}/ticker` });
+// ── 7TV persistent emote cache ────────────────────────────────────────────────
+const SEVENTV_CACHE_FILE = require('path').join(__dirname, 'emote-cache.json');
+const SEVENTV_TTL_MS     = 30 * 60 * 1000; // re-check every 30 min
+
+let sevenTvEmoteCache          = null; // { name: url, ... }
+let sevenTvCacheChecksum       = '';   // MD5 of sorted emote names — detects real changes
+let sevenTvCacheTime           = 0;
+let sevenTvCacheHadBroadcaster = false;
+
+// Load whatever was saved last time the app ran
+function loadSevenTvCacheFromDisk() {
+  try {
+    const raw  = fs.readFileSync(SEVENTV_CACHE_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    if (data.emotes && Object.keys(data.emotes).length > 0) {
+      sevenTvEmoteCache          = data.emotes;
+      sevenTvCacheChecksum       = data.checksum       || '';
+      sevenTvCacheTime           = data.timestamp      || 0;
+      sevenTvCacheHadBroadcaster = data.hadBroadcaster || false;
+      addLog('system', 'chat',
+        `7TV: restored ${Object.keys(sevenTvEmoteCache).length} emotes from disk cache`);
+    }
+  } catch { /* no cache yet — that's fine */ }
+}
+
+function saveSevenTvCacheToDisk() {
+  try {
+    fs.writeFileSync(SEVENTV_CACHE_FILE, JSON.stringify({
+      emotes:        sevenTvEmoteCache,
+      checksum:      sevenTvCacheChecksum,
+      timestamp:     sevenTvCacheTime,
+      hadBroadcaster: sevenTvCacheHadBroadcaster,
+    }), 'utf8');
+  } catch (err) {
+    addLog('system', 'chat', `7TV: failed to write disk cache: ${err.message}`, false);
+  }
+}
+
+function computeEmoteChecksum(map) {
+  // MD5 of sorted "name=url" pairs — sensitive to both additions and URL changes
+  const content = Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+  return crypto.createHash('md5').update(content).digest('hex');
+}
+
+function buildEmoteUrl(emote) {
+  const host = emote?.data?.host;
+  if (!host?.url) return null;
+  const files = host.files || [];
+  const file =
+    files.find(f => f.name === '2x.webp') ||
+    files.find(f => f.name === '1x.webp') ||
+    files.find(f => /\.webp$/i.test(f.name)) ||
+    files[0];
+  if (!file) return null;
+  const base = host.url.startsWith('//') ? `https:${host.url}` : host.url;
+  return `${base}/${file.name}`;
+}
+
+// Load disk cache at startup
+loadSevenTvCacheFromDisk();
+
+app.get('/api/chat/emotes', async (req, res) => {
+  try {
+    const now            = Date.now();
+    const broadcasterId  = state.twitch.broadcasterId;
+    const forceRefresh   = req.query.refresh === '1';
+
+    // Serve from in-memory (or already-loaded disk) cache when:
+    //   • we have data AND
+    //   • it's within the TTL AND
+    //   • it was built with a broadcasterId, or we still don't have one yet AND
+    //   • the caller didn't ask for a forced refresh
+    const cacheValid =
+      sevenTvEmoteCache !== null &&
+      (now - sevenTvCacheTime) < SEVENTV_TTL_MS &&
+      (sevenTvCacheHadBroadcaster || !broadcasterId) &&
+      !forceRefresh;
+
+    res.set('Cache-Control', 'no-store');
+    if (cacheValid) return res.json(sevenTvEmoteCache);
+
+    const map     = {};
+    const HEADERS = { 'User-Agent': 'Cha0sStream/1.0' };
+
+    // ── Global 7TV emotes ─────────────────────────────────────────
+    try {
+      const r = await fetch('https://7tv.io/v3/emote-sets/global', { headers: HEADERS });
+      if (r.ok) {
+        const data = await r.json();
+        let n = 0;
+        for (const e of (data?.emotes || [])) {
+          const url = buildEmoteUrl(e);
+          if (e?.name && url) { map[e.name] = url; n++; }
+        }
+        addLog('system', 'chat', `7TV: fetched ${n} global emotes`);
+      } else {
+        addLog('system', 'chat', `7TV global fetch failed: HTTP ${r.status}`, false);
+      }
+    } catch (err) {
+      addLog('system', 'chat', `7TV global fetch error: ${err.message}`, false);
+    }
+
+    // ── Channel 7TV emotes ────────────────────────────────────────
+    if (broadcasterId) {
+      try {
+        const r = await fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`, { headers: HEADERS });
+        if (r.ok) {
+          const data = await r.json();
+          let n = 0;
+          for (const e of (data?.emote_set?.emotes || [])) {
+            const url = buildEmoteUrl(e);
+            if (e?.name && url) { map[e.name] = url; n++; }
+          }
+          addLog('system', 'chat', `7TV: fetched ${n} channel emotes`);
+        } else {
+          addLog('system', 'chat', `7TV channel fetch failed: HTTP ${r.status}`, false);
+        }
+      } catch (err) {
+        addLog('system', 'chat', `7TV channel fetch error: ${err.message}`, false);
+      }
+    }
+
+    // ── Global BTTV emotes ────────────────────────────────────────
+    try {
+      const r = await fetch('https://api.betterttv.net/3/cached/emotes/global', { headers: HEADERS });
+      if (r.ok) {
+        const data = await r.json();
+        let n = 0;
+        for (const e of (data || [])) {
+          if (e?.code && e?.id) {
+            map[e.code] = `https://cdn.betterttv.net/emote/${e.id}/2x`;
+            n++;
+          }
+        }
+        addLog('system', 'chat', `BTTV: fetched ${n} global emotes`);
+      } else {
+        addLog('system', 'chat', `BTTV global fetch failed: HTTP ${r.status}`, false);
+      }
+    } catch (err) {
+      addLog('system', 'chat', `BTTV global fetch error: ${err.message}`, false);
+    }
+
+    // ── Channel BTTV emotes ───────────────────────────────────────
+    if (broadcasterId) {
+      try {
+        const r = await fetch(`https://api.betterttv.net/3/cached/users/twitch/${broadcasterId}`, { headers: HEADERS });
+        if (r.ok) {
+          const data = await r.json();
+          let n = 0;
+          // channelEmotes = emotes the broadcaster added; sharedEmotes = emotes shared from other users
+          for (const e of [...(data?.channelEmotes || []), ...(data?.sharedEmotes || [])]) {
+            if (e?.code && e?.id) {
+              map[e.code] = `https://cdn.betterttv.net/emote/${e.id}/2x`;
+              n++;
+            }
+          }
+          addLog('system', 'chat', `BTTV: fetched ${n} channel emotes`);
+        } else {
+          addLog('system', 'chat', `BTTV channel fetch failed: HTTP ${r.status}`, false);
+        }
+      } catch (err) {
+        addLog('system', 'chat', `BTTV channel fetch error: ${err.message}`, false);
+      }
+    }
+
+    if (Object.keys(map).length > 0) {
+      const newChecksum = computeEmoteChecksum(map);
+      const changed     = newChecksum !== sevenTvCacheChecksum;
+
+      sevenTvEmoteCache          = map;
+      sevenTvCacheTime           = now;
+      sevenTvCacheHadBroadcaster = !!broadcasterId;
+      sevenTvCacheChecksum       = newChecksum;
+
+      if (changed) {
+        // Emotes actually changed — persist to disk
+        saveSevenTvCacheToDisk();
+        addLog('system', 'chat',
+          `Emote cache updated (${Object.keys(map).length} total, checksum ${newChecksum.slice(0, 8)})`);
+      } else {
+        // Same data — just reset the TTL clock, no disk write needed
+        addLog('system', 'chat', `7TV: emote set unchanged (checksum match)`);
+      }
+    } else {
+      // Fetch returned nothing — serve last known good data rather than an empty map
+      addLog('system', 'chat',
+        `Emote fetch returned 0 results — serving cached data (${Object.keys(sevenTvEmoteCache || {}).length} emotes)`, false);
+    }
+
+    res.json(sevenTvEmoteCache || {});
+  } catch (err) {
+    addLog('system', 'chat', `7TV endpoint error: ${err.message}`, false);
+    // Always return whatever we have rather than an error
+    res.json(sevenTvEmoteCache || {});
+  }
 });
-app.post('/api/ticker/config', (req, res) => {
-  if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
-  process.env.TICKER_OVERLAY_CONFIG = JSON.stringify(req.body);
-  persistEnv();
-  res.json({ ok: true });
+
+// Debug endpoint — visit /api/chat/emotes/debug to see exactly what 7TV returns
+app.get('/api/chat/emotes/debug', async (req, res) => {
+  const broadcasterId = state.twitch.broadcasterId;
+  const result = {
+    broadcasterId:        broadcasterId || null,
+    cacheSize:            sevenTvEmoteCache ? Object.keys(sevenTvEmoteCache).length : 0,
+    cacheChecksum:        sevenTvCacheChecksum || null,
+    cacheHadBroadcaster:  sevenTvCacheHadBroadcaster,
+    cacheAgeSeconds:      sevenTvCacheTime ? Math.round((Date.now() - sevenTvCacheTime) / 1000) : null,
+    globalFetch:          null,
+    channelFetch:         null,
+  };
+
+  try {
+    const r = await fetch('https://7tv.io/v3/emote-sets/global', { headers: { 'User-Agent': 'Cha0sStream/1.0' } });
+    result.globalFetch = { status: r.status, ok: r.ok };
+    if (r.ok) {
+      const data = await r.json();
+      result.globalFetch.emoteCount = (data?.emotes || []).length;
+      result.globalFetch.sampleEmotes = (data?.emotes || []).slice(0, 3).map(e => e.name);
+    }
+  } catch (err) {
+    result.globalFetch = { error: err.message };
+  }
+
+  if (broadcasterId) {
+    try {
+      const r = await fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`, { headers: { 'User-Agent': 'Cha0sStream/1.0' } });
+      result.channelFetch = { status: r.status, ok: r.ok };
+      if (r.ok) {
+        const data = await r.json();
+        result.channelFetch.topLevelKeys   = Object.keys(data);
+        result.channelFetch.emoteSetKeys   = data.emote_set ? Object.keys(data.emote_set) : null;
+        result.channelFetch.emoteCount     = (data?.emote_set?.emotes || []).length;
+        result.channelFetch.sampleEmotes   = (data?.emote_set?.emotes || []).slice(0, 5).map(e => ({
+          name: e.name,
+          url:  buildEmoteUrl(e),
+          hasData: !!e?.data,
+          hasHost: !!e?.data?.host,
+          filesCount: (e?.data?.host?.files || []).length,
+        }));
+      } else {
+        const body = await r.text().catch(() => '');
+        result.channelFetch.body = body.slice(0, 300);
+      }
+    } catch (err) {
+      result.channelFetch = { error: err.message };
+    }
+  } else {
+    result.channelFetch = { skipped: 'broadcasterId not set — Twitch not connected' };
+  }
+
+  // Show what the cache actually has for a few known channel emote names
+  if (sevenTvEmoteCache) {
+    const channelSamples = ['peepoShy','donowall','Madge','NOOOO','COPIUM'];
+    result.cacheUrlSamples = {};
+    for (const name of channelSamples) {
+      result.cacheUrlSamples[name] = sevenTvEmoteCache[name] || null;
+    }
+  }
+
+  res.json(result);
 });
 
 // --- Alerts config API ---
@@ -1679,7 +1954,8 @@ wss.on('connection', (ws) => {
     alertObsSource: process.env.ALERT_OBS_SOURCE || '',
     alertObsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000,
     alertBrowserSourceUrl: `http://localhost:${PORT}/alerts`,
-    devMode: DEV_MODE
+    devMode: DEV_MODE,
+    botUsername: process.env.TWITCH_BOT_USERNAME || '',
   }));
 });
 

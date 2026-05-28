@@ -6,3 +6,5 @@ dist/
 plugin-store.json
 .debug
 /sounds
+seventv-cache.json
+emote-cache.json
