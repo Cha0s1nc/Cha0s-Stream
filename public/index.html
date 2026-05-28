@@ -516,6 +516,43 @@
             <div class="custom-css-wrap"><div class="custom-css-toggle" id="css-toggle" onclick="toggleCustomCss()"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— override any alert style</span></div><div class="custom-css-body" id="css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">Paste CSS from the <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor ↗</a> or import a .css file:</span><label class="btn btn-secondary" style="font-size:11px;padding:3px 10px;cursor:pointer;border-radius:5px;border:1px solid var(--border);">📂 Import .css<input type="file" id="css-file-input" accept=".css,text/css" style="display:none;" onchange="importCSSFile(this)"></label></div><textarea class="css-textarea" id="cfg-alert-custom-css" placeholder="/* e.g: .alert { border-radius: 0; } */"></textarea><div class="css-classes-hint">Available: .alert .alert-follow .alert-cheer .alert-sub .alert-resub .alert-giftsub<br>Inner: .alert-icon .alert-label .alert-main — Color var: --alert-color</div></div></div>
             <div class="alert-style-save-bar"><span class="save-status" id="alert-style-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveAlertConfig()">Save Alert Style</button></div>
           </div>
+
+          <!-- ── Chat Overlay ── -->
+          <div class="settings-group collapsed">
+            <div class="settings-group-title">Chat Overlay</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source at your canvas resolution.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="chat-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyChatUrl()">Copy</button></div></div>
+            <div class="settings-group-subtitle">Layout</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Which side chat messages appear on.</div></div><div class="seg-control"><button class="seg-btn active" data-chatpos="left">← Left</button><button class="seg-btn" data-chatpos="right">Right →</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Max Messages</div><div class="setting-desc">Max chat lines visible at once.</div></div><input class="setting-input" id="cfg-chat-max" type="number" min="2" max="20" placeholder="8" style="width:70px;" /></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Message Lifetime (s)</div><div class="setting-desc">Seconds before a message fades out.</div></div><input class="setting-input" id="cfg-chat-lifetime" type="number" min="5" max="300" placeholder="30" style="width:70px;" /></div>
+            <div class="settings-group-subtitle">Style</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Font Size (px)</div></div><input class="setting-input" id="cfg-chat-fontsize" type="number" min="10" max="28" placeholder="15" style="width:70px;" /></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Background</div><div class="setting-desc">Message bubble colour and opacity %.</div></div><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="cfg-chat-bg-color" value="#000000" style="width:34px;height:28px;padding:2px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;" /><input class="setting-input" id="cfg-chat-bg-opacity" type="number" min="0" max="100" placeholder="75" style="width:60px;" /><span style="font-size:11px;color:var(--text3);">%</span></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Badges</div><div class="setting-desc">Display mod / sub / VIP badge pills.</div></div><label class="toggle"><input type="checkbox" id="cfg-chat-badges" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Timestamps</div></div><label class="toggle"><input type="checkbox" id="cfg-chat-timestamps" /><span class="toggle-track"></span></label></div>
+            <div class="custom-css-wrap"><div class="custom-css-toggle" onclick="this.nextElementSibling.classList.toggle('open')"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— paste from Overlay Editor</span></div><div class="custom-css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">From <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor → Chat tab ↗</a></span></div><textarea class="css-textarea" id="cfg-chat-custom-css" placeholder="/* .chat-msg { } .chat-name { } */"></textarea><div class="css-classes-hint">body · .chat-msg · .chat-name · .chat-text · .chat-badge · .chat-badges · .chat-ts</div></div></div>
+            <div class="alert-style-save-bar"><span class="save-status" id="chat-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveChatConfig()">Save Chat Settings</button></div>
+          </div>
+
+          <!-- ── Ticker Overlay ── -->
+          <div class="settings-group collapsed">
+            <div class="settings-group-title">Ticker Overlay</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source — recommended width: full canvas, height: 60px.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="ticker-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyTickerUrl()">Copy</button></div></div>
+            <div class="settings-group-subtitle">Events</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Follows</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-follow" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Cheers</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-cheer" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Subs</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-sub" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Resubs</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-resub" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Gift Subs</div></div><label class="toggle"><input type="checkbox" id="cfg-tick-giftsub" checked /><span class="toggle-track"></span></label></div>
+            <div class="settings-group-subtitle">Style</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Scroll Speed</div></div><div class="seg-control"><button class="seg-btn" data-tickspeed="slow">Slow</button><button class="seg-btn active" data-tickspeed="normal">Normal</button><button class="seg-btn" data-tickspeed="fast">Fast</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Font Size (px)</div></div><input class="setting-input" id="cfg-tick-fontsize" type="number" min="10" max="24" placeholder="14" style="width:70px;" /></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Strip Height (px)</div></div><input class="setting-input" id="cfg-tick-height" type="number" min="24" max="80" placeholder="36" style="width:70px;" /></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Background</div><div class="setting-desc">Strip colour and opacity %.</div></div><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="cfg-tick-bg-color" value="#000000" style="width:34px;height:28px;padding:2px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;" /><input class="setting-input" id="cfg-tick-bg-opacity" type="number" min="0" max="100" placeholder="80" style="width:60px;" /><span style="font-size:11px;color:var(--text3);">%</span></div></div>
+            <div class="custom-css-wrap"><div class="custom-css-toggle" onclick="this.nextElementSibling.classList.toggle('open')"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— paste from Overlay Editor</span></div><div class="custom-css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">From <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor → Ticker tab ↗</a></span></div><textarea class="css-textarea" id="cfg-tick-custom-css" placeholder="/* .ticker { } .ticker-item { } */"></textarea><div class="css-classes-hint">.ticker · .ticker-track · .ticker-item · .ticker-icon · .ticker-label · .ticker-user</div></div></div>
+            <div class="alert-style-save-bar"><span class="save-status" id="ticker-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveTickerConfig()">Save Ticker Settings</button></div>
+          </div>
+
           <div class="settings-group">
             <div class="settings-group-title">Twitch</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div>
@@ -606,7 +643,7 @@
         document.getElementById(`tab-${panel}`)?.classList.add('active');
         const dashTabs = document.getElementById('dash-tabs');
         if (dashTabs) dashTabs.classList.toggle('visible', panel === 'dashboard');
-        if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadSounds(); }
+        if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadTickerConfig(); loadSounds(); }
         if (panel === 'plugins') { loadPlugins(); }
         // Collapse sidenav after click
         sidenav.classList.remove('expanded');
@@ -1727,6 +1764,20 @@
       });
     });
 
+    document.querySelectorAll('.seg-btn[data-chatpos]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.seg-btn[data-chatpos]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    document.querySelectorAll('.seg-btn[data-tickspeed]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.seg-btn[data-tickspeed]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
     function populateAlertAppearanceUI() {
       document.querySelectorAll('.seg-btn[data-alertpos]').forEach(b =>
         b.classList.toggle('active', b.dataset.alertpos === alertAppearance.position));
@@ -1805,6 +1856,124 @@
         const status = document.getElementById('alert-style-save-status');
         if (status) { status.classList.add('visible'); setTimeout(() => status.classList.remove('visible'), 3000); }
       } catch {}
+    }
+
+    // --- Chat Overlay Config ---
+    function showOverlaySaveStatus(id) {
+      const el = document.getElementById(id);
+      if (el) { el.classList.add('visible'); setTimeout(() => el.classList.remove('visible'), 3000); }
+    }
+
+    async function loadChatConfig() {
+      try {
+        const r = await fetch('/api/chat/config');
+        if (!r.ok) return;
+        const c = await r.json();
+        if (c.browserSourceUrl) document.getElementById('chat-browser-url').textContent = c.browserSourceUrl;
+
+        // Position
+        document.querySelectorAll('.seg-btn[data-chatpos]').forEach(b => b.classList.toggle('active', b.dataset.chatpos === (c.position || 'left')));
+
+        // Numeric fields
+        const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+        set('cfg-chat-max',      c.maxMessages);
+        set('cfg-chat-lifetime', c.lifetime != null ? Math.round(c.lifetime / 1000) : 30);
+        set('cfg-chat-fontsize', c.fontSize);
+        set('cfg-chat-bg-opacity', c.bgOpacity);
+
+        // Color
+        if (c.bgColor) document.getElementById('cfg-chat-bg-color').value = c.bgColor;
+
+        // Toggles
+        const tog = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+        tog('cfg-chat-badges',     c.showBadges !== false);
+        tog('cfg-chat-timestamps', !!c.showTimestamps);
+
+        // Custom CSS
+        if (c.customCSS != null) document.getElementById('cfg-chat-custom-css').value = c.customCSS;
+      } catch {}
+    }
+
+    async function saveChatConfig() {
+      const posEl = document.querySelector('.seg-btn[data-chatpos].active');
+      const cfg = {
+        position:       posEl ? posEl.dataset.chatpos : 'left',
+        maxMessages:    parseInt(document.getElementById('cfg-chat-max')?.value)       || 8,
+        lifetime:       (parseInt(document.getElementById('cfg-chat-lifetime')?.value) || 30) * 1000,
+        fontSize:       parseInt(document.getElementById('cfg-chat-fontsize')?.value)  || 15,
+        bgColor:        document.getElementById('cfg-chat-bg-color')?.value            || '#000000',
+        bgOpacity:      parseInt(document.getElementById('cfg-chat-bg-opacity')?.value) ?? 75,
+        showBadges:     document.getElementById('cfg-chat-badges')?.checked    !== false,
+        showTimestamps: !!document.getElementById('cfg-chat-timestamps')?.checked,
+        customCSS:      document.getElementById('cfg-chat-custom-css')?.value  || '',
+      };
+      try {
+        await fetch('/api/chat/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+        showOverlaySaveStatus('chat-save-status');
+      } catch {}
+    }
+
+    function copyChatUrl() {
+      const url = document.getElementById('chat-browser-url')?.textContent;
+      if (url && url !== 'loading…') navigator.clipboard.writeText(url).catch(() => {});
+    }
+
+    // --- Ticker Overlay Config ---
+    async function loadTickerConfig() {
+      try {
+        const r = await fetch('/api/ticker/config');
+        if (!r.ok) return;
+        const c = await r.json();
+        if (c.browserSourceUrl) document.getElementById('ticker-browser-url').textContent = c.browserSourceUrl;
+
+        // Speed
+        document.querySelectorAll('.seg-btn[data-tickspeed]').forEach(b => b.classList.toggle('active', b.dataset.tickspeed === (c.speed || 'normal')));
+
+        // Numeric fields
+        const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+        set('cfg-tick-fontsize',   c.fontSize);
+        set('cfg-tick-height',     c.height);
+        set('cfg-tick-bg-opacity', c.bgOpacity);
+
+        // Color
+        if (c.bgColor) document.getElementById('cfg-tick-bg-color').value = c.bgColor;
+
+        // Event type toggles
+        const types = c.types || {};
+        ['follow','cheer','sub','resub','giftsub'].forEach(t => {
+          const el = document.getElementById(`cfg-tick-${t}`);
+          if (el) el.checked = types[t] !== false;
+        });
+
+        // Custom CSS
+        if (c.customCSS != null) document.getElementById('cfg-tick-custom-css').value = c.customCSS;
+      } catch {}
+    }
+
+    async function saveTickerConfig() {
+      const speedEl = document.querySelector('.seg-btn[data-tickspeed].active');
+      const types = {};
+      ['follow','cheer','sub','resub','giftsub'].forEach(t => {
+        types[t] = !!document.getElementById(`cfg-tick-${t}`)?.checked;
+      });
+      const cfg = {
+        speed:     speedEl ? speedEl.dataset.tickspeed : 'normal',
+        fontSize:  parseInt(document.getElementById('cfg-tick-fontsize')?.value)   || 14,
+        height:    parseInt(document.getElementById('cfg-tick-height')?.value)     || 36,
+        bgColor:   document.getElementById('cfg-tick-bg-color')?.value             || '#000000',
+        bgOpacity: parseInt(document.getElementById('cfg-tick-bg-opacity')?.value) ?? 80,
+        types,
+        customCSS: document.getElementById('cfg-tick-custom-css')?.value || '',
+      };
+      try {
+        await fetch('/api/ticker/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+        showOverlaySaveStatus('ticker-save-status');
+      } catch {}
+    }
+
+    function copyTickerUrl() {
+      const url = document.getElementById('ticker-browser-url')?.textContent;
+      if (url && url !== 'loading…') navigator.clipboard.writeText(url).catch(() => {});
     }
 
     // --- Event Triggers ---

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cha0s Ticker Overlay</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* Transparent background — required for OBS Browser Source */
+  body {
+    background: transparent;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .ticker {
+    width: 100%;
+    height: 36px;
+    background: rgba(0, 0, 0, 0.80);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    position: relative;
+  }
+
+  /* Fade edges */
+  .ticker::before,
+  .ticker::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 40px;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .ticker::before { left:  0; background: linear-gradient(to right, rgba(0,0,0,0.8), transparent); }
+  .ticker::after  { right: 0; background: linear-gradient(to left,  rgba(0,0,0,0.8), transparent); }
+
+  .ticker-track {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    will-change: transform;
+    /* animation set via JS so speed is config-driven */
+  }
+
+  @keyframes tickerScroll {
+    from { transform: translateX(var(--ticker-start, 100vw)); }
+    to   { transform: translateX(-100%); }
+  }
+
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: #fff;
+    padding: 0 24px;
+  }
+
+  .ticker-icon  { font-size: 1.1em; }
+  .ticker-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--tc, #fff); opacity: 0.75;
+  }
+  .ticker-user  { font-weight: 600; }
+  .ticker-extra { opacity: 0.6; font-weight: 400; }
+  .ticker-sep   { color: rgba(255,255,255,0.25); padding: 0 8px; font-size: 16px; }
+</style>
+<style id="custom-styles"></style>
+</head>
+<body>
+<div class="ticker" id="ticker">
+  <div class="ticker-track" id="ticker-track"></div>
+</div>
+
+<script>
+  // ── Defaults ─────────────────────────────────────────────────────
+  let CFG = {
+    speed:      'normal',     // 'slow' | 'normal' | 'fast'
+    fontSize:   14,
+    height:     36,
+    bgOpacity:  80,
+    bgColor:    '#000000',
+    types:      { follow: true, cheer: true, sub: true, resub: true, giftsub: true },
+    customCSS:  '',
+  };
+
+  const SPEED_SECONDS = { slow: 65, normal: 42, fast: 24 };
+
+  const TYPE_META = {
+    follow:  { icon: '💜', label: 'Follow',  color: '#9b59b6' },
+    cheer:   { icon: '⚡', label: 'Cheer',   color: '#ffd60a' },
+    sub:     { icon: '⭐', label: 'Sub',     color: '#ff2d78' },
+    resub:   { icon: '🔁', label: 'Resub',   color: '#0ee5ff' },
+    giftsub: { icon: '🎁', label: 'Gift',    color: '#ff9f0a' },
+  };
+
+  const MAX_EVENTS = 30;
+  const recentEvents = [];
+
+  // ── Helpers ──────────────────────────────────────────────────────
+  function hexToRgba(hex, pct) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${(pct / 100).toFixed(2)})`;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Config application ────────────────────────────────────────────
+  function applyConfig() {
+    const ticker = document.getElementById('ticker');
+    ticker.style.height     = CFG.height + 'px';
+    ticker.style.background = hexToRgba(CFG.bgColor, CFG.bgOpacity);
+
+    const track = document.getElementById('ticker-track');
+    track.style.fontSize = CFG.fontSize + 'px';
+
+    document.getElementById('custom-styles').textContent = CFG.customCSS || '';
+
+    restartAnimation();
+  }
+
+  // ── Animation ─────────────────────────────────────────────────────
+  function restartAnimation() {
+    const track = document.getElementById('ticker-track');
+    const dur = SPEED_SECONDS[CFG.speed] || 42;
+
+    // Cancel then re-apply so it restarts from the right edge
+    track.style.animation = 'none';
+    track.offsetHeight;    // force reflow
+    track.style.setProperty('--ticker-start', '100vw');
+    track.style.animation = `tickerScroll ${dur}s linear infinite`;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────
+  function render() {
+    const track = document.getElementById('ticker-track');
+    const visible = recentEvents.filter(e => CFG.types?.[e.type]);
+
+    if (!visible.length) {
+      track.innerHTML = '<span class="ticker-item" style="opacity:0.35">· Waiting for events ·</span>';
+    } else {
+      // Duplicate items so the loop looks seamless
+      const items = [...visible, ...visible].map(e => {
+        const meta = TYPE_META[e.type];
+        let extra = '';
+        if (e.type === 'cheer'   && e.bits)   extra = `<span class="ticker-extra">· ${esc(String(e.bits))} bits</span>`;
+        if (e.type === 'resub'   && e.months)  extra = `<span class="ticker-extra">· ${esc(String(e.months))} months</span>`;
+        if (e.type === 'giftsub' && e.count)   extra = `<span class="ticker-extra">· ${esc(String(e.count))} gifted</span>`;
+        return `<span class="ticker-item" style="--tc:${meta.color}"><span class="ticker-icon">${meta.icon}</span><span class="ticker-label">${meta.label}</span><span class="ticker-user">${esc(e.user)}</span>${extra}</span><span class="ticker-sep">·</span>`;
+      }).join('');
+      track.innerHTML = items;
+    }
+
+    restartAnimation();
+  }
+
+  // ── New event ─────────────────────────────────────────────────────
+  function addEvent(data) {
+    if (!TYPE_META[data.type]) return;
+    recentEvents.unshift(data);
+    if (recentEvents.length > MAX_EVENTS) recentEvents.length = MAX_EVENTS;
+    render();
+  }
+
+  // ── Config fetch ──────────────────────────────────────────────────
+  async function loadConfig() {
+    try {
+      const r = await fetch('/api/ticker/config');
+      if (r.ok) {
+        const data = await r.json();
+        if (data && typeof data === 'object') {
+          if (data.types && typeof data.types === 'object') {
+            Object.assign(CFG.types, data.types);
+            delete data.types;
+          }
+          Object.assign(CFG, data);
+        }
+      }
+    } catch {}
+    applyConfig();
+    render();
+  }
+
+  // ── WebSocket connection ──────────────────────────────────────────
+  function connect() {
+    const ws = new WebSocket('ws://' + location.host);
+    ws.onmessage = (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+      if (data.event === 'alert') addEvent(data);
+    };
+    ws.onclose = () => setTimeout(connect, 3000);
+    ws.onerror = () => {};
+  }
+
+  loadConfig().then(() => connect());
+</script>
+</body>
+</html>

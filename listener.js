@@ -13,6 +13,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
+  'CHAT_OVERLAY_CONFIG','TICKER_OVERLAY_CONFIG',
   'EVENT_TRIGGERS'
 ];
 
@@ -689,6 +690,14 @@ async function handleChatMessage(event) {
   const user = event?.chatter_user_name || 'unknown';
   const text = event?.message?.text || '';
   pluginEvents.emit('chat', { user, text, event });
+  broadcast({
+    event:   'chat',
+    user,
+    color:   event?.color || '',
+    badges:  (event?.badges || []).map(b => b.set_id),
+    message: text,
+    ts:      Date.now(),
+  });
   await dispatchCommand(event, 'chat', user, text);
 }
 
@@ -1275,6 +1284,48 @@ app.get('/api/jellyfin/search', async (req, res) => {
 
 // --- Alerts route (Browser Source overlay) ---
 app.get('/alerts', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
+app.get('/chat',   (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'chat.html')));
+app.get('/ticker', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'ticker.html')));
+
+// ── Chat overlay config ──────────────────────────────────────────
+const CHAT_OVERLAY_DEFAULTS = {
+  maxMessages: 8, lifetime: 30000,
+  fontSize: 15, bgOpacity: 75, bgColor: '#000000',
+  showBadges: true, showTimestamps: false, position: 'left',
+  customCSS: '',
+};
+const TICKER_OVERLAY_DEFAULTS = {
+  speed: 'normal', fontSize: 14, height: 36,
+  bgOpacity: 80, bgColor: '#000000',
+  types: { follow: true, cheer: true, sub: true, resub: true, giftsub: true },
+  customCSS: '',
+};
+function getChatOverlayConfig() {
+  try { const r = process.env.CHAT_OVERLAY_CONFIG; if (r) return JSON.parse(r); } catch {}
+  return null;
+}
+function getTickerOverlayConfig() {
+  try { const r = process.env.TICKER_OVERLAY_CONFIG; if (r) return JSON.parse(r); } catch {}
+  return null;
+}
+app.get('/api/chat/config', (req, res) => {
+  res.json({ ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}), browserSourceUrl: `http://localhost:${PORT}/chat` });
+});
+app.post('/api/chat/config', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
+  process.env.CHAT_OVERLAY_CONFIG = JSON.stringify(req.body);
+  persistEnv();
+  res.json({ ok: true });
+});
+app.get('/api/ticker/config', (req, res) => {
+  res.json({ ...TICKER_OVERLAY_DEFAULTS, ...(getTickerOverlayConfig() || {}), browserSourceUrl: `http://localhost:${PORT}/ticker` });
+});
+app.post('/api/ticker/config', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
+  process.env.TICKER_OVERLAY_CONFIG = JSON.stringify(req.body);
+  persistEnv();
+  res.json({ ok: true });
+});
 
 // --- Alerts config API ---
 const ALERT_CUSTOM_DEFAULTS = {
