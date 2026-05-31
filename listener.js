@@ -1927,6 +1927,21 @@ app.get('/api/triggers', (req, res) => {
   res.json({ triggers: getEventTriggers() });
 });
 
+app.post('/api/triggers/test', async (req, res) => {
+  const type = req.body.type;
+  const testVars = {
+    follow:  { user: 'TestUser' },
+    cheer:   { user: 'TestUser', bits: 100,  message: 'PogChamp!' },
+    sub:     { user: 'TestUser', tier: 'Tier 1' },
+    resub:   { user: 'TestUser', tier: 'Tier 1', months: 6, message: 'Love the stream!' },
+    giftsub: { user: 'TestUser', count: 5, tier: 'Tier 1' },
+  };
+  if (!testVars[type]) return res.status(400).json({ error: 'Unknown trigger type' });
+  await fireTrigger(type, testVars[type]);
+  addLog('system', 'trigger', `Test trigger fired: ${type}`);
+  res.json({ ok: true });
+});
+
 app.post('/api/triggers', (req, res) => {
   const { triggers } = req.body;
   if (!triggers || typeof triggers !== 'object') return res.status(400).json({ error: 'Invalid' });

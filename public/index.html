@@ -253,7 +253,7 @@
     .cmd-desc { font-size: 12px; color: var(--text2); }
     .cmd-perm-select { font-family: var(--font); font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; cursor: pointer; }
     .commands-save-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 16px 0 0; }
-    .trigger-row { display: grid; grid-template-columns: 36px 110px 1fr 160px 160px; align-items: start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .trigger-row { display: grid; grid-template-columns: 36px 110px 1fr 160px 160px 60px; align-items: start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
     .trigger-row:last-child { border-bottom: none; }
     .trigger-event-label { font-size: 12px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; padding-top: 4px; }
     .trigger-response-input, .trigger-script-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; transition: border-color 0.15s; }
@@ -543,9 +543,9 @@
                 <div class="commands-save-bar"><span class="save-status" id="custom-cmd-save-status">✓ Saved</span><button class="btn btn-primary" id="btn-save-custom-commands">Save Custom Commands</button></div>
               </div>
               <div style="margin-top:28px;">
-                <div style="margin-bottom:10px;"><span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;">Event Triggers</span><p style="font-size:12px;color:var(--text3);margin-top:4px;">Automatically send a chat message when a Twitch event fires.</p></div>
+                <div style="margin-bottom:10px;"><span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;">Event Triggers</span><p style="font-size:12px;color:var(--text3);margin-top:4px;">Automatically send a chat message, play a sound, or run a script when a Twitch event fires.</p></div>
                 <div class="commands-table">
-                  <div class="commands-table-header" style="grid-template-columns:36px 110px 1fr 160px 160px;"><span></span><span>Event</span><span>Chat Response <span style="font-weight:400;opacity:0.6;">(leave blank to skip)</span></span><span>Sound <span style="font-weight:400;opacity:0.6;">(name or URL)</span></span><span>Script Path <span style="font-weight:400;opacity:0.6;">(optional)</span></span></div>
+                  <div class="commands-table-header" style="grid-template-columns:36px 110px 1fr 160px 160px 60px;"><span></span><span>Event</span><span>Chat Response <span style="font-weight:400;opacity:0.6;">(leave blank to skip)</span></span><span>Sound <span style="font-weight:400;opacity:0.6;">(name or URL)</span></span><span>Script Path <span style="font-weight:400;opacity:0.6;">(optional)</span></span><span>Test</span></div>
                   <div id="triggers-list"></div>
                 </div>
                 <div class="commands-save-bar"><span class="save-status" id="triggers-save-status">&#x2713; Saved</span><button class="btn btn-primary" id="btn-save-triggers">Save Triggers</button></div>
@@ -724,8 +724,7 @@
         document.getElementById(`tab-${panel}`)?.classList.add('active');
         const dashTabs = document.getElementById('dash-tabs');
         if (dashTabs) dashTabs.classList.toggle('visible', panel === 'dashboard');
-        if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadSounds(); }
-        if (panel === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); loadTriggers(); }
+        if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadSounds(); renderCommandsTable(); renderCustomCommandsTable(); loadTriggers(); }
         if (panel === 'plugins') { loadPlugins(); }
         // Collapse sidenav after click
         sidenav.classList.remove('expanded');
@@ -770,6 +769,7 @@
           updateStats();
           if (data.commands) { commandsConfig = data.commands; renderCommandsTable(); }
           if (data.customCommands) { customCommandsConfig = data.customCommands; renderCustomCommandsTable(); }
+          loadTriggers();
           if (data.plugins) { renderPlugins(data.plugins); }
           // Apply modes from server
           if (data.mediaMode) setMediaModeUI(data.mediaMode);
@@ -2577,6 +2577,7 @@
         var t = triggersConfig[type] || { enabled: false, response: '', sound: '', script: '' };
         var row = document.createElement('div');
         row.className = 'trigger-row';
+        row.style.gridTemplateColumns = '36px 110px 1fr 160px 160px 60px';
         var safeResp   = (t.response || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
         var safeSound  = (t.sound   || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
         var safeScript = (t.script   || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
@@ -2591,12 +2592,29 @@
           + '<div class="trigger-vars-hint">Variables: ' + meta.vars + '</div>'
           + '</div>'
           + '<div style="display:flex;gap:4px;">'
-          + '<input class="trigger-script-input" id="trigger-' + type + '-sound" type="text" value="' + safeSound + '" placeholder="alert or https://…" style="flex:1;min-width:0;" />'
+          + '<input class="trigger-response-input" id="trigger-' + type + '-sound" type="text" value="' + safeSound + '" placeholder="soundname or https://…" style="flex:1;min-width:0;" />'
           + '<button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="triggerSoundUpload(\'' + type + '\')" title="Upload sound file">📂</button>'
           + '</div>'
-          + '<input class="trigger-script-input" id="trigger-' + type + '-script" type="text" value="' + safeScript + '" placeholder="C:\\path\\to\\script.bat" />';
+          + '<input class="trigger-script-input" id="trigger-' + type + '-script" type="text" value="' + safeScript + '" placeholder="/path/to/script.sh" />'
+          + '<button class="btn btn-secondary" style="font-size:11px;padding:3px 8px;" onclick="testTrigger(\'' + type + '\')" id="trigger-' + type + '-test-btn">Test</button>';
         list.appendChild(row);
       }
+    }
+
+    async function testTrigger(type) {
+      const btn = document.getElementById('trigger-' + type + '-test-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      try {
+        await fetch('/api/triggers/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type })
+        });
+        if (btn) btn.textContent = '✓';
+      } catch {
+        if (btn) btn.textContent = '✗';
+      }
+      setTimeout(() => { if (btn) { btn.textContent = 'Test'; btn.disabled = false; } }, 2000);
     }
 
     async function saveTriggers() {
