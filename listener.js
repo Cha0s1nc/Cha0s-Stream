@@ -13,7 +13,8 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG',
+  'CHAT_OVERLAY_CONFIG','OVERLAY_MODE',
+  'SEVENTV_ENABLED','BTTV_ENABLED',
   'EVENT_TRIGGERS'
 ];
 
@@ -302,6 +303,20 @@ obs.on('ConnectionClosed', () => {
 });
 
 connectOBS();
+
+// Broadcast OBS state changes to the dashboard in real time
+obs.on('CurrentProgramSceneChanged', ({ sceneName }) => {
+  broadcast({ event: 'obs_scene', scene: sceneName });
+});
+obs.on('StreamStateChanged', ({ outputActive }) => {
+  broadcast({ event: 'obs_stream_state', streaming: outputActive });
+});
+obs.on('RecordStateChanged', ({ outputActive }) => {
+  broadcast({ event: 'obs_record_state', recording: outputActive });
+});
+obs.on('SceneItemEnableStateChanged', ({ sceneName, sceneItemId, sceneItemEnabled }) => {
+  broadcast({ event: 'obs_source', scene: sceneName, id: sceneItemId, enabled: sceneItemEnabled });
+});
 
 // Tracks active OBS source-flash timers so rapid alerts don't conflict
 const obsAlertTimers = new Map();
@@ -1303,8 +1318,9 @@ app.get('/api/jellyfin/search', async (req, res) => {
 });
 
 // --- Alerts route (Browser Source overlay) ---
-app.get('/alerts', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
-app.get('/chat',   (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'chat.html')));
+app.get('/alerts',  (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
+app.get('/chat',    (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'chat.html')));
+app.get('/overlay', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'overlay.html')));
 // ── Chat overlay config ──────────────────────────────────────────
 const CHAT_OVERLAY_DEFAULTS = {
   maxMessages: 8, lifetime: 30000,
@@ -1338,6 +1354,19 @@ app.post('/api/chat/config', (req, res) => {
   persistEnv();
   res.json({ ok: true });
 });
+
+// ── Combined overlay config (mode + alert + chat merged) ──────────────────────
+app.get('/api/overlay/config', (req, res) => {
+  let alertCfg = {};
+  try { const r = process.env.ALERT_CUSTOM_CONFIG; if (r) alertCfg = JSON.parse(r); } catch {}
+  res.json({
+    mode:             process.env.OVERLAY_MODE || 'alerts',
+    alert:            alertCfg,
+    chat:             { ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}) },
+    browserSourceUrl: `http://localhost:${PORT}/overlay`,
+  });
+});
+
 // ── 7TV persistent emote cache ────────────────────────────────────────────────
 const SEVENTV_CACHE_FILE = require('path').join(__dirname, 'emote-cache.json');
 const SEVENTV_TTL_MS     = 30 * 60 * 1000; // re-check every 30 min
@@ -1422,11 +1451,13 @@ app.get('/api/chat/emotes', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (cacheValid) return res.json(sevenTvEmoteCache);
 
-    const map     = {};
-    const HEADERS = { 'User-Agent': 'Cha0sStream/1.0' };
+    const map          = {};
+    const HEADERS      = { 'User-Agent': 'Cha0sStream/1.0' };
+    const sevenTvOn    = process.env.SEVENTV_ENABLED !== 'false';
+    const bttvOn       = process.env.BTTV_ENABLED    !== 'false';
 
     // ── Global 7TV emotes ─────────────────────────────────────────
-    try {
+    if (sevenTvOn) try {
       const r = await fetch('https://7tv.io/v3/emote-sets/global', { headers: HEADERS });
       if (r.ok) {
         const data = await r.json();
@@ -1444,7 +1475,7 @@ app.get('/api/chat/emotes', async (req, res) => {
     }
 
     // ── Channel 7TV emotes ────────────────────────────────────────
-    if (broadcasterId) {
+    if (sevenTvOn && broadcasterId) {
       try {
         const r = await fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`, { headers: HEADERS });
         if (r.ok) {
@@ -1464,7 +1495,7 @@ app.get('/api/chat/emotes', async (req, res) => {
     }
 
     // ── Global BTTV emotes ────────────────────────────────────────
-    try {
+    if (bttvOn) try {
       const r = await fetch('https://api.betterttv.net/3/cached/emotes/global', { headers: HEADERS });
       if (r.ok) {
         const data = await r.json();
@@ -1484,7 +1515,7 @@ app.get('/api/chat/emotes', async (req, res) => {
     }
 
     // ── Channel BTTV emotes ───────────────────────────────────────
-    if (broadcasterId) {
+    if (bttvOn && broadcasterId) {
       try {
         const r = await fetch(`https://api.betterttv.net/3/cached/users/twitch/${broadcasterId}`, { headers: HEADERS });
         if (r.ok) {
@@ -1764,6 +1795,92 @@ app.post('/api/redeems', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- OBS Control API ---
+app.get('/api/obs/scenes', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  try {
+    const { scenes, currentProgramSceneName } = await obs.call('GetSceneList');
+    res.json({ scenes: scenes.map(s => s.sceneName).reverse(), current: currentProgramSceneName });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/obs/scene', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  const { scene } = req.body;
+  if (!scene) return res.status(400).json({ error: 'scene required' });
+  try {
+    await obs.call('SetCurrentProgramScene', { sceneName: scene });
+    broadcast({ event: 'obs_scene', scene });
+    addLog('obs', 'scene', `Switched to "${scene}"`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/obs/sources', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  try {
+    const { scenes, currentProgramSceneName } = await obs.call('GetSceneList');
+    const scene = scenes.find(s => s.sceneName === currentProgramSceneName) || scenes[scenes.length - 1];
+    if (!scene) return res.json({ sources: [], scene: null });
+    const { sceneItems } = await obs.call('GetSceneItemList', { sceneName: scene.sceneName });
+    res.json({
+      scene: scene.sceneName,
+      sources: sceneItems.map(i => ({ id: i.sceneItemId, name: i.sourceName, enabled: i.sceneItemEnabled }))
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/obs/source', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  const { scene, id, enabled } = req.body;
+  if (!scene || id == null) return res.status(400).json({ error: 'scene and id required' });
+  try {
+    await obs.call('SetSceneItemEnabled', { sceneName: scene, sceneItemId: id, sceneItemEnabled: enabled });
+    broadcast({ event: 'obs_source', scene, id, enabled });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/obs/status', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  try {
+    const [streamStatus, recordStatus] = await Promise.all([
+      obs.call('GetStreamStatus'),
+      obs.call('GetRecordStatus'),
+    ]);
+    res.json({
+      streaming: streamStatus.outputActive,
+      streamTime: streamStatus.outputTimecode,
+      recording: recordStatus.outputActive,
+      recordTime: recordStatus.outputTimecode,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/obs/stream', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  const { action } = req.body; // 'start' | 'stop' | 'toggle'
+  try {
+    if (action === 'start')       await obs.call('StartStream');
+    else if (action === 'stop')   await obs.call('StopStream');
+    else if (action === 'toggle') await obs.call('ToggleStream');
+    addLog('obs', 'stream', `Stream ${action}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/obs/record', async (req, res) => {
+  if (!state.obs.connected) return res.status(503).json({ error: 'OBS not connected' });
+  const { action } = req.body; // 'start' | 'stop' | 'toggle'
+  try {
+    if (action === 'start')       await obs.call('StartRecord');
+    else if (action === 'stop')   await obs.call('StopRecord');
+    else if (action === 'toggle') await obs.call('ToggleRecord');
+    addLog('obs', 'record', `Recording ${action}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/commands', (req, res) => res.json({ commands: state.commands }));
 app.post('/api/commands', (req, res) => {
   const { commands } = req.body;
@@ -1919,6 +2036,11 @@ app.post('/settings', (req, res) => {
     if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
     if (process.env.TWITCH_OAUTH) setTimeout(connectTwitchEventSub, 500);
+  }
+  if (updated.some(k => k === 'SEVENTV_ENABLED' || k === 'BTTV_ENABLED')) {
+    // Bust the emote cache so the next overlay fetch picks up the new setting
+    sevenTvCacheTime           = 0;
+    sevenTvCacheHadBroadcaster = false;
   }
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
     const enabled = process.env.MOD_ENABLED !== 'false';

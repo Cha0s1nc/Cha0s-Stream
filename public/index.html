@@ -100,6 +100,38 @@
     .chat-badge.founder     { background: rgba(170,64,213,0.15); color: #aa40d5; }
     .chat-emote { height: 1.4em; width: auto; vertical-align: middle; display: inline-block; margin: 0 1px; }
     .stream-event { font-size: 12px; padding: 6px 8px; background: var(--surface); border-radius: 6px; border-left: 2px solid var(--accent); }
+    /* OBS panel */
+    .obs-panel { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0; }
+    .obs-panel::-webkit-scrollbar { width: 4px; }
+    .obs-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .obs-section { border-bottom: 1px solid var(--border); padding: 14px 16px; }
+    .obs-section-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+    .obs-status-bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface2); flex-shrink: 0; }
+    .obs-status-pill { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; border: 1px solid var(--border); color: var(--text3); background: var(--surface); }
+    .obs-status-pill.active { border-color: rgba(50,215,75,0.35); color: #32d74b; background: rgba(50,215,75,0.08); }
+    .obs-status-pill.active .dot { background: #32d74b; }
+    .obs-status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+    .obs-status-pill .timecode { font-family: var(--font-mono); font-size: 10px; opacity: 0.8; }
+    .obs-ctrl-row { display: flex; gap: 6px; }
+    .obs-ctrl-btn { flex: 1; font-family: var(--font); font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: all 0.15s; text-align: center; }
+    .obs-ctrl-btn:hover { border-color: var(--accent); color: var(--text1); }
+    .obs-ctrl-btn.danger:hover { border-color: var(--red); color: var(--red); }
+    .obs-ctrl-btn.active { background: rgba(50,215,75,0.1); border-color: rgba(50,215,75,0.4); color: #32d74b; }
+    .obs-ctrl-btn.active.danger, .obs-ctrl-btn.active.danger:hover { background: rgba(255,69,58,0.1); border-color: rgba(255,69,58,0.4); color: var(--red); }
+    .scene-grid { display: flex; flex-direction: column; gap: 4px; }
+    .scene-btn { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 500; transition: all 0.15s; text-align: left; width: 100%; }
+    .scene-btn:hover { border-color: var(--accent); color: var(--text1); }
+    .scene-btn.active { border-color: var(--accent); background: rgba(145,71,255,0.1); color: var(--text1); font-weight: 600; }
+    .scene-btn .scene-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+    .scene-btn.active .scene-dot { background: var(--accent); }
+    .source-list { display: flex; flex-direction: column; gap: 4px; }
+    .source-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 7px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; color: var(--text2); gap: 8px; }
+    .source-row.enabled { color: var(--text1); }
+    .source-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* OBS column in stream splitscreen */
+    .stream-wrap.obs-visible { grid-template-columns: 1fr 1fr 1fr; }
+    .obs-col-toggle { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text3); cursor: pointer; user-select: none; padding: 0 4px; }
+    .obs-col-toggle input { accent-color: var(--accent); cursor: pointer; }
     .log-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
     .filter-group { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
     .filter-btn { font-family: var(--font); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 5px; border: none; background: transparent; color: var(--text2); cursor: pointer; transition: all 0.15s; }
@@ -404,6 +436,7 @@
       <div class="dash-tabs visible" id="dash-tabs">
         <button class="dtab active" data-dtab="verbose">Verbose</button>
         <button class="dtab" data-dtab="stream">Twitch Stream</button>
+        <button class="dtab" data-dtab="obs">OBS Controls</button>
       </div>
       <div class="panel-view active" id="tab-dashboard">
         <div class="sub-panel active" id="sub-verbose">
@@ -418,10 +451,38 @@
           </div>
           <div id="log-container"><div class="empty-state">Waiting for commands...</div></div>
         </div>
+        <div class="sub-panel" id="sub-obs">
+          <div class="obs-status-bar">
+            <div class="obs-status-pill" id="obs-stream-pill"><span class="dot"></span><span id="obs-stream-label">Not Streaming</span><span class="timecode" id="obs-stream-time" style="display:none"></span></div>
+            <div class="obs-status-pill" id="obs-record-pill"><span class="dot"></span><span id="obs-record-label">Not Recording</span><span class="timecode" id="obs-record-time" style="display:none"></span></div>
+            <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="loadObsPanel()">↻ Refresh</button>
+          </div>
+          <div class="obs-panel" id="obs-panel-inner">
+            <div class="obs-section">
+              <div class="obs-section-title">Stream &amp; Recording</div>
+              <div class="obs-ctrl-row">
+                <button class="obs-ctrl-btn" id="obs-btn-stream" onclick="obsStreamToggle()">▶ Start Stream</button>
+                <button class="obs-ctrl-btn danger" id="obs-btn-record" onclick="obsRecordToggle()">⏺ Start Recording</button>
+              </div>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title">Scenes</div>
+              <div class="scene-grid" id="obs-scene-list"><div class="empty-state" style="padding:8px 0;font-size:12px">Loading…</div></div>
+            </div>
+            <div class="obs-section">
+              <div class="obs-section-title">Sources <span id="obs-sources-scene-label" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text2);font-size:11px;"></span></div>
+              <div class="source-list" id="obs-source-list"><div class="empty-state" style="padding:8px 0;font-size:12px">Loading…</div></div>
+            </div>
+          </div>
+        </div>
         <div class="sub-panel" id="sub-stream">
           <div class="stream-wrap">
             <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div><div class="stream-chat-input-wrap"><button class="stream-chat-sender-btn" id="stream-chat-sender" title="Click to switch sender account"><span id="stream-chat-sender-icon">🤖</span><span id="stream-chat-sender-label">Bot</span></button><input class="stream-chat-input" id="stream-chat-input" type="text" placeholder="Send a message…" maxlength="500" autocomplete="off" /><button class="stream-chat-send" id="stream-chat-send">Send</button></div></div>
-            <div class="stream-col"><div class="stream-col-header">Events</div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
+            <div class="stream-col"><div class="stream-col-header">Events<label class="obs-col-toggle" title="Show OBS controls alongside events"><input type="checkbox" id="obs-col-toggle" onchange="toggleObsColumn(this.checked)" /> OBS</label></div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
+            <div class="stream-col" id="obs-split-col" style="display:none">
+              <div class="stream-col-header">OBS</div>
+              <div id="obs-split-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -510,54 +571,62 @@
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Port</div><div class="setting-desc">Default is 4455</div></div><input class="setting-input" id="cfg-obs-port" type="text" placeholder="4455" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Password</div><div class="setting-desc">Tools → WebSocket Server Settings</div></div><div class="input-wrap"><input class="setting-input" id="cfg-obs-password" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-obs-password">👁</button></div></div>
           </div>
+          <!-- ── Overlays (Alerts + Chat combined) ── -->
           <div class="settings-group">
-            <div class="settings-group-title">Alerts</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Alert Mode</div><div class="setting-desc">How alerts are displayed on stream.</div></div><div class="seg-control"><button class="seg-btn" data-alertmode="disabled" id="alertmode-disabled">Off</button><button class="seg-btn active" data-alertmode="browser_source" id="alertmode-browser_source">Browser Source</button><button class="seg-btn" data-alertmode="obs_websocket" id="alertmode-obs_websocket">OBS Source</button><button class="seg-btn" data-alertmode="both" id="alertmode-both">Both</button></div></div>
-            <div class="setting-row" id="alert-browser-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add Source → Browser Source in OBS, paste this URL at your canvas resolution.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="alert-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyAlertUrl()">Copy</button></div></div>
-            <div class="setting-row" id="alert-obs-source-row"><div class="setting-label"><div class="setting-name">OBS Source Name</div><div class="setting-desc">Exact name of an OBS source to flash on alert.</div></div><input class="setting-input" id="cfg-alert-obs-source" type="text" placeholder="My Alert Source" /></div>
-            <div class="setting-row" id="alert-obs-duration-row"><div class="setting-label"><div class="setting-name">Alert Duration (ms)</div><div class="setting-desc">How long OBS source stays visible.</div></div><input class="setting-input" id="cfg-alert-duration" type="text" placeholder="5000" style="width:100px;" /></div>
-            <div class="settings-group-subtitle">Alert Appearance</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Which corner alerts stack from.</div></div><div class="seg-control"><button class="seg-btn active" data-alertpos="bottom-left">↙ Bot Left</button><button class="seg-btn" data-alertpos="bottom-right">↘ Bot Right</button><button class="seg-btn" data-alertpos="top-left">↖ Top Left</button><button class="seg-btn" data-alertpos="top-right">↗ Top Right</button></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Animation</div><div class="setting-desc">How alerts enter and exit.</div></div><div class="seg-control"><button class="seg-btn active" data-alertanim="slide-left">← Slide Left</button><button class="seg-btn" data-alertanim="slide-right">→ Slide Right</button><button class="seg-btn" data-alertanim="slide-up">↑ Slide Up</button><button class="seg-btn" data-alertanim="fade">Fade</button></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Display Duration (ms)</div><div class="setting-desc">How long each alert stays on screen.</div></div><input class="setting-input" id="cfg-alert-display-duration" type="text" placeholder="6000" style="width:100px;" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Max Visible</div><div class="setting-desc">Max alerts shown at once.</div></div><input class="setting-input" id="cfg-alert-max-visible" type="text" placeholder="4" style="width:60px;" /></div>
-            <div class="settings-group-subtitle" style="border-top:none;padding-top:6px;">Per-Type Settings</div>
-            <div style="padding:6px 14px 4px;font-size:11px;color:var(--text3);">Toggle each alert type, pick its color, and customize the message.</div>
-            <div class="alert-type-row"><div class="alert-type-name"><span>💜</span> Follow</div><label class="toggle"><input type="checkbox" id="alert-type-follow-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-follow-color" value="#9b59b6" /><input class="alert-msg-input" id="alert-type-follow-message" type="text" value="{user} just followed!" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-follow-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('follow')">📂</button></div></div>
-            <div class="alert-vars-hint">Variables: {user}</div>
-            <div class="alert-type-row"><div class="alert-type-name"><span>⚡</span> Cheer</div><label class="toggle"><input type="checkbox" id="alert-type-cheer-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-cheer-color" value="#ffd60a" /><input class="alert-msg-input" id="alert-type-cheer-message" type="text" value="{user} cheered {bits} bits!" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-cheer-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('cheer')">📂</button></div></div>
-            <div class="alert-vars-hint">Variables: {user} {bits} {message}</div>
-            <div class="alert-type-row"><div class="alert-type-name"><span>⭐</span> Sub</div><label class="toggle"><input type="checkbox" id="alert-type-sub-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-sub-color" value="#ff2d78" /><input class="alert-msg-input" id="alert-type-sub-message" type="text" value="{user} subscribed! ({tier})" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-sub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('sub')">📂</button></div></div>
-            <div class="alert-vars-hint">Variables: {user} {tier}</div>
-            <div class="alert-type-row"><div class="alert-type-name"><span>🔁</span> Resub</div><label class="toggle"><input type="checkbox" id="alert-type-resub-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-resub-color" value="#0ee5ff" /><input class="alert-msg-input" id="alert-type-resub-message" type="text" value="{user} resubbed for {months} months! ({tier})" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-resub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('resub')">📂</button></div></div>
-            <div class="alert-vars-hint">Variables: {user} {tier} {months} {message}</div>
-            <div class="alert-type-row"><div class="alert-type-name"><span>🎁</span> Gift Sub</div><label class="toggle"><input type="checkbox" id="alert-type-giftsub-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-giftsub-color" value="#ff9f0a" /><input class="alert-msg-input" id="alert-type-giftsub-message" type="text" value="{user} gifted {count} subs! ({tier})" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-giftsub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('giftsub')">📂</button></div></div>
-            <div class="alert-vars-hint">Variables: {user} {count} {tier}</div>
-            <div class="custom-css-wrap"><div class="custom-css-toggle" id="css-toggle" onclick="toggleCustomCss()"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— override any alert style</span></div><div class="custom-css-body" id="css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">Paste CSS from the <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor ↗</a> or import a .css file:</span><label class="btn btn-secondary" style="font-size:11px;padding:3px 10px;cursor:pointer;border-radius:5px;border:1px solid var(--border);">📂 Import .css<input type="file" id="css-file-input" accept=".css,text/css" style="display:none;" onchange="importCSSFile(this)"></label></div><textarea class="css-textarea" id="cfg-alert-custom-css" placeholder="/* e.g: .alert { border-radius: 0; } */"></textarea><div class="css-classes-hint">Available: .alert .alert-follow .alert-cheer .alert-sub .alert-resub .alert-giftsub<br>Inner: .alert-icon .alert-label .alert-main — Color var: --alert-color</div></div></div>
-            <div class="alert-style-save-bar"><span class="save-status" id="alert-style-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveAlertConfig()">Save Alert Style</button></div>
-          </div>
+            <div class="settings-group-title">Overlays</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source Mode</div><div class="setting-desc">What this single browser source shows on stream.</div></div><div class="seg-control"><button class="seg-btn active" data-overlaymode="alerts" onclick="setOverlayModeUI('alerts')">Alerts</button><button class="seg-btn" data-overlaymode="chat" onclick="setOverlayModeUI('chat')">Chat</button><button class="seg-btn" data-overlaymode="both" onclick="setOverlayModeUI('both')">Both</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()">Copy</button></div></div>
 
-          <!-- ── Chat Overlay ── -->
-          <div class="settings-group collapsed">
-            <div class="settings-group-title">Chat Overlay</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source at your canvas resolution.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="chat-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyChatUrl()">Copy</button></div></div>
-            <div class="settings-group-subtitle">Layout</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Which side chat messages appear on.</div></div><div class="seg-control"><button class="seg-btn active" data-chatpos="left">← Left</button><button class="seg-btn" data-chatpos="right">Right →</button></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Max Messages</div><div class="setting-desc">Max chat lines visible at once.</div></div><input class="setting-input" id="cfg-chat-max" type="number" min="2" max="20" placeholder="8" style="width:70px;" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Message Lifetime (s)</div><div class="setting-desc">Seconds before a message fades out.</div></div><input class="setting-input" id="cfg-chat-lifetime" type="number" min="5" max="300" placeholder="30" style="width:70px;" /></div>
-            <div class="settings-group-subtitle">Style</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Font Size (px)</div></div><input class="setting-input" id="cfg-chat-fontsize" type="number" min="10" max="28" placeholder="15" style="width:70px;" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Background</div><div class="setting-desc">Message bubble colour and opacity %.</div></div><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="cfg-chat-bg-color" value="#000000" style="width:34px;height:28px;padding:2px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;" /><input class="setting-input" id="cfg-chat-bg-opacity" type="number" min="0" max="100" placeholder="75" style="width:60px;" /><span style="font-size:11px;color:var(--text3);">%</span></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Badges</div><div class="setting-desc">Display mod / sub / VIP badge pills.</div></div><label class="toggle"><input type="checkbox" id="cfg-chat-badges" checked /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Timestamps</div></div><label class="toggle"><input type="checkbox" id="cfg-chat-timestamps" /><span class="toggle-track"></span></label></div>
-            <div class="custom-css-wrap"><div class="custom-css-toggle" onclick="this.nextElementSibling.classList.toggle('open')"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— paste from Overlay Editor</span></div><div class="custom-css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">From <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor → Chat tab ↗</a></span></div><textarea class="css-textarea" id="cfg-chat-custom-css" placeholder="/* .chat-msg { } .chat-name { } */"></textarea><div class="css-classes-hint">body · .chat-msg · .chat-name · .chat-text · .chat-badge · .chat-badges · .chat-ts</div></div></div>
-            <div class="alert-style-save-bar"><span class="save-status" id="chat-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveChatConfig()">Save Chat Settings</button></div>
+            <!-- ── Alerts settings ── -->
+            <div id="overlay-alerts-settings">
+              <div class="settings-group-subtitle">Alert Delivery</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Delivery Method</div><div class="setting-desc">How alerts fire on stream.</div></div><div class="seg-control"><button class="seg-btn" data-alertmode="disabled" id="alertmode-disabled">Off</button><button class="seg-btn active" data-alertmode="browser_source" id="alertmode-browser_source">Browser Source</button><button class="seg-btn" data-alertmode="obs_websocket" id="alertmode-obs_websocket">OBS Source</button><button class="seg-btn" data-alertmode="both" id="alertmode-both">Both</button></div></div>
+              <div class="setting-row" id="alert-obs-source-row"><div class="setting-label"><div class="setting-name">OBS Source Name</div><div class="setting-desc">Exact name of an OBS source to flash on alert.</div></div><input class="setting-input" id="cfg-alert-obs-source" type="text" placeholder="My Alert Source" /></div>
+              <div class="setting-row" id="alert-obs-duration-row"><div class="setting-label"><div class="setting-name">Alert Duration (ms)</div><div class="setting-desc">How long OBS source stays visible.</div></div><input class="setting-input" id="cfg-alert-duration" type="text" placeholder="5000" style="width:100px;" /></div>
+              <div class="settings-group-subtitle">Alert Appearance</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Which corner alerts stack from.</div></div><div class="seg-control"><button class="seg-btn active" data-alertpos="bottom-left">↙ Bot Left</button><button class="seg-btn" data-alertpos="bottom-right">↘ Bot Right</button><button class="seg-btn" data-alertpos="top-left">↖ Top Left</button><button class="seg-btn" data-alertpos="top-right">↗ Top Right</button></div></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Animation</div><div class="setting-desc">How alerts enter and exit.</div></div><div class="seg-control"><button class="seg-btn active" data-alertanim="slide-left">← Slide Left</button><button class="seg-btn" data-alertanim="slide-right">→ Slide Right</button><button class="seg-btn" data-alertanim="slide-up">↑ Slide Up</button><button class="seg-btn" data-alertanim="fade">Fade</button></div></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Display Duration (ms)</div><div class="setting-desc">How long each alert stays on screen.</div></div><input class="setting-input" id="cfg-alert-display-duration" type="text" placeholder="6000" style="width:100px;" /></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Max Visible</div><div class="setting-desc">Max alerts shown at once.</div></div><input class="setting-input" id="cfg-alert-max-visible" type="text" placeholder="4" style="width:60px;" /></div>
+              <div class="settings-group-subtitle" style="border-top:none;padding-top:6px;">Per-Type Settings</div>
+              <div style="padding:6px 14px 4px;font-size:11px;color:var(--text3);">Toggle each alert type, pick its color, and customize the message.</div>
+              <div class="alert-type-row"><div class="alert-type-name"><span>💜</span> Follow</div><label class="toggle"><input type="checkbox" id="alert-type-follow-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-follow-color" value="#9b59b6" /><input class="alert-msg-input" id="alert-type-follow-message" type="text" value="{user} just followed!" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-follow-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('follow')">📂</button></div></div>
+              <div class="alert-vars-hint">Variables: {user}</div>
+              <div class="alert-type-row"><div class="alert-type-name"><span>⚡</span> Cheer</div><label class="toggle"><input type="checkbox" id="alert-type-cheer-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-cheer-color" value="#ffd60a" /><input class="alert-msg-input" id="alert-type-cheer-message" type="text" value="{user} cheered {bits} bits!" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-cheer-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('cheer')">📂</button></div></div>
+              <div class="alert-vars-hint">Variables: {user} {bits} {message}</div>
+              <div class="alert-type-row"><div class="alert-type-name"><span>⭐</span> Sub</div><label class="toggle"><input type="checkbox" id="alert-type-sub-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-sub-color" value="#ff2d78" /><input class="alert-msg-input" id="alert-type-sub-message" type="text" value="{user} subscribed! ({tier})" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-sub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('sub')">📂</button></div></div>
+              <div class="alert-vars-hint">Variables: {user} {tier}</div>
+              <div class="alert-type-row"><div class="alert-type-name"><span>🔁</span> Resub</div><label class="toggle"><input type="checkbox" id="alert-type-resub-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-resub-color" value="#0ee5ff" /><input class="alert-msg-input" id="alert-type-resub-message" type="text" value="{user} resubbed for {months} months! ({tier})" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-resub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('resub')">📂</button></div></div>
+              <div class="alert-vars-hint">Variables: {user} {tier} {months} {message}</div>
+              <div class="alert-type-row"><div class="alert-type-name"><span>🎁</span> Gift Sub</div><label class="toggle"><input type="checkbox" id="alert-type-giftsub-enabled" checked /><span class="toggle-track"></span></label><input type="color" class="color-swatch" id="alert-type-giftsub-color" value="#ff9f0a" /><input class="alert-msg-input" id="alert-type-giftsub-message" type="text" value="{user} gifted {count} subs! ({tier})" /><div style="display:flex;gap:4px;"><input class="alert-msg-input" id="alert-type-giftsub-sound" type="text" placeholder="🔊 sound (optional)" style="flex:1;min-width:0;font-size:11px;" /><button class="btn btn-secondary" style="padding:0 6px;font-size:13px;flex-shrink:0;" onclick="alertSoundUpload('giftsub')">📂</button></div></div>
+              <div class="alert-vars-hint">Variables: {user} {count} {tier}</div>
+              <div class="custom-css-wrap"><div class="custom-css-toggle" id="css-toggle" onclick="toggleCustomCss()"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— override any alert style</span></div><div class="custom-css-body" id="css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">Paste CSS from the <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor ↗</a> or import a .css file:</span><label class="btn btn-secondary" style="font-size:11px;padding:3px 10px;cursor:pointer;border-radius:5px;border:1px solid var(--border);">📂 Import .css<input type="file" id="css-file-input" accept=".css,text/css" style="display:none;" onchange="importCSSFile(this)"></label></div><textarea class="css-textarea" id="cfg-alert-custom-css" placeholder="/* e.g: .alert { border-radius: 0; } */"></textarea><div class="css-classes-hint">Available: .alert .alert-follow .alert-cheer .alert-sub .alert-resub .alert-giftsub<br>Inner: .alert-icon .alert-label .alert-main — Color var: --alert-color</div></div></div>
+              <div class="alert-style-save-bar"><span class="save-status" id="alert-style-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveAlertConfig()">Save Alert Settings</button></div>
+            </div>
+
+            <!-- ── Chat settings ── -->
+            <div id="overlay-chat-settings" style="display:none">
+              <div class="settings-group-subtitle">Chat Layout</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Which side chat messages appear on.</div></div><div class="seg-control"><button class="seg-btn active" data-chatpos="left">← Left</button><button class="seg-btn" data-chatpos="right">Right →</button></div></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Max Messages</div><div class="setting-desc">Max chat lines visible at once.</div></div><input class="setting-input" id="cfg-chat-max" type="number" min="2" max="20" placeholder="8" style="width:70px;" /></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Message Lifetime (s)</div><div class="setting-desc">Seconds before a message fades out.</div></div><input class="setting-input" id="cfg-chat-lifetime" type="number" min="5" max="300" placeholder="30" style="width:70px;" /></div>
+              <div class="settings-group-subtitle">Chat Style</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Font Size (px)</div></div><input class="setting-input" id="cfg-chat-fontsize" type="number" min="10" max="28" placeholder="15" style="width:70px;" /></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Background</div><div class="setting-desc">Message bubble colour and opacity %.</div></div><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="cfg-chat-bg-color" value="#000000" style="width:34px;height:28px;padding:2px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;" /><input class="setting-input" id="cfg-chat-bg-opacity" type="number" min="0" max="100" placeholder="75" style="width:60px;" /><span style="font-size:11px;color:var(--text3);">%</span></div></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Badges</div><div class="setting-desc">Display mod / sub / VIP badge pills.</div></div><label class="toggle"><input type="checkbox" id="cfg-chat-badges" checked /><span class="toggle-track"></span></label></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Show Timestamps</div></div><label class="toggle"><input type="checkbox" id="cfg-chat-timestamps" /><span class="toggle-track"></span></label></div>
+
+              <div class="custom-css-wrap"><div class="custom-css-toggle" onclick="this.nextElementSibling.classList.toggle('open')"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— paste from Overlay Editor</span></div><div class="custom-css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">From <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor → Chat tab ↗</a></span></div><textarea class="css-textarea" id="cfg-chat-custom-css" placeholder="/* .chat-msg { } .chat-name { } */"></textarea><div class="css-classes-hint">body · .chat-msg · .chat-name · .chat-text · .chat-badge · .chat-badges · .chat-ts</div></div></div>
+              <div class="alert-style-save-bar"><span class="save-status" id="chat-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveChatConfig()">Save Chat Settings</button></div>
+            </div>
           </div>
 
           <div class="settings-group">
             <div class="settings-group-title">Twitch</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Account <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional)</span></div><div class="setting-desc" id="oauth-bot-status-text">A separate account for chat responses.</div></div><button id="btn-get-bot-token" class="btn btn-secondary btn-sm" onclick="startBotOAuth()">Connect Bot</button></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">7TV Emotes</div><div class="setting-desc">Render 7TV global and channel emotes in chat.</div></div><label class="toggle"><input type="checkbox" id="cfg-seventv-enabled" /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">BTTV Emotes</div><div class="setting-desc">Render BetterTTV global and channel emotes in chat.</div></div><label class="toggle"><input type="checkbox" id="cfg-bttv-enabled" /><span class="toggle-track"></span></label></div>
             <details id="twitch-advanced" style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span id="adv-arrow" style="font-size:9px;transition:transform 0.15s;">▶</span> Advanced</summary><div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Channel</div><div class="setting-desc">Auto-filled on connect.</div></div><input class="setting-input" id="cfg-twitch-channel" type="text" placeholder="yourchannel" /></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Username</div><div class="setting-desc">Auto-filled on bot connect.</div></div><input class="setting-input" id="cfg-twitch-bot-username" type="text" placeholder="mybotaccount" /></div>
@@ -645,6 +714,7 @@
         const dashTabs = document.getElementById('dash-tabs');
         if (dashTabs) dashTabs.classList.toggle('visible', panel === 'dashboard');
         if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadSounds(); }
+        if (panel === 'commands') { renderCommandsTable(); renderCustomCommandsTable(); loadTriggers(); }
         if (panel === 'plugins') { loadPlugins(); }
         // Collapse sidenav after click
         sidenav.classList.remove('expanded');
@@ -659,6 +729,7 @@
         document.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById(`sub-${btn.dataset.dtab}`)?.classList.add('active');
+        if (btn.dataset.dtab === 'obs') { loadObsPanel(); startObsStatusPoll(); }
       });
     });
 
@@ -686,8 +757,8 @@
           totalCommands = data.log.length;
           totalErrors = data.log.filter(l => !l.ok).length;
           updateStats();
-          if (data.commands) { commandsConfig = data.commands; }
-          if (data.customCommands) { customCommandsConfig = data.customCommands; }
+          if (data.commands) { commandsConfig = data.commands; renderCommandsTable(); }
+          if (data.customCommands) { customCommandsConfig = data.customCommands; renderCustomCommandsTable(); }
           if (data.plugins) { renderPlugins(data.plugins); }
           // Apply modes from server
           if (data.mediaMode) setMediaModeUI(data.mediaMode);
@@ -738,7 +809,7 @@
           commandsConfig = data.commands;
           renderCommandsTable();
         } else if (data.event === 'custom_commands_update') {
-          customCommandsConfig = data.commands;
+          customCommandsConfig = data.customCommands;
           renderCustomCommandsTable();
         } else if (data.event === 'plugins_update') {
           loadPlugins();
@@ -786,6 +857,16 @@
           addStreamChatMessage(data);
         } else if (data.event === 'alert') {
           addStreamEvent(data);
+        } else if (['obs_scene','obs_stream_state','obs_record_state','obs_source'].includes(data.event)) {
+          applyObsWsEvent(data);
+          // Keep split column in sync too
+          if (document.getElementById('obs-split-col').style.display !== 'none') {
+            const sb = document.getElementById('obs-split-stream-btn');
+            const rb = document.getElementById('obs-split-record-btn');
+            if (data.event === 'obs_stream_state') { if (sb) sb.textContent = data.streaming ? '⏹ Stop' : '▶ Stream'; }
+            if (data.event === 'obs_record_state') { if (rb) rb.textContent = data.recording ? '⏹ Stop' : '⏺ Record'; }
+            if (data.event === 'obs_scene') syncObsSplitCol();
+          }
         }
       };
     }
@@ -987,6 +1068,180 @@
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    // ── OBS Controls ─────────────────────────────────────────────────────
+    let obsCurrentScene = null;
+    let obsStreaming = false;
+    let obsRecording = false;
+    let obsSourcesScene = null;
+    let obsStatusInterval = null;
+
+    async function loadObsPanel() {
+      if (!document.getElementById('sub-obs').classList.contains('active') &&
+          !document.getElementById('obs-split-col').style.display !== 'none') return;
+      await Promise.all([loadObsScenes(), loadObsSources(), loadObsStatus()]);
+    }
+
+    async function loadObsScenes() {
+      try {
+        const r = await fetch('/api/obs/scenes');
+        if (!r.ok) { renderObsScenesError(); return; }
+        const { scenes, current } = await r.json();
+        obsCurrentScene = current;
+        const list = document.getElementById('obs-scene-list');
+        if (!list) return;
+        list.innerHTML = scenes.map(s => `
+          <button class="scene-btn ${s === current ? 'active' : ''}" onclick="obsSetScene(${JSON.stringify(s)})">
+            <span class="scene-dot"></span>${escHtml(s)}
+          </button>`).join('');
+      } catch { renderObsScenesError(); }
+    }
+
+    function renderObsScenesError() {
+      const list = document.getElementById('obs-scene-list');
+      if (list) list.innerHTML = '<div class="empty-state" style="padding:8px 0;font-size:12px;color:var(--red)">OBS not connected</div>';
+    }
+
+    async function loadObsSources() {
+      try {
+        const r = await fetch('/api/obs/sources');
+        if (!r.ok) return;
+        const { scene, sources } = await r.json();
+        obsSourcesScene = scene;
+        const label = document.getElementById('obs-sources-scene-label');
+        if (label) label.textContent = scene ? `— ${scene}` : '';
+        const list = document.getElementById('obs-source-list');
+        if (!list) return;
+        if (!sources.length) { list.innerHTML = '<div class="empty-state" style="padding:8px 0;font-size:12px">No sources in scene</div>'; return; }
+        list.innerHTML = sources.map(src => `
+          <div class="source-row ${src.enabled ? 'enabled' : ''}" id="src-row-${src.id}">
+            <span class="source-name" title="${escHtml(src.name)}">${escHtml(src.name)}</span>
+            <label class="toggle"><input type="checkbox" ${src.enabled ? 'checked' : ''} onchange="obsToggleSource(${src.id}, this.checked)" /><span class="toggle-track"></span></label>
+          </div>`).join('');
+      } catch {}
+    }
+
+    async function loadObsStatus() {
+      try {
+        const r = await fetch('/api/obs/status');
+        if (!r.ok) { updateObsStatusPills(false, false, null, null); return; }
+        const d = await r.json();
+        updateObsStatusPills(d.streaming, d.recording, d.streamTime, d.recordTime);
+      } catch { updateObsStatusPills(false, false, null, null); }
+    }
+
+    function updateObsStatusPills(streaming, recording, streamTime, recordTime) {
+      obsStreaming = streaming;
+      obsRecording = recording;
+
+      const sp = document.getElementById('obs-stream-pill');
+      const sl = document.getElementById('obs-stream-label');
+      const st = document.getElementById('obs-stream-time');
+      if (sp && sl) {
+        sp.classList.toggle('active', streaming);
+        sl.textContent = streaming ? 'Live' : 'Not Streaming';
+        if (st) { st.style.display = streaming && streamTime ? '' : 'none'; st.textContent = streamTime ? streamTime.split('.')[0] : ''; }
+      }
+
+      const rp = document.getElementById('obs-record-pill');
+      const rl = document.getElementById('obs-record-label');
+      const rt = document.getElementById('obs-record-time');
+      if (rp && rl) {
+        rp.classList.toggle('active', recording);
+        rl.textContent = recording ? 'Recording' : 'Not Recording';
+        if (rt) { rt.style.display = recording && recordTime ? '' : 'none'; rt.textContent = recordTime ? recordTime.split('.')[0] : ''; }
+      }
+
+      const sb = document.getElementById('obs-btn-stream');
+      if (sb) { sb.textContent = streaming ? '⏹ Stop Stream' : '▶ Start Stream'; sb.classList.toggle('active', streaming); }
+      const rb = document.getElementById('obs-btn-record');
+      if (rb) { rb.textContent = recording ? '⏹ Stop Recording' : '⏺ Start Recording'; rb.classList.toggle('active', recording); }
+    }
+
+    async function obsSetScene(scene) {
+      try {
+        await fetch('/api/obs/scene', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene }) });
+      } catch {}
+    }
+
+    async function obsToggleSource(id, enabled) {
+      if (!obsSourcesScene) return;
+      try {
+        await fetch('/api/obs/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: obsSourcesScene, id, enabled }) });
+        const row = document.getElementById(`src-row-${id}`);
+        if (row) row.classList.toggle('enabled', enabled);
+      } catch {}
+    }
+
+    async function obsStreamToggle() {
+      if (!obsStreaming && !confirm('Start stream? This will go live on Twitch.')) return;
+      try { await fetch('/api/obs/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle' }) }); } catch {}
+    }
+
+    async function obsRecordToggle() {
+      try { await fetch('/api/obs/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle' }) }); } catch {}
+    }
+
+    function applyObsWsEvent(data) {
+      if (data.event === 'obs_scene') {
+        obsCurrentScene = data.scene;
+        document.querySelectorAll('.scene-btn').forEach(b => {
+          const active = b.textContent.trim() === data.scene;
+          b.classList.toggle('active', active);
+          b.querySelector('.scene-dot')?.classList.toggle('active', active);
+        });
+        // Sources will change when scene changes — reload
+        loadObsSources();
+      } else if (data.event === 'obs_stream_state') {
+        updateObsStatusPills(data.streaming, obsRecording, null, null);
+        if (data.streaming) loadObsStatus(); // get timecodes
+      } else if (data.event === 'obs_record_state') {
+        updateObsStatusPills(obsStreaming, data.recording, null, null);
+        if (data.recording) loadObsStatus();
+      } else if (data.event === 'obs_source') {
+        const row = document.getElementById(`src-row-${data.id}`);
+        if (row) {
+          row.classList.toggle('enabled', data.enabled);
+          const cb = row.querySelector('input[type=checkbox]');
+          if (cb) cb.checked = data.enabled;
+        }
+      }
+    }
+
+    // Clone OBS panel content into the split-screen column
+    function syncObsSplitCol() {
+      const col = document.getElementById('obs-split-content');
+      if (!col) return;
+      // Render a lightweight version — scene buttons only
+      fetch('/api/obs/scenes').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        col.innerHTML = `
+          <div style="padding:8px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;flex:1;">
+            ${d.scenes.map(s => `<button class="scene-btn ${s === d.current ? 'active' : ''}" onclick="obsSetScene(${JSON.stringify(s)})"  style="font-size:11px;padding:6px 8px;"><span class="scene-dot"></span>${escHtml(s)}</button>`).join('')}
+          </div>
+          <div style="padding:6px 8px;border-top:1px solid var(--border);display:flex;gap:5px;flex-shrink:0;">
+            <button class="obs-ctrl-btn" id="obs-split-stream-btn" style="font-size:11px;padding:5px 6px;" onclick="obsStreamToggle()">${obsStreaming ? '⏹ Stop' : '▶ Stream'}</button>
+            <button class="obs-ctrl-btn danger" id="obs-split-record-btn" style="font-size:11px;padding:5px 6px;" onclick="obsRecordToggle()">${obsRecording ? '⏹ Stop' : '⏺ Record'}</button>
+          </div>`;
+      }).catch(() => {});
+    }
+
+    function toggleObsColumn(show) {
+      const col = document.getElementById('obs-split-col');
+      const wrap = col?.closest('.stream-wrap');
+      if (!col || !wrap) return;
+      col.style.display = show ? 'flex' : 'none';
+      wrap.classList.toggle('obs-visible', show);
+      if (show) syncObsSplitCol();
+    }
+
+    // Poll status every 5s while OBS tab is active
+    function startObsStatusPoll() {
+      if (obsStatusInterval) return;
+      obsStatusInterval = setInterval(() => {
+        if (document.getElementById('sub-obs').classList.contains('active')) loadObsStatus();
+      }, 5000);
+    }
+
     async function reconnectService(service) {
       try {
         await fetch(`/api/reconnect/${service}`, { method: 'POST' });
@@ -1075,19 +1330,37 @@
     function setAlertModeUI(mode) {
       alertMode = mode;
       document.querySelectorAll('.seg-btn[data-alertmode]').forEach(b => b.classList.toggle('active', b.dataset.alertmode === mode));
-      const showBrowser = mode === 'browser_source' || mode === 'both';
-      const showObs     = mode === 'obs_websocket'  || mode === 'both';
-      document.getElementById('alert-browser-row').style.display     = showBrowser ? 'flex' : 'none';
-      document.getElementById('alert-obs-source-row').style.display  = showObs     ? 'flex' : 'none';
-      document.getElementById('alert-obs-duration-row').style.display = showObs    ? 'flex' : 'none';
+      const showObs = mode === 'obs_websocket' || mode === 'both';
+      document.getElementById('alert-obs-source-row').style.display  = showObs ? 'flex' : 'none';
+      document.getElementById('alert-obs-duration-row').style.display = showObs ? 'flex' : 'none';
     }
 
     document.querySelectorAll('.seg-btn[data-alertmode]').forEach(btn => {
       btn.addEventListener('click', () => setAlertModeUI(btn.dataset.alertmode));
     });
 
-    function copyAlertUrl() {
-      const url = document.getElementById('alert-browser-url')?.textContent;
+    // --- Overlay mode UI ---
+    let overlayMode = 'alerts';
+
+    function setOverlayModeUI(mode) {
+      overlayMode = mode;
+      document.querySelectorAll('.seg-btn[data-overlaymode]').forEach(b => b.classList.toggle('active', b.dataset.overlaymode === mode));
+      document.getElementById('overlay-alerts-settings').style.display = (mode === 'chat')   ? 'none' : '';
+      document.getElementById('overlay-chat-settings').style.display   = (mode === 'alerts') ? 'none' : '';
+      const urlEl = document.getElementById('overlay-browser-url');
+      if (urlEl) {
+        if (mode === 'alerts') urlEl.textContent = `http://${location.host}/alerts`;
+        else if (mode === 'chat') urlEl.textContent = `http://${location.host}/chat`;
+        else urlEl.textContent = `http://${location.host}/overlay`;
+      }
+    }
+
+    document.querySelectorAll('.seg-btn[data-overlaymode]').forEach(btn => {
+      btn.addEventListener('click', () => setOverlayModeUI(btn.dataset.overlaymode));
+    });
+
+    function copyOverlayUrl() {
+      const url = document.getElementById('overlay-browser-url')?.textContent;
       if (url && url !== 'loading…') {
         navigator.clipboard.writeText(url).then(() => {
           const btn = event.target;
@@ -1097,8 +1370,8 @@
       }
     }
 
-    // Set initial alert URL and hide OBS rows by default
-    document.getElementById('alert-browser-url').textContent = `http://${location.host}/alerts`;
+    // Set initial overlay mode UI
+    setOverlayModeUI('alerts');
     setAlertModeUI('browser_source');
 
     // --- Filters ---
@@ -1618,7 +1891,10 @@
         if (saved.MEDIA_CONTROL_MODE) setMediaModeUI(saved.MEDIA_CONTROL_MODE);
         if (saved.SONG_REQUEST_MODE) setSrModeUI(saved.SONG_REQUEST_MODE);
         if (saved.ALERT_MODE) setAlertModeUI(saved.ALERT_MODE);
+        if (saved.OVERLAY_MODE) setOverlayModeUI(saved.OVERLAY_MODE);
         document.getElementById('cfg-sr-enabled').checked = saved.SONG_REQUEST_ENABLED !== 'false';
+        document.getElementById('cfg-seventv-enabled').checked = saved.SEVENTV_ENABLED === 'true';
+        document.getElementById('cfg-bttv-enabled').checked    = saved.BTTV_ENABLED    === 'true';
         const modEnabled = saved.MOD_ENABLED !== 'false';
         document.getElementById('cfg-mod-enabled').checked = modEnabled;
         modPortRow.style.opacity = modEnabled ? '1' : '0.4';
@@ -1648,7 +1924,10 @@
       settings.MEDIA_CONTROL_MODE = mediaMode;
       settings.SONG_REQUEST_MODE = srMode;
       settings.SONG_REQUEST_ENABLED = document.getElementById('cfg-sr-enabled').checked ? 'true' : 'false';
+      settings.SEVENTV_ENABLED      = document.getElementById('cfg-seventv-enabled').checked ? 'true' : 'false';
+      settings.BTTV_ENABLED         = document.getElementById('cfg-bttv-enabled').checked    ? 'true' : 'false';
       settings.ALERT_MODE = alertMode;
+      settings.OVERLAY_MODE = overlayMode;
       settings.MOD_ENABLED = document.getElementById('cfg-mod-enabled').checked ? 'true' : 'false';
       if (isElectron) {
         await window.electronAPI.saveSettings(settings);
@@ -2072,7 +2351,7 @@
         const r = await fetch('/api/chat/config');
         if (!r.ok) return;
         const c = await r.json();
-        if (c.browserSourceUrl) document.getElementById('chat-browser-url').textContent = c.browserSourceUrl;
+        // browser URL is managed by setOverlayModeUI
 
         // Position
         document.querySelectorAll('.seg-btn[data-chatpos]').forEach(b => b.classList.toggle('active', b.dataset.chatpos === (c.position || 'left')));
@@ -2116,10 +2395,7 @@
       } catch {}
     }
 
-    function copyChatUrl() {
-      const url = document.getElementById('chat-browser-url')?.textContent;
-      if (url && url !== 'loading…') navigator.clipboard.writeText(url).catch(() => {});
-    }
+    function copyChatUrl() { copyOverlayUrl(); }
 
     // --- Event Triggers ---
     var TRIGGER_META = {

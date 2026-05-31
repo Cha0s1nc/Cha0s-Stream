@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cha0s Overlay</title>
+<style id="base-styles">
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: transparent;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+  }
+
+  /* ── Alert layer ───────────────────────────────────── */
+  #alert-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    padding: 16px;
+    gap: 10px;
+  }
+
+  .alert {
+    width: 420px;
+    max-width: 100%;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    box-shadow: 0 6px 28px rgba(0,0,0,0.65);
+    background: rgba(20,20,25,0.92);
+    border-left: 4px solid var(--alert-color, #9b59b6);
+    color: #fff;
+    will-change: transform, opacity;
+  }
+  .alert-icon  { font-size: 30px; flex-shrink: 0; line-height: 1; }
+  .alert-body  { flex: 1; min-width: 0; }
+  .alert-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9; margin-bottom: 2px; color: var(--alert-color, #9b59b6); }
+  .alert-main  { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+  .alert-sub   { font-size: 12px; font-weight: 400; opacity: 0.75; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+
+  /* ── Chat layer ────────────────────────────────────── */
+  #chat-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    padding: 12px;
+    gap: 6px;
+  }
+  #chat-layer.pos-right { align-items: flex-end; }
+
+  .chat-msg {
+    max-width: 94%;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    font-size: 15px;
+    line-height: 1.5;
+    word-break: break-word;
+    will-change: transform, opacity;
+    animation: msgIn 0.3s cubic-bezier(0.34,1.4,0.64,1) forwards;
+  }
+  .chat-msg.leaving { animation: msgOut 0.4s ease forwards; }
+  @keyframes msgIn    { from { transform: translateX(-16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes msgOut   { to   { transform: translateX(-16px); opacity: 0; } }
+  #chat-layer.pos-right .chat-msg { animation-name: msgInRight; }
+  #chat-layer.pos-right .chat-msg.leaving { animation-name: msgOutRight; }
+  @keyframes msgInRight  { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes msgOutRight { to   { transform: translateX(16px); opacity: 0; } }
+
+  .chat-badges { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 5px; }
+  .chat-badge  { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.6; }
+  .chat-badge.sub         { background: rgba(145,71,255,0.15);  color: #9147ff; }
+  .chat-badge.mod         { background: rgba(0,173,3,0.15);     color: #00ad03; }
+  .chat-badge.vip         { background: rgba(224,5,185,0.15);   color: #e005b9; }
+  .chat-badge.broadcaster { background: rgba(255,68,68,0.15);   color: #ff4444; }
+  .chat-badge.founder     { background: rgba(170,64,213,0.15);  color: #aa40d5; }
+  .chat-name   { font-weight: 700; margin-right: 3px; }
+  .chat-colon  { opacity: 0.5; margin-right: 4px; }
+  .chat-ts     { font-size: 10px; color: rgba(255,255,255,0.35); margin-left: 7px; vertical-align: middle; }
+  .chat-emote  { height: 1.8em; width: auto; vertical-align: middle; display: inline-block; margin: 0 1px; }
+</style>
+<style id="alert-anim-styles"></style>
+<style id="custom-alert-styles"></style>
+<style id="dyn-chat-styles"></style>
+<style id="custom-chat-styles"></style>
+</head>
+<body>
+  <div id="alert-layer"></div>
+  <div id="chat-layer"></div>
+
+<script>
+  // ── Mode ───────────────────────────────────────────────────────
+  let MODE = 'alerts'; // overridden by config
+
+  // ════════════════════════════════════════
+  //  ALERTS
+  // ════════════════════════════════════════
+  let ALERT_CFG = {
+    position: 'bottom-left', duration: 6000, animation: 'slide-left', maxVisible: 4,
+    customCSS: '',
+    types: {
+      follow:  { enabled: true, color: '#9b59b6', message: '{user} just followed!',                         icon: '💜', label: 'New Follower'   },
+      cheer:   { enabled: true, color: '#ffd60a', message: '{user} cheered {bits} bits!',                   icon: '⚡', label: 'Cheer'           },
+      sub:     { enabled: true, color: '#ff2d78', message: '{user} subscribed! ({tier})',                   icon: '⭐', label: 'New Subscriber' },
+      resub:   { enabled: true, color: '#0ee5ff', message: '{user} resubbed for {months} months! ({tier})', icon: '🔁', label: 'Resubscribed'   },
+      giftsub: { enabled: true, color: '#ff9f0a', message: '{user} gifted {count} subs! ({tier})',          icon: '🎁', label: 'Gift Subs'      },
+    }
+  };
+
+  function applyAlertConfig() {
+    const layer = document.getElementById('alert-layer');
+    const p = ALERT_CFG.position || 'bottom-left';
+    const isBottom = p === 'bottom-left' || p === 'bottom-right';
+    const isLeft   = p === 'bottom-left' || p === 'top-left';
+    layer.style.flexDirection = isBottom ? 'column-reverse' : 'column';
+    layer.style.alignItems    = isLeft   ? 'flex-start'     : 'flex-end';
+
+    const anim = ALERT_CFG.animation || 'slide-left';
+    let inFrom, inTo, outTo;
+    switch (anim) {
+      case 'slide-right': inFrom = 'translateX(130%)';  inTo = 'translateX(0)'; outTo = 'translateX(130%)';  break;
+      case 'slide-up':    inFrom = 'translateY(80px)';  inTo = 'translateY(0)'; outTo = 'translateY(80px)';  break;
+      case 'fade':        inFrom = 'translateX(0)';     inTo = 'translateX(0)'; outTo = 'translateX(0)';     break;
+      default:            inFrom = 'translateX(-130%)'; inTo = 'translateX(0)'; outTo = 'translateX(-130%)'; break;
+    }
+    document.getElementById('alert-anim-styles').textContent = `
+      @keyframes alertIn  { from { transform: ${inFrom}; opacity: 0; } to { transform: ${inTo}; opacity: 1; } }
+      @keyframes alertOut { from { transform: ${inTo};   opacity: 1; } to { transform: ${outTo}; opacity: 0; } }
+      .alert         { animation: alertIn  0.45s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+      .alert.leaving { animation: alertOut 0.35s cubic-bezier(0.55,0,1,0.45) forwards; }
+    `;
+    document.getElementById('custom-alert-styles').textContent = ALERT_CFG.customCSS || '';
+  }
+
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmtAlert(tmpl, d) {
+    return tmpl
+      .replace(/\{user\}/g,    esc(d.user    ?? ''))
+      .replace(/\{bits\}/g,    esc(String(d.bits    ?? '')))
+      .replace(/\{months\}/g,  esc(String(d.months  ?? '')))
+      .replace(/\{count\}/g,   esc(String(d.count   ?? '')))
+      .replace(/\{tier\}/g,    esc(d.tier    ?? ''))
+      .replace(/\{message\}/g, esc(d.message ?? ''));
+  }
+
+  const alertPending = [], alertActive = [];
+
+  function tryDequeue() {
+    if (alertPending.length === 0 || alertActive.length >= ALERT_CFG.maxVisible) return;
+    showAlert(alertPending.shift());
+  }
+  function showAlert(data) {
+    const tc = ALERT_CFG.types[data.type];
+    if (!tc || !tc.enabled) return;
+    const el = document.createElement('div');
+    el.className = `alert alert-${data.type}`;
+    el.style.setProperty('--alert-color', tc.color);
+    const sub = (data.type === 'cheer' || data.type === 'resub') && data.message ? `<div class="alert-sub">${esc(data.message)}</div>` : '';
+    el.innerHTML = `<div class="alert-icon">${tc.icon}</div><div class="alert-body"><div class="alert-label">${tc.label}</div><div class="alert-main">${fmtAlert(tc.message, data)}</div>${sub}</div>`;
+    document.getElementById('alert-layer').prepend(el);
+    const timer = setTimeout(() => dismissAlert(entry), ALERT_CFG.duration);
+    const entry = { el, timer };
+    alertActive.push(entry);
+  }
+  function dismissAlert(entry) {
+    clearTimeout(entry.timer);
+    const idx = alertActive.indexOf(entry);
+    if (idx !== -1) alertActive.splice(idx, 1);
+    entry.el.classList.add('leaving');
+    entry.el.addEventListener('animationend', () => { entry.el.remove(); tryDequeue(); }, { once: true });
+  }
+  function queueAlert(data) {
+    if (alertActive.length < ALERT_CFG.maxVisible) showAlert(data);
+    else alertPending.push(data);
+  }
+
+  // ════════════════════════════════════════
+  //  CHAT
+  // ════════════════════════════════════════
+  let CHAT_CFG = {
+    maxMessages: 8, lifetime: 30000, fontSize: 15, bgOpacity: 75,
+    bgColor: '#000000', showBadges: true, showTimestamps: false,
+    position: 'left', customCSS: '',
+  };
+  let sevenTvEmotes = {};
+  const chatActive = [];
+
+  const BADGE_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
+  const FALLBACK_COLOURS = ['#ff6b6b','#ff9f40','#ffd60a','#4ade80','#22d3ee','#818cf8','#e879f9','#fb7185'];
+  function nameToColour(n) { let h=0; for(let i=0;i<n.length;i++) h=((h<<5)-h+n.charCodeAt(i))|0; return FALLBACK_COLOURS[Math.abs(h)%FALLBACK_COLOURS.length]; }
+
+  function hexToRgba(hex, pct) {
+    const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${(pct/100).toFixed(2)})`;
+  }
+
+  function applyChatConfig() {
+    const layer = document.getElementById('chat-layer');
+    layer.classList.toggle('pos-right', CHAT_CFG.position === 'right');
+    const dyn = document.getElementById('dyn-chat-styles');
+    dyn.textContent = `.chat-msg { font-size: ${CHAT_CFG.fontSize}px; background: ${hexToRgba(CHAT_CFG.bgColor, CHAT_CFG.bgOpacity)}; }`;
+    document.getElementById('custom-chat-styles').textContent = CHAT_CFG.customCSS || '';
+  }
+
+  function renderFragment(frag) {
+    if (frag.type === 'emote' && frag.emoteId) {
+      return `<img class="chat-emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${frag.emoteId}/default/dark/2.0" alt="${esc(frag.text)}" title="${esc(frag.text)}">`;
+    }
+    return frag.text.split(' ').map(w => {
+      const url = sevenTvEmotes[w];
+      return url ? `<img class="chat-emote" src="${url}" alt="${esc(w)}" title="${esc(w)}">` : esc(w);
+    }).join(' ');
+  }
+  function renderChatBody(data) {
+    if (data.fragments?.length) return data.fragments.map(renderFragment).join('');
+    return data.message.split(' ').map(w => {
+      const url = sevenTvEmotes[w];
+      return url ? `<img class="chat-emote" src="${url}" alt="${esc(w)}" title="${esc(w)}">` : esc(w);
+    }).join(' ');
+  }
+
+  function addChatMessage(data) {
+    const layer = document.getElementById('chat-layer');
+    while (chatActive.length >= CHAT_CFG.maxMessages) dismissChat(chatActive[0]);
+    const el = document.createElement('div');
+    el.className = 'chat-msg';
+    let html = '';
+    if (CHAT_CFG.showBadges && data.badges?.length) {
+      const pills = data.badges.map(b => BADGE_MAP[b]).filter(Boolean).map(cls => `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'streamer' : cls}</span>`);
+      if (pills.length) html += `<span class="chat-badges">${pills.join('')}</span>`;
+    }
+    const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user);
+    html += `<span class="chat-name" style="color:${colour}">${esc(data.user)}</span><span class="chat-colon">:</span><span class="chat-text">${renderChatBody(data)}</span>`;
+    if (CHAT_CFG.showTimestamps) {
+      const d = new Date(); html += `<span class="chat-ts">${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}</span>`;
+    }
+    el.innerHTML = html;
+    layer.prepend(el);
+    const timer = setTimeout(() => dismissChat(entry), CHAT_CFG.lifetime);
+    const entry = { el, timer };
+    chatActive.push(entry);
+  }
+  function dismissChat(entry) {
+    const idx = chatActive.indexOf(entry);
+    if (idx !== -1) chatActive.splice(idx, 1);
+    clearTimeout(entry.timer);
+    entry.el.classList.add('leaving');
+    entry.el.addEventListener('animationend', () => entry.el.remove(), { once: true });
+  }
+
+  async function loadEmotes() {
+    try { const r = await fetch('/api/chat/emotes?t=' + Date.now()); if (r.ok) sevenTvEmotes = await r.json(); } catch {}
+  }
+
+  // ════════════════════════════════════════
+  //  Config + WebSocket
+  // ════════════════════════════════════════
+  async function loadConfig() {
+    try {
+      const r = await fetch('/api/overlay/config');
+      if (!r.ok) return;
+      const data = await r.json();
+      MODE = data.mode || 'alerts';
+
+      // Show/hide layers based on mode
+      document.getElementById('alert-layer').style.display = (MODE === 'chat')   ? 'none' : '';
+      document.getElementById('chat-layer').style.display  = (MODE === 'alerts') ? 'none' : '';
+
+      // Apply alert config
+      if (data.alert && typeof data.alert === 'object') {
+        const c = data.alert;
+        if (c.position   != null) ALERT_CFG.position   = c.position;
+        if (c.animation  != null) ALERT_CFG.animation  = c.animation;
+        if (c.duration   != null) ALERT_CFG.duration   = Number(c.duration)   || ALERT_CFG.duration;
+        if (c.maxVisible != null) ALERT_CFG.maxVisible = Number(c.maxVisible) || ALERT_CFG.maxVisible;
+        if (c.customCSS  != null) ALERT_CFG.customCSS  = c.customCSS;
+        if (c.types && typeof c.types === 'object') {
+          for (const [type, overrides] of Object.entries(c.types)) {
+            if (ALERT_CFG.types[type]) Object.assign(ALERT_CFG.types[type], overrides);
+          }
+        }
+      }
+
+      // Apply chat config
+      if (data.chat && typeof data.chat === 'object') {
+        Object.assign(CHAT_CFG, data.chat);
+      }
+    } catch {}
+    applyAlertConfig();
+    applyChatConfig();
+  }
+
+  function connect() {
+    const ws = new WebSocket('ws://' + location.host);
+    ws.onmessage = (e) => {
+      let data; try { data = JSON.parse(e.data); } catch { return; }
+      if (data.event === 'alert'        && MODE !== 'chat')   queueAlert(data);
+      if (data.event === 'chat'         && MODE !== 'alerts') addChatMessage(data);
+      if (data.event === 'seventv_ready'&& MODE !== 'alerts') loadEmotes();
+    };
+    ws.onclose = () => setTimeout(connect, 3000);
+    ws.onerror = () => {};
+  }
+
+  loadConfig().then(() => { if (MODE !== 'alerts') loadEmotes(); connect(); });
+</script>
+</body>
+</html>
