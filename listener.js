@@ -464,6 +464,92 @@ function sendOSMediaKey(action) {
   return new Promise((resolve, reject) => exec(cmd, err => err ? reject(err) : resolve()));
 }
 
+// --- Spotify ---
+const SPOTIFY_SCOPES = 'user-read-currently-playing user-read-playback-state user-modify-playback-state';
+let spotifyPollTimer = null;
+let spotifyCurrentTrack = null; // { title, artist, id, isPlaying }
+
+function spotifyIsConfigured() {
+  return !!(process.env.SPOTIFY_ACCESS_TOKEN);
+}
+
+async function spotifyRefreshToken() {
+  const refreshToken = process.env.SPOTIFY_REFRESH_TOKEN;
+  const clientId     = process.env.SPOTIFY_CLIENT_ID;
+  if (!refreshToken || !clientId) return false;
+  try {
+    const res = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type:    'refresh_token',
+        refresh_token: refreshToken,
+        client_id:     clientId,
+      }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    process.env.SPOTIFY_ACCESS_TOKEN  = data.access_token;
+    process.env.SPOTIFY_TOKEN_EXPIRY  = String(Date.now() + (data.expires_in - 60) * 1000);
+    if (data.refresh_token) process.env.SPOTIFY_REFRESH_TOKEN = data.refresh_token;
+    persistEnv();
+    return true;
+  } catch { return false; }
+}
+
+async function spotifyApiCall(path, method = 'GET', body = null) {
+  // Refresh token if expiring within 60s
+  const expiry = parseInt(process.env.SPOTIFY_TOKEN_EXPIRY || '0');
+  if (Date.now() > expiry) await spotifyRefreshToken();
+
+  const opts = {
+    method,
+    headers: { 'Authorization': `Bearer ${process.env.SPOTIFY_ACCESS_TOKEN}` },
+  };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const res = await fetch(`https://api.spotify.com/v1${path}`, opts);
+  if (res.status === 401) {
+    // Token expired mid-request — try one refresh and retry
+    if (await spotifyRefreshToken()) {
+      opts.headers['Authorization'] = `Bearer ${process.env.SPOTIFY_ACCESS_TOKEN}`;
+      return fetch(`https://api.spotify.com/v1${path}`, opts);
+    }
+  }
+  return res;
+}
+
+async function spotifyGetCurrentTrack() {
+  if (!spotifyIsConfigured()) return null;
+  try {
+    const res = await spotifyApiCall('/me/player/currently-playing');
+    if (res.status === 204 || !res.ok) return null;
+    const data = await res.json();
+    if (!data?.item) return null;
+    return {
+      title:     data.item.name,
+      artist:    data.item.artists?.map(a => a.name).join(', ') || 'Unknown',
+      album:     data.item.album?.name || '',
+      id:        data.item.id,
+      isPlaying: data.is_playing,
+    };
+  } catch { return null; }
+}
+
+function spotifyStartPolling() {
+  if (spotifyPollTimer) return;
+  spotifyPollTimer = setInterval(async () => {
+    if ((process.env.MEDIA_CONTROL_MODE || 'os') !== 'spotify') return;
+    const track = await spotifyGetCurrentTrack();
+    const changed = track?.id !== spotifyCurrentTrack?.id || track?.isPlaying !== spotifyCurrentTrack?.isPlaying;
+    spotifyCurrentTrack = track;
+    if (changed) broadcast({ event: 'now_playing', track: track ? `${track.artist} — ${track.title}` : null, isPlaying: track?.isPlaying ?? false });
+  }, 8000);
+}
+
+function spotifyStopPolling() {
+  if (spotifyPollTimer) { clearInterval(spotifyPollTimer); spotifyPollTimer = null; }
+}
+
 // --- Twitch EventSub ---
 let twitchWs = null;
 let twitchReconnectTimer = null;
@@ -745,6 +831,26 @@ async function handleWhisperMessage(event) {
 
 async function dispatchCommand(permEvent, source, user, text) {
   text = (text || '').trim();
+
+  // Keyword matching — runs on every message regardless of ! prefix
+  for (const [name, custom] of Object.entries(state.customCommands)) {
+    const matchType = custom.match || 'command';
+    if (matchType === 'command') continue;
+    if (!custom.enabled) continue;
+    if (!custom.sources || !custom.sources.includes(source)) continue;
+    const trigger = (custom.trigger || name).toLowerCase();
+    const haystack = text.toLowerCase();
+    const hit = matchType === 'contains'
+      ? haystack.includes(trigger)
+      : haystack.startsWith(trigger);
+    if (!hit) continue;
+    if (!checkPermission(permEvent, custom.permission)) continue;
+    const response = fillTemplate(custom.response || '', { user });
+    if (response) await sendChatMessage(response);
+    addLog('system', `keyword:${name}`, `${user} — "${text}"`);
+    // Don't return — multiple keyword commands can fire on the same message
+  }
+
   if (!text.startsWith('!')) return;
 
   const parts = text.slice(1).split(/\s+/);
@@ -879,7 +985,18 @@ function fillTemplate(template, vars) {
 // --- Command implementations ---
 
 async function cmdSong(user) {
-  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'jellyfin';
+  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'os';
+  if (mediaMode === 'spotify') {
+    try {
+      const track = await spotifyGetCurrentTrack();
+      if (!track) { await sendChatMessage(`@${user} — Nothing is playing right now.`); return; }
+      const song = `${track.artist} — ${track.title}`;
+      addLog('system', '!song', `${user} → ${song} [Spotify]`);
+      const tmpl = state.commands.song?.response;
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
+    } catch (err) { addLog('system', '!song', err.message, false); }
+    return;
+  }
   if (mediaMode === 'os') {
     try {
       const song = await getOSNowPlaying();
@@ -916,10 +1033,20 @@ async function cmdSongRequest(user, query) {
 }
 
 async function cmdMediaControl(user, action) {
-  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'jellyfin';
+  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'os';
   const commandMap = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' };
   const resultMap  = { play: '▶️ Resumed', pause: '⏸ Paused', next: '⏭ Skipped to next', prev: '⏮ Back to previous' };
   const tmpl = state.commands[action]?.response;
+  if (mediaMode === 'spotify') {
+    const spotifyMap = { play: '/me/player/play', pause: '/me/player/pause', next: '/me/player/next', prev: '/me/player/previous' };
+    const spotifyMethod = { play: 'PUT', pause: 'PUT', next: 'POST', prev: 'POST' };
+    try {
+      await spotifyApiCall(spotifyMap[action], spotifyMethod[action] || 'POST');
+      addLog('system', `!${action}`, `${user} → Spotify`);
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '' }));
+    } catch (err) { addLog('system', `!${action}`, err.message, false); }
+    return;
+  }
   if (mediaMode === 'os') {
     try {
       await sendOSMediaKey(action);
@@ -938,15 +1065,34 @@ async function cmdMediaControl(user, action) {
 }
 
 async function cmdScene(user, scene) {
-  if (!scene) return;
   if (!state.obs.connected) { addLog('obs', '!scene', `${user} — OBS not connected`, false); return; }
+  if (!scene) {
+    // No argument — list available scenes
+    try {
+      const { scenes, currentProgramSceneName } = await obs.call('GetSceneList');
+      const names = scenes.map(s => s.sceneName === currentProgramSceneName ? `[${s.sceneName}]` : s.sceneName).reverse();
+      await sendChatMessage(`Scenes: ${names.join(', ')} — use !scene <name>`);
+      addLog('obs', '!scene', `${user} — listed scenes`);
+    } catch (err) { addLog('obs', '!scene', err.message, false); }
+    return;
+  }
   try { await obs.call('SetCurrentProgramScene', { sceneName: scene }); addLog('obs', '!scene', `${user} → ${scene}`); }
   catch (err) { addLog('obs', '!scene', err.message, false); }
 }
 
 async function cmdSource(user, source, onoff) {
-  if (!source) return;
   if (!state.obs.connected) { addLog('obs', '!source', `${user} — OBS not connected`, false); return; }
+  if (!source) {
+    // No argument — list sources in the current scene
+    try {
+      const { currentProgramSceneName } = await obs.call('GetSceneList');
+      const { sceneItems } = await obs.call('GetSceneItemList', { sceneName: currentProgramSceneName });
+      const names = sceneItems.map(i => `${i.sourceName}(${i.sceneItemEnabled ? 'on' : 'off'})`);
+      await sendChatMessage(`Sources in "${currentProgramSceneName}": ${names.join(', ')} — use !source <name> on|off`);
+      addLog('obs', '!source', `${user} — listed sources`);
+    } catch (err) { addLog('obs', '!source', err.message, false); }
+    return;
+  }
   const visible = onoff?.toLowerCase() !== 'off';
   try {
     const { scenes } = await obs.call('GetSceneList');
@@ -960,6 +1106,7 @@ async function cmdSource(user, source, onoff) {
       }
     }
     addLog('obs', '!source', `Source not found: ${source}`, false);
+    await sendChatMessage(`@${user} Source "${source}" not found. Use !source to list available sources.`);
   } catch (err) { addLog('obs', '!source', err.message, false); }
 }
 
@@ -1171,7 +1318,7 @@ app.post('/api/reconnect/:service', (req, res) => {
 app.post('/media', async (req, res) => {
   const { action } = req.body;
   if (action === 'song') {
-    if ((process.env.MEDIA_CONTROL_MODE || 'jellyfin') === 'os') {
+    if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'os') {
       try {
         const song = await getOSNowPlaying();
         return res.json(song ? { song } : { nothing: true });
@@ -1569,6 +1716,19 @@ app.get('/api/chat/emotes', async (req, res) => {
   }
 });
 
+// Manual emote refresh — busts the in-memory cache for the requested provider(s)
+app.post('/api/emotes/refresh', (req, res) => {
+  const { which } = req.body || {};
+  // 'which' is 'seventv', 'bttv', or omitted (both)
+  const all = !which || which === 'both';
+  if (all || which === 'seventv' || which === 'bttv') {
+    sevenTvCacheTime           = 0;
+    sevenTvCacheHadBroadcaster = false;
+    addLog('system', 'chat', `Emote cache cleared (${which || 'all'}) — will re-fetch on next request`);
+  }
+  res.json({ ok: true });
+});
+
 // Debug endpoint — visit /api/chat/emotes/debug to see exactly what 7TV returns
 app.get('/api/chat/emotes/debug', async (req, res) => {
   const broadcasterId = state.twitch.broadcasterId;
@@ -1908,12 +2068,15 @@ app.post('/api/custom-commands', (req, res) => {
   for (const [key, val] of Object.entries(commands)) {
     const name = key.toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (!name) continue;
+    const match = ['command','contains','starts'].includes(val.match) ? val.match : 'command';
     state.customCommands[name] = {
       enabled:    typeof val.enabled === 'boolean' ? val.enabled : true,
       permission: PERMISSION_LEVELS.includes(val.permission) ? val.permission : 'everyone',
       sources:    Array.isArray(val.sources) ? val.sources : ['chat'],
       response:   typeof val.response === 'string' ? val.response : '',
-      description: typeof val.description === 'string' ? val.description : ''
+      description: typeof val.description === 'string' ? val.description : '',
+      match,
+      trigger:    match !== 'command' && typeof val.trigger === 'string' ? val.trigger : '',
     };
   }
   process.env.CUSTOM_COMMANDS = JSON.stringify(state.customCommands);
@@ -1994,7 +2157,7 @@ app.delete('/api/plugins/:id', (req, res) => {
 
 app.get('/api/state', (req, res) => res.json({
   obs: state.obs, jellyfin: state.jellyfin, twitch: state.twitch, log: state.log,
-  mediaMode: process.env.MEDIA_CONTROL_MODE || 'jellyfin',
+  mediaMode: process.env.MEDIA_CONTROL_MODE || 'os',
   srMode: process.env.SONG_REQUEST_MODE || 'chat',
   srRedeemName: process.env.SONG_REQUEST_REDEEM_NAME || '',
   srEnabled: process.env.SONG_REQUEST_ENABLED !== 'false'
@@ -2005,7 +2168,8 @@ const SETTINGS_KEYS = [
   'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
   'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
   'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
-  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION'
+  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION',
+  'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
 ];
 
 app.get('/settings', (req, res) => {
@@ -2018,11 +2182,15 @@ app.get('/settings', (req, res) => {
 
 app.post('/settings', (req, res) => {
   const allowed = SETTINGS_KEYS;
-  const updated = [];
+  const updated = []; // keys whose value actually changed
   for (const [key, value] of Object.entries(req.body)) {
-    if (allowed.includes(key)) { process.env[key] = value; updated.push(key); }
+    if (!allowed.includes(key)) continue;
+    if (process.env[key] !== value) {
+      process.env[key] = value;
+      updated.push(key);
+    }
   }
-  addLog('system', 'settings', `Updated: ${updated.join(', ')}`);
+  if (updated.length) addLog('system', 'settings', `Changed: ${updated.join(', ')}`);
   if (updated.some(k => k.startsWith('OBS_'))) {
     state.obs.connected = false; state.obs.reconnecting = false;
     obs.disconnect().catch(() => {}); setTimeout(connectOBS, 500);
@@ -2042,6 +2210,13 @@ app.post('/settings', (req, res) => {
     sevenTvCacheTime           = 0;
     sevenTvCacheHadBroadcaster = false;
   }
+  if (updated.includes('MEDIA_CONTROL_MODE')) {
+    if (process.env.MEDIA_CONTROL_MODE === 'spotify' && spotifyIsConfigured()) {
+      spotifyStartPolling();
+    } else {
+      spotifyStopPolling();
+    }
+  }
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
     const enabled = process.env.MOD_ENABLED !== 'false';
     if (!enabled && modServer.listening) {
@@ -2052,7 +2227,7 @@ app.post('/settings', (req, res) => {
       modServer.listen(port, () => addLog('system', 'mod', `Mod server started on port ${port}`));
     }
   }
-  persistEnv();
+  if (updated.length) persistEnv();
   res.json({ ok: true, updated });
 });
 
@@ -2060,7 +2235,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     event: 'init',
     obs: state.obs, jellyfin: state.jellyfin, twitch: state.twitch, log: state.log,
-    mediaMode: process.env.MEDIA_CONTROL_MODE || 'jellyfin',
+    mediaMode: process.env.MEDIA_CONTROL_MODE || 'os',
     srMode: process.env.SONG_REQUEST_MODE || 'chat',
     srRedeemName: process.env.SONG_REQUEST_REDEEM_NAME || '',
     srEnabled: process.env.SONG_REQUEST_ENABLED !== 'false',
@@ -2079,6 +2254,61 @@ wss.on('connection', (ws) => {
     devMode: DEV_MODE,
     botUsername: process.env.TWITCH_BOT_USERNAME || '',
   }));
+
+  // Handle incoming commands from WebSocket clients (e.g. Macro Deck plugin)
+  ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (!msg.action) return;
+
+    try {
+      switch (msg.action) {
+        case 'obs_scene':
+          if (msg.scene && state.obs.connected) {
+            await obs.call('SetCurrentProgramScene', { sceneName: msg.scene });
+            broadcast({ event: 'obs_scene', scene: msg.scene });
+            addLog('obs', 'ws:scene', `Switched to "${msg.scene}"`);
+          }
+          break;
+        case 'obs_stream':
+          if (state.obs.connected) {
+            if (msg.start === true)       await obs.call('StartStream');
+            else if (msg.start === false) await obs.call('StopStream');
+            else                          await obs.call('ToggleStream');
+            addLog('obs', 'ws:stream', msg.start != null ? (msg.start ? 'started' : 'stopped') : 'toggled');
+          }
+          break;
+        case 'obs_record':
+          if (state.obs.connected) {
+            if (msg.start === true)       await obs.call('StartRecord');
+            else if (msg.start === false) await obs.call('StopRecord');
+            else                          await obs.call('ToggleRecord');
+            addLog('obs', 'ws:record', msg.start != null ? (msg.start ? 'started' : 'stopped') : 'toggled');
+          }
+          break;
+        case 'obs_source':
+          if (state.obs.connected && msg.scene && msg.id != null) {
+            await obs.call('SetSceneItemEnabled', { sceneName: msg.scene, sceneItemId: msg.id, sceneItemEnabled: !!msg.enabled });
+            broadcast({ event: 'obs_source', scene: msg.scene, id: msg.id, enabled: !!msg.enabled });
+          }
+          break;
+        case 'chat_send':
+          if (msg.text) await sendChatMessage(msg.text, msg.sender || 'auto');
+          break;
+        case 'command': {
+          // Execute any built-in or custom command as broadcaster, bypassing chat
+          const fakeEvent = { badges: [{ set_id: 'broadcaster' }] };
+          const text = `!${(msg.cmd || '').replace(/^!/, '')}${msg.args ? ' ' + msg.args : ''}`;
+          await dispatchCommand(fakeEvent, 'chat', msg.user || 'MacroDeck', text);
+          break;
+        }
+        default:
+          break;
+      }
+    } catch (err) {
+      addLog('system', 'ws:cmd', `Error handling "${msg.action}": ${err.message}`, false);
+    }
+  });
 });
 
 // --- Twitch OAuth flow ---
@@ -2307,7 +2537,69 @@ async function handleOAuthCallback(req, res) {
 // Mount callback on main app (handles fallback ports 3000–3002 for browser usage)
 app.get('/twitch/auth/callback', handleOAuthCallback);
 
-server.listen(PORT, () => console.log(`Listener running on http://localhost:${PORT}`));
+// --- Spotify OAuth routes ---
+app.get('/api/spotify/auth', (req, res) => {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  if (!clientId) return res.status(400).send('SPOTIFY_CLIENT_ID not set. Add it in Settings → Spotify.');
+  const redirectUri = `http://localhost:${PORT}/api/spotify/callback`;
+  const params = new URLSearchParams({
+    client_id:     clientId,
+    response_type: 'code',
+    redirect_uri:  redirectUri,
+    scope:         SPOTIFY_SCOPES,
+    show_dialog:   'true',
+  });
+  res.redirect(`https://accounts.spotify.com/authorize?${params}`);
+});
+
+app.get('/api/spotify/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.send(`<script>window.close()</script>Spotify auth failed: ${error || 'no code'}`);
+  const clientId    = process.env.SPOTIFY_CLIENT_ID;
+  const redirectUri = `http://localhost:${PORT}/api/spotify/callback`;
+  try {
+    const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type:   'authorization_code',
+        code,
+        redirect_uri:  redirectUri,
+        client_id:     clientId,
+      }),
+    });
+    const data = await tokenRes.json();
+    if (!data.access_token) throw new Error(data.error_description || 'Token exchange failed');
+    process.env.SPOTIFY_ACCESS_TOKEN  = data.access_token;
+    process.env.SPOTIFY_REFRESH_TOKEN = data.refresh_token;
+    process.env.SPOTIFY_TOKEN_EXPIRY  = String(Date.now() + (data.expires_in - 60) * 1000);
+    persistEnv();
+    broadcast({ event: 'spotify_connected' });
+    addLog('system', 'spotify', 'Spotify connected');
+    if ((process.env.MEDIA_CONTROL_MODE || 'jellyfin') === 'spotify') spotifyStartPolling();
+    res.send('<html><body style="font-family:sans-serif;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><h2>✓ Spotify connected! You can close this tab.</h2></body></html>');
+  } catch (err) {
+    res.send(`<script>window.close()</script>Error: ${err.message}`);
+  }
+});
+
+app.post('/api/spotify/disconnect', (req, res) => {
+  process.env.SPOTIFY_ACCESS_TOKEN  = '';
+  process.env.SPOTIFY_REFRESH_TOKEN = '';
+  process.env.SPOTIFY_TOKEN_EXPIRY  = '';
+  persistEnv();
+  spotifyStopPolling();
+  broadcast({ event: 'spotify_disconnected' });
+  addLog('system', 'spotify', 'Spotify disconnected');
+  res.json({ ok: true });
+});
+
+server.listen(PORT, () => {
+  console.log(`Listener running on http://localhost:${PORT}`);
+  if ((process.env.MEDIA_CONTROL_MODE || 'jellyfin') === 'spotify' && spotifyIsConfigured()) {
+    spotifyStartPolling();
+  }
+});
 
 // --- Dedicated OAuth auth server (port 3773) ---
 // Skipped when running inside Electron — main.js owns the OAuth flow there and

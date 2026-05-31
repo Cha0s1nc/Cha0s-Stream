@@ -1,25 +1,30 @@
-# cha0s-stream
+# Cha0s Stream
 
-A stream management app that bridges Twitch events to OBS, Jellyfin, alerts, and more. Built with Node.js and Electron, featuring a live dashboard to monitor connections, commands, and song requests in real time.
+A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, alerts, and more!
 
 ---
 
 ## Features
 
-- OBS WebSocket integration — scene switching, source toggling, recording control
-- Jellyfin playback control and now playing info
-- OS media key control with system-level now playing detection (Spotify, Apple Music, etc.)
-- Song request queue with viewer-facing chat responses
-- Custom chat commands with per-command permission and source settings
-- Alert system — browser source overlay or OBS source flash for follows, cheers, subs, resubsubs, and gift subs
-- Event triggers — auto-respond to Twitch events with chat messages, sounds, or scripts
-- Mod queue page — a separate lightweight UI for mods to approve/deny song requests
-- Sound playback via local files or URLs
-- Shell script execution via allowlisted domains
-- Plugin system — drop a `.js` file in `plugins/` to extend the app
-- Live dashboard with command log, service status, and song request queue
-- Built-in settings UI — no config files required for the desktop app
-- Cross-platform — Mac (`.dmg`), Windows (`.exe`), Linux (`.AppImage` / `.deb`)
+- **OBS Controls** — scene switching, source toggling, stream and recording control from the dashboard or via chat commands. Full OBS tab with live scene list and source toggles, plus an optional OBS column in the Twitch Stream panel.
+- **Jellyfin playback** — play, pause, skip, previous, and now playing via the Jellyfin API
+- **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!next`, and `!prev` through the Spotify Web API (requires Spotify Premium)
+- **OS media keys** — system-level playback control and now playing detection (Spotify, Apple Music on Mac; Windows media transport on Windows; `playerctl` on Linux)
+- **Twitch chat overlays** — transparent browser source for live chat with 7TV, BTTV, and native Twitch emotes, badge pills, and per-message lifetime
+- **Alert overlays** — browser source or OBS source flash for follows, cheers, subs, resubsubs, and gift subs with per-type colours, messages, and sounds
+- **Combined overlay mode** — a single `/overlay` browser source that layers chat and alerts together, or use separate sources for each
+- **Song request queue** — viewer `!sr` requests or channel point redemptions, with a live queue in the dashboard and mod queue page
+- **Chat commands** — built-in commands with per-command permission levels and source settings (chat, whisper, redemption input)
+- **Custom commands** — add your own trigger words with response templates and `{user}` variables
+- **Event triggers** — auto-fire chat messages, sounds, or scripts on follows, cheers, subs, resubsubs, and gift subs
+- **Plugin system** — drop a `.js` file into `plugins/` to add commands, react to events, and render a live panel in the dashboard
+- **Macro Deck integration** — a native C# plugin that connects directly over WebSocket to trigger any command without going through Twitch chat
+- **Sender toggle** — switch between sending chat as your bot account or as the broadcaster on the fly
+- **Mod queue** — a lightweight page for mods to approve or deny song requests in real time
+- **Sound playback** — local files, absolute paths, or remote URLs via `!sound` or channel point redeems
+- **Verbose log** — filterable activity log with OBS, Jellyfin, Sound, and Error categories
+- **Auto-updater** — checks for new releases on startup and installs in place (Mac)
+- **Cross-platform** — Mac (`.dmg`), Windows (`.exe`), Linux (`.AppImage` / `.deb`)
 
 ---
 
@@ -31,85 +36,96 @@ Download the latest release for your platform from the [Releases](https://github
 - **Windows** — run the `.exe` installer
 - **Linux** — run the `.AppImage` directly, or install the `.deb` on Debian/Ubuntu
 
-On first launch, click the **Settings** tab and fill in your credentials. The app connects automatically and checks for updates on startup.
+On first launch, open the **Settings** tab and connect your services. The app connects automatically on startup and checks for updates.
 
-> **Mac note:** Releases are not notarized with Apple. You have to use **System Settings** to allow the app to open after trying to launch it once.
+> **Mac note:** Releases are not notarized with Apple. You may need to go to **System Settings → Privacy & Security** to allow the app to open after the first launch attempt.
 
 ---
 
 ## Configuration
 
-All settings are configured from within the app under the **Settings** tab. Changes are saved immediately.
+There's configuration in the **Settings** category in the sidebar, hopefully for easier setup than a manual .env file
+
+### Twitch
+
+Click **Connect Twitch** to authorize via browser. The app handles OAuth automatically — no client secret or developer app required. Optionally connect a separate bot account the same way.
+
+If you need a custom client ID (e.g. to change the app name in auth prompts), expand **Advanced** to enter one.
 
 ### Jellyfin
 
 | Setting | Description |
 |---------|-------------|
-| Server URL | Your Jellyfin server address, e.g. `http://x.x.x.x:8096` |
-| API Key | Generated in Jellyfin under **Dashboard → API Keys** |
-| Username | Jellyfin username to filter sessions by — leave blank to match any user |
-| Device ID | Leave blank unless you want to pin to a specific device |
+| Server URL | e.g. `http://x.x.x.x:8096` |
+| API Key | **Dashboard → API Keys** |
+| Username | Filter sessions by this user — leave blank to match any |
+| Password | Use instead of API key if preferred |
+| Device ID | Leave blank unless you need to pin to a specific device |
+
+### Spotify
+
+Click **Connect Spotify** to authorize. You will need to create a free app at [developer.spotify.com](https://developer.spotify.com/dashboard) and add `http://localhost:4455/api/spotify/callback` as a redirect URI. Paste the Client ID into **Settings → Spotify → Advanced**.
+
+> Spotify playback controls (`!play`, `!pause`, `!next`, `!prev`) require Spotify Premium. `!song` works without Premium.
 
 ### OBS WebSocket
 
 | Setting | Description |
 |---------|-------------|
-| Host | The machine running OBS — use a Tailscale IP if OBS is on a different machine |
-| Port | Default is `4455` |
-| Password | Set in OBS under **Tools → WebSocket Server Settings** |
+| Host | Machine running OBS — use a Tailscale IP if OBS is remote |
+| Port | Default `4455` |
+| Password | **Tools → WebSocket Server Settings** in OBS |
 
-> OBS 28 or newer is required — WebSocket is built in.
+OBS 28 or newer is required (WebSocket is built in).
 
-### Twitch
+### Media Control Mode
 
-| Setting | Description |
-|---------|-------------|
-| Client ID / Secret | From your app at [dev.twitch.tv](https://dev.twitch.tv) |
-| Channel | Your Twitch channel name |
-| Broadcaster Token | Click **Authorize** to complete the OAuth flow |
-| Bot Username | Your bot account's Twitch username (optional) |
-| Bot Token | Click **Authorize Bot** to complete the bot OAuth flow (optional) |
+Three modes are currently available. Switch between them in Settings or by clicking the mode label in the status bar.
 
-### Media Control
+- **Jellyfin** — sends play/pause/skip commands to the active Jellyfin session
+- **OS Keys** — sends system media key presses
+- **Spotify** — controls Spotify playback via the Web API
 
-Two modes are available under **Settings → Media Control**:
+### Overlays
 
-- **Jellyfin** (default) — sends play/pause/skip commands directly to the active Jellyfin session. `!song` reads now playing from Jellyfin.
-- **OS Keys** — sends system media key presses. `!song` reads now playing from the system (Spotify, Apple Music on Mac; Windows media controls on Windows; `playerctl` on Linux).
+Under **Settings → Overlays**, choose a browser source mode:
+
+- **Alerts** — use `/alerts` as your browser source
+- **Chat** — use `/chat` as your browser source
+- **Both** — use `/overlay` for a single combined source, or toggle **Use separate browser sources** to get individual `/alerts` and `/chat` URLs
+- All modes are configurable with separate appearance settings for alerts and chat
+
+### Emotes
+
+Under **Settings → Twitch**, enable **7TV Emotes** and/or **BTTV Emotes** to render third-party emotes as images in chat overlays. Both are off by default.
 
 ### Mod Queue
 
 | Setting | Description |
 |---------|-------------|
-| Mod Queue | Toggle the mod queue page on/off |
-| Mod Queue Port | Port for the mod queue page — default `3001` |
+| Enable Mod Queue | Toggle the mod page on or off |
+| Mod Queue Port | Default `3001` |
 
-The mod queue page is a lightweight UI accessible at `http://<ip>:3001` that lets mods approve or deny song requests in real time without access to the full dashboard.
-
-### Listener
-
-| Setting | Description |
-|---------|-------------|
-| Port | Port the app runs on — default `3000` |
+The mod page runs at `http://<ip>:3001` and shows only the song request queue with approve/deny controls. Share it with mods via a tool like [Tailscale](https://tailscale.com) or something like a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
 ---
 
 ## Commands
 
-All commands are configurable from the **Commands** tab. Each command has its own enable toggle, permission level, and source settings (chat, whisper, redemption input).
+All commands are configurable from the **Commands** tab. Each has an enable toggle, permission level, and source settings.
 
 ### Built-in Commands
 
 | Command | Default Permission | Description |
 |---------|-------------------|-------------|
 | `!song` | Everyone | Shows what's currently playing |
-| `!sr <query>` | Everyone | Requests a song by name |
+| `!sr <query>` | Everyone | Requests a song |
 | `!play` | Moderator | Resumes playback |
 | `!pause` | Moderator | Pauses playback |
 | `!next` | Moderator | Skips to next track |
 | `!prev` | Moderator | Goes to previous track |
-| `!scene <name>` | Moderator | Switches OBS scene |
-| `!source <name> on\|off` | Moderator | Toggles an OBS source |
+| `!scene [name]` | Moderator | Switches OBS scene — omit name to list available scenes |
+| `!source [name] on\|off` | Moderator | Toggles an OBS source — omit name to list sources in current scene |
 | `!sound <name>` | Moderator | Plays a sound file |
 | `!record start\|stop` | Moderator | Starts or stops OBS recording |
 | `!run <url>` | Broadcaster | Runs a script from an allowlisted URL |
@@ -117,68 +133,97 @@ All commands are configurable from the **Commands** tab. Each command has its ow
 
 ### Custom Commands
 
-Custom commands can be added from the **Commands** tab. Each has a trigger word, permission level, source settings, and a response template. Responses support the `{user}` variable.
+Add custom commands from the **Commands** tab with a trigger word, permission level, and response template. Responses support `{user}`.
 
-Examples:
 ```
 !discord  →  Join our Discord at discord.gg/yourlink
-!socials  →  Follow @cha0s on everything!
-!hug      →  @{user} sends a hug to the chat ❤️
+!hug      →  {user} sends a hug to the chat ❤️
 ```
 
 ---
 
 ## Alerts
 
-The alert system fires on follows, cheers, subs, resubsubs, and gift subs. Two delivery modes are available under **Settings → Alerts**:
+The alert system fires on follows, cheers, subs, resubsubs, and gift subs. Configure delivery under **Settings → Overlays → Alert Delivery**:
 
-- **Browser Source** — add `http://localhost:3000/alerts` as a Browser Source in OBS. Alerts appear as an overlay automatically.
-- **OBS Source** — flashes a named OBS source visible for a configurable duration.
+- **Browser Source** — add the browser source URL as a Browser Source in OBS
+- **OBS Source** — flashes a named OBS source for a configurable duration
+- **Both** — fires both simultaneously
 
-Each alert type has its own toggle, accent color, and message template. Sounds can be attached to individual alert types.
+Each alert type has its own colour, message template, and optional sound.
 
 ---
 
-## Event Triggers
+## Overlays
 
-Under **Commands → Event Triggers**, you can configure automatic chat responses, sounds, and scripts that fire when Twitch events occur. Each trigger type (follow, cheer, sub, resub, gift sub) can be enabled independently.
+### Chat overlay
+
+Add the chat browser source URL as a transparent Browser Source in OBS. Displays live Twitch chat with emotes, badges, and configurable appearance.
+
+Appearance is configured under **Settings → Overlays → Chat** or via the visual **Overlay Editor** at [cha0sinc.xyz](https://cha0sinc.xyz/github/projects/cha0s-stream/overlay-editor).
+
+### Alert overlay
+
+Add the alerts browser source URL as a Browser Source in OBS. Fires animated alerts for follows, cheers, subs, resubsubs, and gift subs.
+
+### Combined overlay
+
+Use the `/overlay` URL to show both chat and alerts in a single browser source. Configure under **Settings → Overlays → Both**.
+
+---
+
+## OBS Controls
+
+The **OBS Controls** tab in the dashboard shows:
+
+- Stream and recording status with live timecodes
+- Start/stop buttons for stream and recording (starting stream requires confirmation)
+- Full scene list — click any scene to switch immediately
+- Source list for the current scene with enable/disable toggles
+
+An **OBS** button in the Twitch Stream panel header adds a third column with a compact scene switcher and stream/record controls alongside chat and events.
 
 ---
 
 ## Song Requests
 
-When `!sr` is enabled, viewers can request songs from your Jellyfin library. Requests appear in the **Requests** tab and on the mod queue page.
-
-Song requests can also be triggered via a Twitch channel point redemption — set the redemption name under **Settings → Song Requests**.
-
----
-
-## Mod Queue
-
-The mod queue page runs on a separate port (default `3001`) and shows only the song request queue with approve/deny controls. It's designed to be shared with mods via [Tailscale](https://tailscale.com) or exposed through a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
-
-Access it at `http://<ip>:3001`. The page updates live via WebSocket.
-
----
-
-## Sounds
-
-Sounds can be triggered with `!sound <name>`, via channel point redemptions, or attached to alerts and event triggers.
-
-```
-!sound airhorn           → plays sounds/airhorn.mp3
-!sound https://...       → streams from URL directly
-```
-
-Upload sound files directly from **Settings → Sounds**, or drop them into the `sounds/` folder next to the app.
+Viewers request songs with `!sr <query>` or via a channel point redemption. Requests appear in the **Requests** tab and the mod queue page. The active queue and download wishlist are both visible and manageable from the dashboard.
 
 ---
 
 ## Plugins
 
-Drop a `.js` file into the `plugins/` folder (or use **Plugins → Import Plugin**) to extend the app. Plugins can register chat commands, react to stream events, and render a live panel in the Plugins tab.
+Drop a `.js` file into the `plugins/` folder next to the app, or import one via **Plugins → Import Plugin**. Plugins can register chat commands, react to stream events, store state, and render a live panel in the Plugins tab.
 
-See [PLUGINS.md](PLUGINS.md) for the full plugin development guide.
+See [PLUGINS.md](PLUGINS.md) for the plugin development guide.
+
+---
+
+## Macro Deck Plugin
+
+A native Macro Deck plugin is available in the [`MacroDeckPlugin/`](MacroDeckPlugin/) folder. It connects directly to Cha0s Stream over WebSocket and exposes the following actions in Macro Deck:
+
+- **Switch OBS Scene** — switch to a named scene
+- **Toggle Stream** — start, stop, or toggle the OBS stream
+- **Toggle Recording** — start, stop, or toggle OBS recording
+- **Toggle OBS Source** — show or hide a specific source
+- **Send Chat Message** — send a message as bot or broadcaster
+- **Run Command** — trigger any built-in or custom command with optional arguments
+
+Build with Visual Studio or `dotnet build` and drop the output `.dll` into Macro Deck's plugins folder. Configure the host and port from the plugin's settings page.
+
+---
+
+## Sounds
+
+Trigger sounds with `!sound <name>`, channel point redemptions, or attached to alerts and event triggers.
+
+```
+!sound airhorn           → plays sounds/airhorn.mp3
+!sound https://...       → streams from URL
+```
+
+Upload files from **Settings → Sounds** or drop them into the `sounds/` folder next to the app.
 
 ---
 
@@ -220,10 +265,10 @@ Output goes to the `dist/` folder.
 
 ## Releases
 
-Builds are done manually and attached to [GitHub Releases](https://github.com/Cha0s1nc/cha0s-stream/releases).
+Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/cha0s-stream/releases).
 
 ---
 
 ## Related
 
-- [DEPRECATED] [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) — The original Twitch bot this app grew out of
+- [DEPRECATED] [cha0s_b0t](https://github.com/Cha0s1nc/cha0s_b0t) — The original Twitch bot this project grew out of

@@ -66,7 +66,7 @@
     .status-item.clickable.paused .sb-label { color: var(--yellow); }
     .statusbar-divider { width: 1px; height: 16px; background: var(--border); }
     .sb-label { font-size: 11px; color: var(--text3); }
-    .mode-val { font-size: 11px; font-weight: 500; background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; }
+    .mode-val { font-size: 11px; font-weight: 500; background: var(--grad); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; }
     .mode-val:hover { opacity: 0.75; }
     #np-track { font-size: 11px; color: var(--text2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .statusbar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
@@ -130,8 +130,9 @@
     .source-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* OBS column in stream splitscreen */
     .stream-wrap.obs-visible { grid-template-columns: 1fr 1fr 1fr; }
-    .obs-col-toggle { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text3); cursor: pointer; user-select: none; padding: 0 4px; }
-    .obs-col-toggle input { accent-color: var(--accent); cursor: pointer; }
+    .obs-col-toggle { margin-left: auto; font-family: var(--font); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text3); cursor: pointer; user-select: none; transition: all 0.15s; text-transform: uppercase; }
+    .obs-col-toggle:hover { border-color: var(--accent); color: var(--text2); }
+    .obs-col-toggle.active { border-color: rgba(10,132,255,0.4); color: var(--blue); background: rgba(10,132,255,0.08); }
     .log-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
     .filter-group { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
     .filter-btn { font-family: var(--font); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 5px; border: none; background: transparent; color: var(--text2); cursor: pointer; transition: all 0.15s; }
@@ -478,7 +479,7 @@
         <div class="sub-panel" id="sub-stream">
           <div class="stream-wrap">
             <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div><div class="stream-chat-input-wrap"><button class="stream-chat-sender-btn" id="stream-chat-sender" title="Click to switch sender account"><span id="stream-chat-sender-icon">🤖</span><span id="stream-chat-sender-label">Bot</span></button><input class="stream-chat-input" id="stream-chat-input" type="text" placeholder="Send a message…" maxlength="500" autocomplete="off" /><button class="stream-chat-send" id="stream-chat-send">Send</button></div></div>
-            <div class="stream-col"><div class="stream-col-header">Events<label class="obs-col-toggle" title="Show OBS controls alongside events"><input type="checkbox" id="obs-col-toggle" onchange="toggleObsColumn(this.checked)" /> OBS</label></div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
+            <div class="stream-col"><div class="stream-col-header">Events<button class="obs-col-toggle" id="obs-col-toggle" title="Show OBS controls alongside events" onclick="toggleObsColumn()">OBS</button></div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
             <div class="stream-col" id="obs-split-col" style="display:none">
               <div class="stream-col-header">OBS</div>
               <div id="obs-split-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;"></div>
@@ -526,12 +527,13 @@
               <div style="margin-top:28px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"><span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;">Custom Commands</span><button class="btn btn-secondary" id="btn-add-custom-cmd" style="font-size:11px;padding:5px 12px;">+ Add Command</button></div>
                 <div class="commands-table">
-                  <div class="commands-table-header" style="grid-template-columns:36px 110px 130px 100px 1fr 28px;"><span></span><span>Command</span><span>Permission</span><span>Sources</span><span>Response</span><span></span></div>
+                  <div class="commands-table-header" style="grid-template-columns:36px 90px 90px 130px 100px 1fr 28px;"><span></span><span>Trigger</span><span>Match</span><span>Permission</span><span>Sources</span><span>Response</span><span></span></div>
                   <div id="custom-commands-list"><div style="padding:14px;font-size:12px;color:var(--text3)">No custom commands yet.</div></div>
                 </div>
                 <div id="custom-cmd-add-form" style="display:none;margin-top:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
-                  <div style="display:grid;grid-template-columns:110px 130px 100px 1fr auto;gap:8px;align-items:center;">
+                  <div style="display:grid;grid-template-columns:90px 90px 130px 100px 1fr auto;gap:8px;align-items:center;">
                     <input class="setting-input" id="new-cmd-name" type="text" placeholder="!commandname" style="font-size:12px;padding:5px 8px;" />
+                    <select class="cmd-perm-select" id="new-cmd-match" onchange="updateNewCmdPlaceholder()"><option value="command">! Command</option><option value="contains">Contains</option><option value="starts">Starts with</option></select>
                     <select class="cmd-perm-select" id="new-cmd-perm"><option value="everyone">Everyone</option><option value="subscriber">Subscribers+</option><option value="vip">VIPs+</option><option value="moderator">Moderators+</option><option value="broadcaster">Broadcaster only</option></select>
                     <div class="sources-dropdown" id="sd-new"><div class="sources-trigger" onclick="toggleSourcesPanel('new',event)"><span id="sl-new">Chat</span><span class="caret">▼</span></div><div class="sources-panel" id="sp-new"><div class="source-check-row"><input type="checkbox" id="sc-new-chat" checked onchange="toggleSource('new','chat',this.checked)" /><label for="sc-new-chat">Chat</label></div><div class="source-check-row"><input type="checkbox" id="sc-new-whisper" onchange="toggleSource('new','whisper',this.checked)" /><label for="sc-new-whisper">Whisper</label></div><div class="source-check-row"><input type="checkbox" id="sc-new-redemption_input" onchange="toggleSource('new','redemption_input',this.checked)" /><label for="sc-new-redemption_input">Redemption</label></div></div></div>
                     <input class="setting-input" id="new-cmd-response" type="text" placeholder="Response text — supports {user}" style="font-size:12px;padding:5px 8px;" />
@@ -557,13 +559,20 @@
             <div class="setting-row jellyfin-only" id="jf-row-password"><div class="setting-label"><div class="setting-name">Password</div><div class="setting-desc">Used instead of API key if set</div></div><div class="input-wrap"><input class="setting-input" id="cfg-jellyfin-password" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-jellyfin-password">👁</button></div></div>
             <div class="setting-row jellyfin-only" id="jf-row-username"><div class="setting-label"><div class="setting-name">Username</div><div class="setting-desc">Your Jellyfin username</div></div><input class="setting-input" id="cfg-jellyfin-username" type="text" placeholder="Username" /></div>
             <div class="setting-row jellyfin-only" id="jf-row-device"><div class="setting-label"><div class="setting-name">Device ID</div><div class="setting-desc">Leave blank for auto</div></div><input class="setting-input" id="cfg-jellyfin-device" type="text" placeholder="Optional" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Jellyfin: controls via API. OS: sends system media keys.</div></div><div class="seg-control"><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Jellyfin: controls via API. OS: sends system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
           </div>
           <div class="settings-group">
             <div class="settings-group-title">Song Requests</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Enable Song Requests</div><div class="setting-desc">Allow viewers to request songs.</div></div><label class="toggle"><input type="checkbox" id="cfg-sr-enabled" /><span class="toggle-track"></span></label></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Request Mode</div><div class="setting-desc">Chat: !sr [song]. Channel Points: requires affiliate.</div></div><div class="seg-control"><button class="seg-btn active" data-srmode="chat" id="srmode-chat">Chat (!sr)</button><button class="seg-btn" data-srmode="channel_points" id="srmode-redeem">Channel Points</button></div></div>
             <div class="setting-row" id="sr-redeem-name-row"><div class="setting-label"><div class="setting-name">Redeem Name</div><div class="setting-desc">Exact name of the channel point reward</div></div><input class="setting-input" id="cfg-sr-redeem-name" type="text" placeholder="Song Request" /></div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">Spotify</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Account</div><div class="setting-desc" id="spotify-status-text">Not connected — requires Spotify Premium.</div></div><div style="display:flex;gap:6px;"><button class="btn btn-secondary btn-sm" id="btn-spotify-disconnect" style="display:none;" onclick="spotifyDisconnect()">Disconnect</button><button class="btn btn-primary btn-sm" id="btn-spotify-connect" onclick="spotifyConnect()">Connect Spotify</button></div></div>
+            <details style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span style="font-size:9px;">▶</span> Advanced — Client ID</summary><div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Client ID</div><div class="setting-desc">From <a href="https://developer.spotify.com/dashboard" target="_blank" style="color:var(--accent)">developer.spotify.com</a>. Redirect URI: <code style="font-size:10px;">http://localhost:4455/api/spotify/callback</code></div></div><input class="setting-input" id="cfg-spotify-client-id" type="text" placeholder="Built-in (if available)" /></div>
+            </div></details>
           </div>
           <div class="settings-group">
             <div class="settings-group-title">OBS WebSocket</div>
@@ -574,8 +583,10 @@
           <!-- ── Overlays (Alerts + Chat combined) ── -->
           <div class="settings-group">
             <div class="settings-group-title">Overlays</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source Mode</div><div class="setting-desc">What this single browser source shows on stream.</div></div><div class="seg-control"><button class="seg-btn active" data-overlaymode="alerts" onclick="setOverlayModeUI('alerts')">Alerts</button><button class="seg-btn" data-overlaymode="chat" onclick="setOverlayModeUI('chat')">Chat</button><button class="seg-btn" data-overlaymode="both" onclick="setOverlayModeUI('both')">Both</button></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()">Copy</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source Mode</div><div class="setting-desc">How overlays are delivered to OBS.</div></div><div class="seg-control"><button class="seg-btn active" data-overlaymode="alerts" onclick="setOverlayModeUI('alerts')">Alerts</button><button class="seg-btn" data-overlaymode="chat" onclick="setOverlayModeUI('chat')">Chat</button><button class="seg-btn" data-overlaymode="both" onclick="setOverlayModeUI('both')">Both</button></div></div>
+            <div id="overlay-separate-toggle-row" style="display:none;padding:2px 14px 10px;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><span style="font-size:12px;color:var(--text2);">Use separate browser sources</span><label class="toggle"><input type="checkbox" id="overlay-separate-toggle" onchange="setOverlaySeparate(this.checked)" /><span class="toggle-track"></span></label></label></div>
+            <div class="setting-row" id="overlay-url-single-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()">Copy</button></div></div>
+            <div class="setting-row" id="overlay-url-separate-row" style="display:none"><div class="setting-label"><div class="setting-name">Browser Source URLs</div><div class="setting-desc">Add both as separate Browser Sources in OBS.</div></div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:10px;color:var(--text3);white-space:nowrap;">Alerts</span><code id="overlay-alerts-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-alerts-url')">Copy</button></div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:10px;color:var(--text3);white-space:nowrap;">Chat</span><code id="overlay-chat-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-chat-url')">Copy</button></div></div></div>
 
             <!-- ── Alerts settings ── -->
             <div id="overlay-alerts-settings">
@@ -625,8 +636,8 @@
             <div class="settings-group-title">Twitch</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Account <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional)</span></div><div class="setting-desc" id="oauth-bot-status-text">A separate account for chat responses.</div></div><button id="btn-get-bot-token" class="btn btn-secondary btn-sm" onclick="startBotOAuth()">Connect Bot</button></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">7TV Emotes</div><div class="setting-desc">Render 7TV global and channel emotes in chat.</div></div><label class="toggle"><input type="checkbox" id="cfg-seventv-enabled" /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">BTTV Emotes</div><div class="setting-desc">Render BetterTTV global and channel emotes in chat.</div></div><label class="toggle"><input type="checkbox" id="cfg-bttv-enabled" /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">7TV Emotes</div><div class="setting-desc">Render 7TV global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-seventv" onclick="refreshEmotes('seventv')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-seventv-enabled" /><span class="toggle-track"></span></label></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">BTTV Emotes</div><div class="setting-desc">Render BetterTTV global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-bttv" onclick="refreshEmotes('bttv')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-bttv-enabled" /><span class="toggle-track"></span></label></div></div>
             <details id="twitch-advanced" style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span id="adv-arrow" style="font-size:9px;transition:transform 0.15s;">▶</span> Advanced</summary><div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Channel</div><div class="setting-desc">Auto-filled on connect.</div></div><input class="setting-input" id="cfg-twitch-channel" type="text" placeholder="yourchannel" /></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Username</div><div class="setting-desc">Auto-filled on bot connect.</div></div><input class="setting-input" id="cfg-twitch-bot-username" type="text" placeholder="mybotaccount" /></div>
@@ -853,6 +864,13 @@
           } else {
             fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave) }).catch(() => {});
           }
+        } else if (data.event === 'now_playing') {
+          const el = document.getElementById('np-track');
+          if (el) el.textContent = data.track || '—';
+        } else if (data.event === 'spotify_connected') {
+          updateSpotifyUI(true);
+        } else if (data.event === 'spotify_disconnected') {
+          updateSpotifyUI(false);
         } else if (data.event === 'chat') {
           addStreamChatMessage(data);
         } else if (data.event === 'alert') {
@@ -901,6 +919,23 @@
         const r = await fetch(url);
         if (r.ok) streamSevenTvEmotes = await r.json();
       } catch {}
+    }
+
+    async function refreshEmotes(which) {
+      const btnId = which === 'seventv' ? 'btn-refresh-seventv' : 'btn-refresh-bttv';
+      const btn = document.getElementById(btnId);
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = '…';
+      try {
+        await fetch('/api/emotes/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ which }) });
+        await loadStreamEmotes(true);
+        btn.textContent = '✓';
+      } catch {
+        btn.textContent = '✗';
+      }
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
     }
 
     function streamRenderFragment(fragment) {
@@ -1090,9 +1125,12 @@
         const list = document.getElementById('obs-scene-list');
         if (!list) return;
         list.innerHTML = scenes.map(s => `
-          <button class="scene-btn ${s === current ? 'active' : ''}" onclick="obsSetScene(${JSON.stringify(s)})">
+          <button class="scene-btn ${s === current ? 'active' : ''}" data-scene="${escHtml(s)}">
             <span class="scene-dot"></span>${escHtml(s)}
           </button>`).join('');
+        list.querySelectorAll('.scene-btn').forEach(btn => {
+          btn.addEventListener('click', () => obsSetScene(btn.dataset.scene));
+        });
       } catch { renderObsScenesError(); }
     }
 
@@ -1185,9 +1223,8 @@
       if (data.event === 'obs_scene') {
         obsCurrentScene = data.scene;
         document.querySelectorAll('.scene-btn').forEach(b => {
-          const active = b.textContent.trim() === data.scene;
+          const active = b.dataset.scene === data.scene;
           b.classList.toggle('active', active);
-          b.querySelector('.scene-dot')?.classList.toggle('active', active);
         });
         // Sources will change when scene changes — reload
         loadObsSources();
@@ -1216,21 +1253,27 @@
         if (!d) return;
         col.innerHTML = `
           <div style="padding:8px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;flex:1;">
-            ${d.scenes.map(s => `<button class="scene-btn ${s === d.current ? 'active' : ''}" onclick="obsSetScene(${JSON.stringify(s)})"  style="font-size:11px;padding:6px 8px;"><span class="scene-dot"></span>${escHtml(s)}</button>`).join('')}
+            ${d.scenes.map(s => `<button class="scene-btn ${s === d.current ? 'active' : ''}" data-scene="${escHtml(s)}" style="font-size:11px;padding:6px 8px;"><span class="scene-dot"></span>${escHtml(s)}</button>`).join('')}
           </div>
           <div style="padding:6px 8px;border-top:1px solid var(--border);display:flex;gap:5px;flex-shrink:0;">
             <button class="obs-ctrl-btn" id="obs-split-stream-btn" style="font-size:11px;padding:5px 6px;" onclick="obsStreamToggle()">${obsStreaming ? '⏹ Stop' : '▶ Stream'}</button>
             <button class="obs-ctrl-btn danger" id="obs-split-record-btn" style="font-size:11px;padding:5px 6px;" onclick="obsRecordToggle()">${obsRecording ? '⏹ Stop' : '⏺ Record'}</button>
           </div>`;
+        col.querySelectorAll('.scene-btn').forEach(btn => {
+          btn.addEventListener('click', () => obsSetScene(btn.dataset.scene));
+        });
       }).catch(() => {});
     }
 
-    function toggleObsColumn(show) {
+    function toggleObsColumn() {
       const col = document.getElementById('obs-split-col');
+      const btn = document.getElementById('obs-col-toggle');
       const wrap = col?.closest('.stream-wrap');
       if (!col || !wrap) return;
+      const show = col.style.display === 'none';
       col.style.display = show ? 'flex' : 'none';
       wrap.classList.toggle('obs-visible', show);
+      if (btn) btn.classList.toggle('active', show);
       if (show) syncObsSplitCol();
     }
 
@@ -1240,6 +1283,25 @@
       obsStatusInterval = setInterval(() => {
         if (document.getElementById('sub-obs').classList.contains('active')) loadObsStatus();
       }, 5000);
+    }
+
+    // --- Spotify ---
+    function updateSpotifyUI(connected) {
+      const btn        = document.getElementById('btn-spotify-connect');
+      const disconnBtn = document.getElementById('btn-spotify-disconnect');
+      const status     = document.getElementById('spotify-status-text');
+      if (btn)        btn.textContent = connected ? '✓ Connected' : 'Connect Spotify';
+      if (disconnBtn) disconnBtn.style.display = connected ? '' : 'none';
+      if (status)     status.textContent = connected ? '✓ Connected — Spotify Premium required for controls.' : 'Not connected — requires Spotify Premium.';
+    }
+
+    function spotifyConnect() {
+      window.open(`http://${location.host}/api/spotify/auth`, '_blank', 'width=500,height=700');
+    }
+
+    async function spotifyDisconnect() {
+      await fetch('/api/spotify/disconnect', { method: 'POST' });
+      updateSpotifyUI(false);
     }
 
     async function reconnectService(service) {
@@ -1303,8 +1365,9 @@
       mediaMode = mode;
       document.querySelectorAll('.seg-btn[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
       const modeVal = document.getElementById('mode-val');
-      if (modeVal) modeVal.textContent = mode === 'os' ? 'OS Media Keys' : 'Jellyfin';
-      document.querySelectorAll('.jellyfin-only').forEach(el => el.classList.toggle('dimmed', mode === 'os'));
+      if (modeVal) modeVal.textContent = mode === 'os' ? 'OS Media Keys' : mode === 'spotify' ? 'Spotify' : 'Jellyfin';
+      const jellyfinOnly = mode !== 'jellyfin';
+      document.querySelectorAll('.jellyfin-only').forEach(el => el.classList.toggle('dimmed', jellyfinOnly));
     }
 
     document.querySelectorAll('.seg-btn[data-mode]').forEach(btn => {
@@ -1342,16 +1405,47 @@
     // --- Overlay mode UI ---
     let overlayMode = 'alerts';
 
+    let overlaySeparate = false;
+
+    function setOverlaySeparate(sep) {
+      overlaySeparate = sep;
+      const isSeparate = sep;
+      document.getElementById('overlay-url-single-row').style.display   = isSeparate ? 'none' : '';
+      document.getElementById('overlay-url-separate-row').style.display = isSeparate ? ''     : 'none';
+      if (isSeparate) {
+        const au = document.getElementById('overlay-alerts-url');
+        const cu = document.getElementById('overlay-chat-url');
+        if (au) au.textContent = `http://${location.host}/alerts`;
+        if (cu) cu.textContent = `http://${location.host}/chat`;
+      } else {
+        const urlEl = document.getElementById('overlay-browser-url');
+        if (urlEl) urlEl.textContent = `http://${location.host}/overlay`;
+      }
+    }
+
     function setOverlayModeUI(mode) {
       overlayMode = mode;
       document.querySelectorAll('.seg-btn[data-overlaymode]').forEach(b => b.classList.toggle('active', b.dataset.overlaymode === mode));
       document.getElementById('overlay-alerts-settings').style.display = (mode === 'chat')   ? 'none' : '';
       document.getElementById('overlay-chat-settings').style.display   = (mode === 'alerts') ? 'none' : '';
-      const urlEl = document.getElementById('overlay-browser-url');
-      if (urlEl) {
-        if (mode === 'alerts') urlEl.textContent = `http://${location.host}/alerts`;
-        else if (mode === 'chat') urlEl.textContent = `http://${location.host}/chat`;
-        else urlEl.textContent = `http://${location.host}/overlay`;
+      // Show the separate toggle only in Both mode
+      const sepRow = document.getElementById('overlay-separate-toggle-row');
+      if (sepRow) sepRow.style.display = (mode === 'both') ? 'flex' : 'none';
+      // Reset separate state when leaving Both mode
+      if (mode !== 'both') {
+        overlaySeparate = false;
+        const tog = document.getElementById('overlay-separate-toggle');
+        if (tog) tog.checked = false;
+        document.getElementById('overlay-url-single-row').style.display   = '';
+        document.getElementById('overlay-url-separate-row').style.display = 'none';
+      }
+      if (!overlaySeparate) {
+        const urlEl = document.getElementById('overlay-browser-url');
+        if (urlEl) {
+          if (mode === 'alerts') urlEl.textContent = `http://${location.host}/alerts`;
+          else if (mode === 'chat') urlEl.textContent = `http://${location.host}/chat`;
+          else urlEl.textContent = `http://${location.host}/overlay`;
+        }
       }
     }
 
@@ -1359,8 +1453,8 @@
       btn.addEventListener('click', () => setOverlayModeUI(btn.dataset.overlaymode));
     });
 
-    function copyOverlayUrl() {
-      const url = document.getElementById('overlay-browser-url')?.textContent;
+    function copyUrl(elId) {
+      const url = document.getElementById(elId)?.textContent;
       if (url && url !== 'loading…') {
         navigator.clipboard.writeText(url).then(() => {
           const btn = event.target;
@@ -1369,6 +1463,8 @@
         });
       }
     }
+
+    function copyOverlayUrl() { copyUrl('overlay-browser-url'); }
 
     // Set initial overlay mode UI
     setOverlayModeUI('alerts');
@@ -1518,13 +1614,26 @@
         list.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text3)">No custom commands yet.</div>';
         return;
       }
-      list.innerHTML = Object.entries(customCommandsConfig).map(([name, cfg]) => `
-        <div class="command-row ${cfg.enabled ? '' : 'disabled'}" id="ccmd-row-${name}" style="grid-template-columns: 36px 110px 130px 100px 1fr 28px;">
+      list.innerHTML = Object.entries(customCommandsConfig).map(([name, cfg]) => {
+        const match = cfg.match || 'command';
+        const triggerDisplay = match === 'command'
+          ? `!${name}`
+          : (cfg.trigger || name);
+        return `
+        <div class="command-row ${cfg.enabled ? '' : 'disabled'}" id="ccmd-row-${name}" style="grid-template-columns: 36px 90px 90px 130px 100px 1fr 28px;">
           <label class="toggle" title="${cfg.enabled ? 'Enabled' : 'Disabled'}">
             <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="toggleCustomCommand('${name}', this.checked)" />
             <span class="toggle-track"></span>
           </label>
-          <span class="cmd-name">!${name}</span>
+          <input class="setting-input" style="font-size:11px;padding:4px 7px;width:100%;"
+            type="text" value="${triggerDisplay.replace(/"/g, '&quot;')}"
+            oninput="setCustomCommandTrigger('${name}', this.value)"
+            title="${match === 'command' ? '! command name' : 'Text to match in chat'}" />
+          <select class="cmd-perm-select" onchange="setCustomCommandMatch('${name}', this.value)">
+            <option value="command" ${match === 'command' ? 'selected' : ''}>! Command</option>
+            <option value="contains" ${match === 'contains' ? 'selected' : ''}>Contains</option>
+            <option value="starts" ${match === 'starts' ? 'selected' : ''}>Starts with</option>
+          </select>
           <select class="cmd-perm-select" onchange="setCustomCommandPerm('${name}', this.value)">
             ${PERM_LEVELS.map(p => `<option value="${p}" ${cfg.permission === p ? 'selected' : ''}>${PERM_LABELS[p]}</option>`).join('')}
           </select>
@@ -1548,8 +1657,8 @@
             oninput="setCustomCommandResponse('${name}', this.value)"
             title="Variables: {user}" />
           <button onclick="deleteCustomCommand('${name}')" title="Delete" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0;line-height:1;">✕</button>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
 
     function toggleCustomCommand(name, enabled) {
@@ -1561,6 +1670,24 @@
     }
     function setCustomCommandPerm(name, perm) {
       if (customCommandsConfig[name]) customCommandsConfig[name].permission = perm;
+    }
+    function setCustomCommandMatch(name, match) {
+      if (!customCommandsConfig[name]) return;
+      customCommandsConfig[name].match = match;
+    }
+    function setCustomCommandTrigger(name, value) {
+      if (!customCommandsConfig[name]) return;
+      const match = customCommandsConfig[name].match || 'command';
+      if (match === 'command') {
+        // For command mode, update the key by re-keying the entry
+        const sanitized = value.replace(/^!/, '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (!sanitized || sanitized === name) return;
+        customCommandsConfig[sanitized] = { ...customCommandsConfig[name] };
+        delete customCommandsConfig[name];
+        renderCustomCommandsTable();
+      } else {
+        customCommandsConfig[name].trigger = value;
+      }
     }
     function setCustomCommandResponse(name, value) {
       if (customCommandsConfig[name]) customCommandsConfig[name].response = value;
@@ -1593,17 +1720,38 @@
       _origToggleSource(name, source, checked);
     }
 
+    function updateNewCmdPlaceholder() {
+      const match = document.getElementById('new-cmd-match')?.value || 'command';
+      const input = document.getElementById('new-cmd-name');
+      if (!input) return;
+      if (match === 'command') input.placeholder = '!commandname';
+      else if (match === 'contains') input.placeholder = 'hello';
+      else input.placeholder = 'hello world';
+    }
+
     function addCustomCommand() {
-      let name = (document.getElementById('new-cmd-name').value || '').replace(/^!/, '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const match = document.getElementById('new-cmd-match')?.value || 'command';
+      const rawName = (document.getElementById('new-cmd-name').value || '').trim();
       const response = document.getElementById('new-cmd-response').value.trim();
       const permission = document.getElementById('new-cmd-perm').value;
-      if (!name) { document.getElementById('new-cmd-name').focus(); return; }
+      if (!rawName) { document.getElementById('new-cmd-name').focus(); return; }
       if (!response) { document.getElementById('new-cmd-response').focus(); return; }
-      customCommandsConfig[name] = { enabled: true, permission, sources: [...newCmdSources], response };
+      // For command mode, sanitize into a clean key; for keyword modes use a timestamp key
+      let key, trigger = '';
+      if (match === 'command') {
+        key = rawName.replace(/^!/, '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        if (!key) { document.getElementById('new-cmd-name').focus(); return; }
+      } else {
+        key = `kw_${Date.now()}`;
+        trigger = rawName;
+      }
+      customCommandsConfig[key] = { enabled: true, permission, sources: [...newCmdSources], response, match, trigger };
       renderCustomCommandsTable();
       document.getElementById('new-cmd-name').value = '';
       document.getElementById('new-cmd-response').value = '';
       document.getElementById('new-cmd-perm').value = 'everyone';
+      const matchEl = document.getElementById('new-cmd-match');
+      if (matchEl) { matchEl.value = 'command'; updateNewCmdPlaceholder(); }
       newCmdSources = ['chat'];
       document.getElementById('sl-new').textContent = 'Chat';
       ['chat','whisper','redemption_input'].forEach(s => {
@@ -1736,6 +1884,7 @@
       'cfg-twitch-client-secret': 'TWITCH_CLIENT_SECRET',
       'cfg-twitch-bot-username': 'TWITCH_BOT_USERNAME',
       'cfg-twitch-bot-oauth': 'TWITCH_BOT_OAUTH',
+      'cfg-spotify-client-id': 'SPOTIFY_CLIENT_ID',
       'cfg-script-allowlist': 'SCRIPT_ALLOWLIST',
       'cfg-listener-port': 'LISTENER_PORT',
       'cfg-mod-port': 'MOD_PORT',
@@ -1889,6 +2038,7 @@
           if (el && saved[key]) el.value = saved[key];
         });
         if (saved.MEDIA_CONTROL_MODE) setMediaModeUI(saved.MEDIA_CONTROL_MODE);
+        updateSpotifyUI(!!saved.SPOTIFY_ACCESS_TOKEN);
         if (saved.SONG_REQUEST_MODE) setSrModeUI(saved.SONG_REQUEST_MODE);
         if (saved.ALERT_MODE) setAlertModeUI(saved.ALERT_MODE);
         if (saved.OVERLAY_MODE) setOverlayModeUI(saved.OVERLAY_MODE);
@@ -2818,7 +2968,7 @@
 
     // --- Statusbar mode toggle ---
     document.getElementById('mode-val')?.addEventListener('click', () => {
-      const next = mediaMode === 'jellyfin' ? 'os' : 'jellyfin';
+      const next = mediaMode === 'jellyfin' ? 'os' : mediaMode === 'os' ? 'spotify' : 'jellyfin';
       setMediaModeUI(next);
       // persist the change the same way the seg-btn would
       if (isElectron) {
