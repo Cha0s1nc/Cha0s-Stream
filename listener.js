@@ -911,6 +911,9 @@ async function dispatchCommand(permEvent, source, user, text) {
     case 'run':        await cmdRun(user, args[0]); break;
     case 'killswitch': await cmdKillswitch(user); break;
   }
+
+  // Always-on watermark — not in DEFAULT_COMMANDS, cannot be disabled
+  if (cmd === 'info') await cmdInfo();
 }
 
 // --- Chat response sender ---
@@ -1182,6 +1185,12 @@ async function cmdKillswitch(user) {
     await obs.call('StopStream'); addLog('obs', '!killswitch', `${user} → stream stopped`);
     try { await obs.call('StopRecord'); addLog('obs', '!killswitch', 'Recording stopped'); } catch {}
   } catch (err) { addLog('obs', '!killswitch', err.message, false); }
+}
+
+async function cmdInfo() {
+  const { version } = require('./package.json');
+  await sendChatMessage(`Cha0s Stream v${version} — https://github.com/Cha0s1nc/cha0s-stream`);
+  addLog('system', '!info', `Sent app info (v${version})`);
 }
 
 // --- Alert trigger ---
