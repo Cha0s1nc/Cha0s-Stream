@@ -391,10 +391,11 @@ function startListener(config) {
   const extraEnv = app.isPackaged ? (() => {
     const userData = app.getPath('userData');
     return {
-      SOUNDS_DIR:         path.join(userData, 'sounds'),
-      PLUGINS_DIR:        path.join(userData, 'plugins'),
-      PLUGIN_STORE_PATH:  path.join(userData, 'plugin-store.json'),
-      DOTENV_CONFIG_PATH: path.join(userData, '.env'),
+      SOUNDS_DIR:          path.join(userData, 'sounds'),
+      PLUGINS_DIR:         path.join(userData, 'plugins'),
+      PLUGIN_STORE_PATH:   path.join(userData, 'plugin-store.json'),
+      DOTENV_CONFIG_PATH:  path.join(userData, '.env'),
+      SEVENTV_CACHE_FILE:  path.join(userData, 'emote-cache.json'),
     };
   })() : {};
 

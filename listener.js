@@ -1524,7 +1524,7 @@ app.get('/api/overlay/config', (req, res) => {
 });
 
 // ── 7TV persistent emote cache ────────────────────────────────────────────────
-const SEVENTV_CACHE_FILE = require('path').join(__dirname, 'emote-cache.json');
+const SEVENTV_CACHE_FILE = process.env.SEVENTV_CACHE_FILE || require('path').join(__dirname, 'emote-cache.json');
 const SEVENTV_TTL_MS     = 30 * 60 * 1000; // re-check every 30 min
 
 let sevenTvEmoteCache          = null; // { name: url, ... }
@@ -2209,7 +2209,8 @@ app.post('/settings', (req, res) => {
   const updated = []; // keys whose value actually changed
   for (const [key, value] of Object.entries(req.body)) {
     if (!allowed.includes(key)) continue;
-    if (process.env[key] !== value) {
+    const current = process.env[key] ?? '';
+    if (current !== value) {
       process.env[key] = value;
       updated.push(key);
     }
