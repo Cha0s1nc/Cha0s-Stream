@@ -1050,6 +1050,20 @@ async function cmdMediaControl(user, action) {
     } catch (err) { addLog('system', `!${action}`, err.message, false); }
     return;
   }
+  if (mediaMode === 'cascade') {
+    const cascadeMap = { play: 'playpause', pause: 'playpause', next: 'next', prev: 'prev' };
+    try {
+      const r = await fetch('http://127.0.0.1:47847/cascade/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: cascadeMap[action] || action })
+      });
+      if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
+      addLog('system', `!${action}`, `${user} → Cascade`);
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '▶️ Done' }));
+    } catch (err) { addLog('system', `!${action}`, `Cascade unreachable: ${err.message}`, false); }
+    return;
+  }
   if (mediaMode === 'os') {
     try {
       await sendOSMediaKey(action);
@@ -1343,6 +1357,18 @@ app.post('/media', async (req, res) => {
   const commandMap = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' };
   const command = commandMap[action];
   if (!command) return res.status(400).json({ error: `Unknown action: ${action}` });
+  if (process.env.MEDIA_CONTROL_MODE === 'cascade') {
+    const cascadeMap = { play: 'playpause', pause: 'playpause', next: 'next', prev: 'prev' };
+    try {
+      const r = await fetch('http://127.0.0.1:47847/cascade/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: cascadeMap[action] || action })
+      });
+      if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
+      return res.json({ ok: true });
+    } catch (err) { return res.status(503).json({ error: `Cascade unreachable: ${err.message}` }); }
+  }
   if (process.env.MEDIA_CONTROL_MODE === 'os') {
     try { await sendOSMediaKey(action); return res.json({ ok: true }); }
     catch (err) { return res.status(500).json({ error: err.message }); }

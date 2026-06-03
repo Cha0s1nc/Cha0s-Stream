@@ -1,6 +1,6 @@
-{
+ {
   "name": "cha0s-stream",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Cha0s_1nc's stream management tool — OBS, Jellyfin, Twitch alerts, song requests, and more.",
   "author": {
     "name": "Cha0s1nc",

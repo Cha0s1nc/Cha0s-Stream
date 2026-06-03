@@ -559,7 +559,7 @@
             <div class="setting-row jellyfin-only" id="jf-row-password"><div class="setting-label"><div class="setting-name">Password</div><div class="setting-desc">Used instead of API key if set</div></div><div class="input-wrap"><input class="setting-input" id="cfg-jellyfin-password" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-jellyfin-password">👁</button></div></div>
             <div class="setting-row jellyfin-only" id="jf-row-username"><div class="setting-label"><div class="setting-name">Username</div><div class="setting-desc">Your Jellyfin username</div></div><input class="setting-input" id="cfg-jellyfin-username" type="text" placeholder="Username" /></div>
             <div class="setting-row jellyfin-only" id="jf-row-device"><div class="setting-label"><div class="setting-name">Device ID</div><div class="setting-desc">Leave blank for auto</div></div><input class="setting-input" id="cfg-jellyfin-device" type="text" placeholder="Optional" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Jellyfin: controls via API. OS: sends system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Cascade: direct control via Cascade app. Jellyfin: API session control. OS: system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn" data-mode="cascade" id="mode-cascade" style="display:none">Cascade</button><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
           </div>
           <div class="settings-group">
             <div class="settings-group-title">Song Requests</div>
@@ -1360,12 +1360,34 @@
       document.getElementById('stat-wishlist').textContent = document.querySelectorAll('[id^="wi-"]').length;
     }
 
+    // --- Cascade presence detection ---
+    // Once Cascade is seen even once, permanently show the mode button
+    if (localStorage.getItem('cascadeDetected')) {
+      const btn = document.getElementById('mode-cascade');
+      if (btn) btn.style.display = '';
+    }
+    async function checkCascadeRunning() {
+      if (localStorage.getItem('cascadeDetected')) return; // already unlocked
+      try {
+        const res = await fetch('http://127.0.0.1:47847/cascade/status', { signal: AbortSignal.timeout(800) });
+        const data = await res.json();
+        if (data.ok) {
+          localStorage.setItem('cascadeDetected', '1');
+          const btn = document.getElementById('mode-cascade');
+          if (btn) btn.style.display = '';
+        }
+      } catch {}
+    }
+    // Check on load, then every 15s until detected
+    checkCascadeRunning();
+    setInterval(checkCascadeRunning, 15000);
+
     // --- Media mode UI ---
     function setMediaModeUI(mode) {
       mediaMode = mode;
       document.querySelectorAll('.seg-btn[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
       const modeVal = document.getElementById('mode-val');
-      if (modeVal) modeVal.textContent = mode === 'os' ? 'OS Media Keys' : mode === 'spotify' ? 'Spotify' : 'Jellyfin';
+      if (modeVal) modeVal.textContent = mode === 'cascade' ? 'Cascade' : mode === 'os' ? 'OS Media Keys' : mode === 'spotify' ? 'Spotify' : 'Jellyfin';
       const jellyfinOnly = mode !== 'jellyfin';
       document.querySelectorAll('.jellyfin-only').forEach(el => el.classList.toggle('dimmed', jellyfinOnly));
     }
@@ -2986,7 +3008,7 @@
 
     // --- Statusbar mode toggle ---
     document.getElementById('mode-val')?.addEventListener('click', () => {
-      const next = mediaMode === 'jellyfin' ? 'os' : mediaMode === 'os' ? 'spotify' : 'jellyfin';
+      const next = mediaMode === 'cascade' ? 'jellyfin' : mediaMode === 'jellyfin' ? 'os' : mediaMode === 'os' ? 'spotify' : 'cascade';
       setMediaModeUI(next);
       // persist the change the same way the seg-btn would
       if (isElectron) {
