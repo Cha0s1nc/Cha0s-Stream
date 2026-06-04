@@ -15,7 +15,12 @@ const PERSIST_KEYS = [
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
   'CHAT_OVERLAY_CONFIG','OVERLAY_MODE',
   'SEVENTV_ENABLED','BTTV_ENABLED',
-  'EVENT_TRIGGERS'
+  'EVENT_TRIGGERS',
+  'TTS_ENABLED','TTS_VOICE','TTS_RATE',
+  'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
+  'TTS_BITS_THRESHOLD',
+  'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
+  'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
 ];
 
 function persistEnv() {
@@ -105,6 +110,7 @@ const DEFAULT_COMMANDS = {
   record:    { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '',                                             description: 'Start/stop recording (!record start|stop)' },
   run:       { enabled: false, permission: 'broadcaster', sources: ['chat','whisper'],                    response: '',                                             description: 'Run a script URL (!run <url>)' },
   killswitch:{ enabled: false, permission: 'broadcaster', sources: ['chat','whisper'],                    response: '',                                             description: 'Stop stream and recording immediately' },
+  tts:       { enabled: true,  permission: 'everyone',    sources: ['chat','whisper'],                    response: '',                                             description: 'Speak a message via TTS (!tts <message>)' },
 };
 
 // --- State ---
@@ -453,13 +459,24 @@ return output'`,
 function sendOSMediaKey(action) {
   const { exec } = require('child_process');
   const platform = require('os').platform();
-  const commands = {
-    play:      { darwin: `osascript -e 'tell application "System Events" to key code 100'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
-    pause:     { darwin: `osascript -e 'tell application "System Events" to key code 100'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
-    next:      { darwin: `osascript -e 'tell application "System Events" to key code 101'`, win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"`, linux: `xdotool key XF86AudioNext` },
-    prev:      { darwin: `osascript -e 'tell application "System Events" to key code 98'`,  win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]177)"`, linux: `xdotool key XF86AudioPrev` }
+
+  // macOS: talk directly to the running music app — no Accessibility permission needed.
+  // Tries Spotify first, then Apple Music.
+  const darwinCmds = {
+    play:  `osascript -e 'try\nif application "Spotify" is running then\ntell application "Spotify" to play\nelse if application "Music" is running then\ntell application "Music" to play\nend if\nend try'`,
+    pause: `osascript -e 'try\nif application "Spotify" is running then\ntell application "Spotify" to pause\nelse if application "Music" is running then\ntell application "Music" to pause\nend if\nend try'`,
+    next:  `osascript -e 'try\nif application "Spotify" is running then\ntell application "Spotify" to next track\nelse if application "Music" is running then\ntell application "Music" to next track\nend if\nend try'`,
+    prev:  `osascript -e 'try\nif application "Spotify" is running then\ntell application "Spotify" to previous track\nelse if application "Music" is running then\ntell application "Music" to previous track\nend if\nend try'`,
   };
-  const cmd = commands[action]?.[platform];
+
+  const commands = {
+    play:  { win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
+    pause: { win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"`, linux: `xdotool key XF86AudioPlay` },
+    next:  { win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"`, linux: `xdotool key XF86AudioNext` },
+    prev:  { win32: `powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]177)"`, linux: `xdotool key XF86AudioPrev` },
+  };
+
+  const cmd = platform === 'darwin' ? darwinCmds[action] : commands[action]?.[platform];
   if (!cmd) throw new Error(`OS media key not supported for ${action} on ${platform}`);
   return new Promise((resolve, reject) => exec(cmd, err => err ? reject(err) : resolve()));
 }
@@ -700,6 +717,13 @@ function attachTwitchHandlers(socket) {
         const input = event?.user_input || '';
         addLog('system', 'redeem', `${user} redeemed: ${redeemTitle}${input ? ` — "${input}"` : ''}`);
         await handleRedeem(redeemTitle, user, input);
+        // Redemption TTS
+        if (process.env.TTS_ENABLED === 'true' && process.env.TTS_REDEMPTIONS_ENABLED === 'true' && input) {
+          const names = (process.env.TTS_REDEMPTION_NAMES || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+          if (!names.length || names.includes(redeemTitle.toLowerCase())) {
+            speakTTS(`${user} redeemed ${redeemTitle}: ${input}`);
+          }
+        }
       }
       if (subType === 'channel.chat.message') {
         await handleChatMessage(event);
@@ -720,6 +744,12 @@ function attachTwitchHandlers(socket) {
         addLog('system', 'alert', `${user} cheered ${bits} bits`);
         await triggerAlert({ type: 'cheer', user, bits, message });
         await fireTrigger('cheer', { user, bits, message });
+        // Bits TTS
+        const bitsThreshold = parseInt(process.env.TTS_BITS_THRESHOLD) || 0;
+        if (process.env.TTS_ENABLED === 'true' && bitsThreshold > 0 && bits >= bitsThreshold) {
+          const cheerMsg = message ? `${user} cheered ${bits} bits: ${message}` : `${user} cheered ${bits} bits`;
+          speakTTS(cheerMsg);
+        }
       }
       if (subType === 'channel.subscribe') {
         const user = event?.user_name || 'someone';
@@ -794,6 +824,72 @@ if (process.env.TWITCH_OAUTH) {
 }
 
 // --- Chat command dispatcher ---
+// --- TTS engine ---
+const { spawn } = require('child_process');
+let ttsQueue = [];
+let ttsBusy  = false;
+
+function sanitizeTTS(text, maxLen) {
+  const max = parseInt(maxLen) || 200;
+  return text
+    .replace(/https?:\/\/\S+/g, 'link')          // replace URLs with "link"
+    .replace(/[\p{Extended_Pictographic}]/gu, '') // strip emoji
+    .replace(/[^\w\s',.!?:;-]/g, ' ')            // strip other special chars
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function enqueueTTS(text) {
+  // Directly enqueue — no enabled check. Use speakTTS for normal guarded calls.
+  const cleaned = sanitizeTTS(text, process.env.TTS_CHAT_MAX_LENGTH);
+  if (!cleaned) return;
+  ttsQueue.push(cleaned);
+  if (!ttsBusy) drainTTSQueue();
+}
+
+function speakTTS(text) {
+  if (process.env.TTS_ENABLED !== 'true') return;
+  enqueueTTS(text);
+}
+
+function drainTTSQueue() {
+  if (!ttsQueue.length) { ttsBusy = false; return; }
+  ttsBusy = true;
+  const text    = ttsQueue.shift();
+  const voice   = process.env.TTS_VOICE || '';
+  const rate    = process.env.TTS_RATE  || '';
+  let cmd, args;
+
+  if (process.platform === 'darwin') {
+    args = [];
+    if (voice) args.push('-v', voice);
+    if (rate)  args.push('-r', rate);
+    args.push(text);
+    cmd = 'say';
+  } else if (process.platform === 'win32') {
+    const rateNum = rate ? Math.max(-10, Math.min(10, Math.round((parseInt(rate) - 150) / 25))) : 0;
+    const safe    = text.replace(/'/g, "''");
+    const voiceCmd = voice ? `$s.SelectVoice('${voice}');` : '';
+    cmd  = 'powershell';
+    args = ['-NoProfile', '-NonInteractive', '-Command',
+      `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; ${voiceCmd} $s.Rate = ${rateNum}; $s.Speak('${safe}')`];
+  } else {
+    args = [];
+    if (voice) args.push('-v', voice);
+    if (rate)  args.push('-s', rate);
+    args.push(text);
+    cmd = 'espeak';
+  }
+
+  const proc = spawn(cmd, args, { stdio: 'ignore' });
+  proc.on('close', () => drainTTSQueue());
+  proc.on('error', err => {
+    addLog('system', 'tts', `TTS error: ${err.message}`, false);
+    drainTTSQueue();
+  });
+}
+
 async function handleChatMessage(event) {
   const user = event?.chatter_user_name || 'unknown';
   const text = event?.message?.text || '';
@@ -812,6 +908,15 @@ async function handleChatMessage(event) {
     ts:        Date.now(),
   });
   await dispatchCommand(event, 'chat', user, text);
+
+  // Chat TTS
+  if (process.env.TTS_ENABLED === 'true' && process.env.TTS_CHAT_ENABLED === 'true') {
+    const minPerm = process.env.TTS_CHAT_PERMISSION || 'everyone';
+    if (checkPermission(event, minPerm)) {
+      const sayName = process.env.TTS_CHAT_SAY_NAME !== 'false';
+      speakTTS(sayName ? `${user} says: ${text}` : text);
+    }
+  }
 }
 
 async function handleWhisperMessage(event) {
@@ -856,6 +961,10 @@ async function dispatchCommand(permEvent, source, user, text) {
   const parts = text.slice(1).split(/\s+/);
   const cmd = parts[0].toLowerCase();
   const args = parts.slice(1);
+
+  // Always-on watermark — runs before any config/permission checks
+  if (cmd === 'info') { await cmdInfo(); return; }
+
   const cfg = state.commands[cmd];
   const custom = state.customCommands[cmd];
 
@@ -910,10 +1019,8 @@ async function dispatchCommand(permEvent, source, user, text) {
     case 'record':     await cmdRecord(user, args[0]); break;
     case 'run':        await cmdRun(user, args[0]); break;
     case 'killswitch': await cmdKillswitch(user); break;
+    case 'tts':        await cmdTTS(user, args.join(' ')); break;
   }
-
-  // Always-on watermark — not in DEFAULT_COMMANDS, cannot be disabled
-  if (cmd === 'info') await cmdInfo();
 }
 
 // --- Chat response sender ---
@@ -1199,6 +1306,13 @@ async function cmdKillswitch(user) {
     await obs.call('StopStream'); addLog('obs', '!killswitch', `${user} → stream stopped`);
     try { await obs.call('StopRecord'); addLog('obs', '!killswitch', 'Recording stopped'); } catch {}
   } catch (err) { addLog('obs', '!killswitch', err.message, false); }
+}
+
+async function cmdTTS(user, text) {
+  if (process.env.TTS_ENABLED !== 'true') return;
+  if (!text) return;
+  speakTTS(text);
+  addLog('system', '!tts', `${user}: ${text}`);
 }
 
 async function cmdInfo() {
@@ -1752,6 +1866,13 @@ app.get('/api/chat/emotes', async (req, res) => {
 });
 
 // Manual emote refresh — busts the in-memory cache for the requested provider(s)
+app.post('/api/tts/test', (req, res) => {
+  const text = (req.body?.text || 'Cha0s Stream TTS is working.').slice(0, 200);
+  enqueueTTS(text); // bypasses TTS_ENABLED so you can test before enabling
+  addLog('system', 'tts', `Test: "${text}"`);
+  res.json({ ok: true });
+});
+
 app.post('/api/emotes/refresh', (req, res) => {
   const { which } = req.body || {};
   // 'which' is 'seventv', 'bttv', or omitted (both)
@@ -1916,6 +2037,21 @@ function getEventTriggers() {
 }
 
 async function fireTrigger(type, vars) {
+  // Alert TTS — fires independently of whether the event trigger itself is enabled
+  if (process.env.TTS_ENABLED === 'true' && process.env.TTS_ALERTS_ENABLED === 'true') {
+    const alertTypes = (process.env.TTS_ALERT_TYPES || 'follow,cheer,sub,resub,giftsub').split(',').map(s => s.trim());
+    if (alertTypes.includes(type)) {
+      const ttsMessages = {
+        follow:  `${vars.user} just followed!`,
+        cheer:   `${vars.user} cheered ${vars.bits} bits!`,
+        sub:     `${vars.user} just subscribed!`,
+        resub:   `${vars.user} resubscribed for ${vars.months} months!`,
+        giftsub: `${vars.user} gifted ${vars.count} subs!`,
+      };
+      speakTTS(ttsMessages[type] || type);
+    }
+  }
+
   const triggers = getEventTriggers();
   const t = triggers[type];
   if (!t || !t.enabled) return;
@@ -1960,6 +2096,16 @@ async function fireTrigger(type, vars) {
 
 app.get('/api/triggers', (req, res) => {
   res.json({ triggers: getEventTriggers() });
+});
+
+app.post('/api/dev/reset', (req, res) => {
+  const fs = require('fs');
+  // Clear all known keys from process.env
+  [...PERSIST_KEYS, ...SETTINGS_KEYS].forEach(k => delete process.env[k]);
+  // Wipe the .env file
+  try { fs.writeFileSync(dotenvPath, '', 'utf8'); } catch {}
+  addLog('system', 'dev', 'All settings wiped — restart or re-enter credentials to reconnect.');
+  res.json({ ok: true });
 });
 
 app.post('/api/triggers/test', async (req, res) => {
@@ -2220,6 +2366,11 @@ const SETTINGS_KEYS = [
   'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION',
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
+  'TTS_ENABLED','TTS_VOICE','TTS_RATE',
+  'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
+  'TTS_BITS_THRESHOLD',
+  'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
+  'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
 ];
 
 app.get('/settings', (req, res) => {

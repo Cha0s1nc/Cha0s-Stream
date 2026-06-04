@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startBotTwitchAuth: () => ipcRenderer.invoke('twitch-auth-start', { flowType: 'bot' }),
   onOAuthResult:    (callback) => ipcRenderer.on('oauth-result', (_, data) => callback(data)),
   openDevTools:     () => ipcRenderer.invoke('open-devtools'),
-  getDevMode:       () => ipcRenderer.invoke('get-dev-mode')
+  getDevMode:       () => ipcRenderer.invoke('get-dev-mode'),
+  wipeSettings:     () => ipcRenderer.invoke('wipe-settings'),
 });

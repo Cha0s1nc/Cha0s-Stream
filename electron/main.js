@@ -102,6 +102,18 @@ function getConfig() {
     ALERT_MODE:               store.get('ALERT_MODE'),
     ALERT_OBS_SOURCE:         store.get('ALERT_OBS_SOURCE'),
     ALERT_OBS_DURATION:       store.get('ALERT_OBS_DURATION'),
+    TTS_ENABLED:              store.get('TTS_ENABLED'),
+    TTS_VOICE:                store.get('TTS_VOICE'),
+    TTS_RATE:                 store.get('TTS_RATE'),
+    TTS_CHAT_ENABLED:         store.get('TTS_CHAT_ENABLED'),
+    TTS_CHAT_PERMISSION:      store.get('TTS_CHAT_PERMISSION'),
+    TTS_CHAT_SAY_NAME:        store.get('TTS_CHAT_SAY_NAME'),
+    TTS_CHAT_MAX_LENGTH:      store.get('TTS_CHAT_MAX_LENGTH'),
+    TTS_BITS_THRESHOLD:       store.get('TTS_BITS_THRESHOLD'),
+    TTS_REDEMPTIONS_ENABLED:  store.get('TTS_REDEMPTIONS_ENABLED'),
+    TTS_REDEMPTION_NAMES:     store.get('TTS_REDEMPTION_NAMES'),
+    TTS_ALERTS_ENABLED:       store.get('TTS_ALERTS_ENABLED'),
+    TTS_ALERT_TYPES:          store.get('TTS_ALERT_TYPES'),
   };
 }
 
@@ -615,6 +627,12 @@ ipcMain.handle('twitch-auth-start', async (event, { flowType = 'broadcaster' } =
 // ── IPC — settings ─────────────────────────────────────────────────────────────
 
 ipcMain.handle('get-settings', () => getConfig());
+
+ipcMain.handle('wipe-settings', () => {
+  store.clear();
+  startListener(getConfig());
+  return { ok: true };
+});
 
 ipcMain.handle('save-settings', (event, settings) => {
   for (const [key, value] of Object.entries(settings)) {

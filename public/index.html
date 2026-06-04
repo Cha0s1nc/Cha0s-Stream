@@ -664,6 +664,29 @@
             <div class="setting-row" id="mod-port-row"><div class="setting-label"><div class="setting-name">Mod Queue Port</div><div class="setting-desc">Port for the mod queue page</div></div><input class="setting-input" id="cfg-mod-port" type="text" placeholder="3001" /></div>
           </div>
           <div class="settings-group" id="sounds-group">
+            <div class="settings-group-title">TTS</div>
+            <div style="padding:0 0 4px;">
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Enable TTS</div><div class="setting-desc">Master switch — disabling this silences all TTS regardless of other settings.</div></div><div style="display:flex;align-items:center;gap:10px;"><button class="btn btn-secondary" id="btn-tts-test" onclick="testTTS()" style="font-size:11px;padding:3px 10px;">Test</button><label class="toggle"><input type="checkbox" id="cfg-tts-enabled" onchange="updateTTSUI()" /><span class="toggle-track"></span></label></div></div>
+              <div id="tts-settings-body">
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Voice</div><div class="setting-desc">OS voice name. Mac: <code style="font-size:10px;">Samantha</code>, <code style="font-size:10px;">Alex</code>. Windows: <code style="font-size:10px;">Microsoft David Desktop</code>. Leave blank for system default.</div></div><input class="setting-input" id="cfg-tts-voice" type="text" placeholder="System default" style="width:180px;" /></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Rate</div><div class="setting-desc">Speech rate in words per minute. ~150 is normal speed. Leave blank for default.</div></div><input class="setting-input" id="cfg-tts-rate" type="number" placeholder="150" min="50" max="500" style="width:80px;" /></div>
+                <div class="settings-group-subtitle">Chat</div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Read chat messages</div><div class="setting-desc">Speak messages from chat aloud.</div></div><label class="toggle"><input type="checkbox" id="cfg-tts-chat-enabled" /><span class="toggle-track"></span></label></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Minimum permission</div><div class="setting-desc">Only read messages from viewers at or above this level.</div></div><select class="cmd-perm-select" id="cfg-tts-chat-permission"><option value="everyone">Everyone</option><option value="subscriber">Subscribers+</option><option value="vip">VIPs+</option><option value="moderator">Moderators+</option><option value="broadcaster">Broadcaster only</option></select></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Say username</div><div class="setting-desc">Prefix each message with "[name] says:" when reading chat.</div></div><label class="toggle"><input type="checkbox" id="cfg-tts-chat-say-name" checked /><span class="toggle-track"></span></label></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Max message length</div><div class="setting-desc">Truncate messages longer than this (characters). Default 200.</div></div><input class="setting-input" id="cfg-tts-chat-max-length" type="number" placeholder="200" min="10" max="1000" style="width:80px;" /></div>
+                <div class="settings-group-subtitle">Bits</div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Cheer threshold</div><div class="setting-desc">Read cheer messages aloud when bits ≥ this value. Set to 0 to disable.</div></div><input class="setting-input" id="cfg-tts-bits-threshold" type="number" placeholder="0" min="0" style="width:80px;" /></div>
+                <div class="settings-group-subtitle">Channel Points</div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Read redemptions</div><div class="setting-desc">Speak channel point redemption text input aloud.</div></div><label class="toggle"><input type="checkbox" id="cfg-tts-redemptions-enabled" /><span class="toggle-track"></span></label></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Redemption names</div><div class="setting-desc">Comma-separated reward names to read (e.g. <code style="font-size:10px;">TTS, Shoutout</code>). Leave blank to read all redemptions with text input.</div></div><input class="setting-input" id="cfg-tts-redemption-names" type="text" placeholder="All redemptions with input" /></div>
+                <div class="settings-group-subtitle">Alerts</div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Speak alerts</div><div class="setting-desc">Announce follows, subs, cheers, etc. aloud.</div></div><label class="toggle"><input type="checkbox" id="cfg-tts-alerts-enabled" /><span class="toggle-track"></span></label></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Alert types</div><div class="setting-desc">Which events to speak. Comma-separated: <code style="font-size:10px;">follow, cheer, sub, resub, giftsub</code></div></div><input class="setting-input" id="cfg-tts-alert-types" type="text" placeholder="follow,cheer,sub,resub,giftsub" /></div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="settings-group-title">Sounds</div>
             <div style="padding:10px 14px;display:flex;flex-direction:column;gap:10px;">
               <div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:12px;color:var(--text3);">Folder: <code id="sounds-dir-label" style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--text2);">sounds/</code></div><label class="btn btn-secondary" style="cursor:pointer;font-size:12px;padding:5px 12px;">⬆ Upload<input type="file" id="sounds-upload-input" accept=".mp3,.wav,.ogg,.flac" multiple style="display:none;" onchange="handleSoundsUpload(this)"></label></div>
@@ -682,6 +705,7 @@
           <div class="dev-section"><div class="dev-section-header"><span class="dev-section-title">🔑 OAuth</span></div><div class="dev-section-body"><div class="dev-row"><div class="dev-row-label">Test Twitch OAuth<small>Opens server-side OAuth flow</small></div><button class="dev-btn dev-btn-purple" onclick="devTestOAuth()">Open OAuth Popup</button></div><div class="dev-row"><div class="dev-row-label">Test browser OAuth<small>Opens in your default browser</small></div><button class="dev-btn" onclick="devTestServerOAuth()">Open Browser OAuth</button></div><div class="dev-result" id="dev-oauth-result">—</div></div></div>
           <div class="dev-section"><div class="dev-section-header"><span class="dev-section-title">📜 Script Runner</span></div><div class="dev-section-body"><div class="dev-row"><div class="dev-row-label">Script URL<small>Must be in SCRIPT_ALLOWLIST</small></div></div><div class="dev-row"><input class="dev-input" id="dev-script-url" type="text" placeholder="https://example.com/script.sh" /><button class="dev-btn dev-btn-yellow" onclick="devRunScript()">Run Script</button></div><div class="dev-result" id="dev-script-result">—</div></div></div>
           <div class="dev-section"><div class="dev-section-header"><span class="dev-section-title">🛠 DevTools</span></div><div class="dev-section-body"><div class="dev-row"><div class="dev-row-label">Open Electron DevTools<small>Electron only</small></div><button class="dev-btn dev-btn-green" onclick="devOpenDevTools()">Open DevTools</button></div><div class="dev-row"><div class="dev-row-label">Reload window</div><button class="dev-btn dev-btn-red" onclick="location.reload()">Reload</button></div></div></div>
+          <div class="dev-section"><div class="dev-section-header"><span class="dev-section-title">💣 Reset</span></div><div class="dev-section-body"><div class="dev-row"><div class="dev-row-label">Reset UI to defaults<small>Restores all toggles and selects to their default values in the UI. Does not save — click Save Settings to apply.</small></div><button class="dev-btn dev-btn-yellow" onclick="devResetUIToDefaults()">Reset UI Defaults</button></div><div class="dev-row"><div class="dev-row-label">Wipe all settings<small>Clears every saved value and resets to defaults. Requires re-entering all credentials.</small></div><button class="dev-btn dev-btn-red" onclick="devWipeSettings()">Wipe All Settings</button></div><div class="dev-result" id="dev-reset-result">—</div></div></div>
         </div>
       </div>
     </div>
@@ -1286,6 +1310,24 @@
     }
 
     // --- Spotify ---
+    function updateTTSUI() {
+      const enabled = document.getElementById('cfg-tts-enabled')?.checked;
+      const body = document.getElementById('tts-settings-body');
+      if (body) body.style.opacity = enabled ? '1' : '0.4';
+    }
+
+    async function testTTS() {
+      const btn = document.getElementById('btn-tts-test');
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      try {
+        await fetch('/api/tts/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Cha0s Stream TTS is working.' }) });
+        if (btn) btn.textContent = '✓ Sent';
+      } catch {
+        if (btn) btn.textContent = '✗ Error';
+      }
+      setTimeout(() => { if (btn) { btn.textContent = 'Test'; btn.disabled = false; } }, 2500);
+    }
+
     function updateSpotifyUI(connected) {
       const btn        = document.getElementById('btn-spotify-connect');
       const disconnBtn = document.getElementById('btn-spotify-disconnect');
@@ -1912,7 +1954,14 @@
       'cfg-mod-port': 'MOD_PORT',
       'cfg-sr-redeem-name': 'SONG_REQUEST_REDEEM_NAME',
       'cfg-alert-obs-source': 'ALERT_OBS_SOURCE',
-      'cfg-alert-duration': 'ALERT_OBS_DURATION'
+      'cfg-alert-duration': 'ALERT_OBS_DURATION',
+      'cfg-tts-voice': 'TTS_VOICE',
+      'cfg-tts-rate': 'TTS_RATE',
+      'cfg-tts-chat-max-length': 'TTS_CHAT_MAX_LENGTH',
+      'cfg-tts-bits-threshold': 'TTS_BITS_THRESHOLD',
+      'cfg-tts-redemption-names': 'TTS_REDEMPTION_NAMES',
+      'cfg-tts-alert-types': 'TTS_ALERT_TYPES',
+      'cfg-tts-chat-permission': 'TTS_CHAT_PERMISSION',
     };
 
     const modEnabledCb = document.getElementById('cfg-mod-enabled');
@@ -2067,6 +2116,12 @@
         document.getElementById('cfg-sr-enabled').checked = saved.SONG_REQUEST_ENABLED !== 'false';
         document.getElementById('cfg-seventv-enabled').checked = saved.SEVENTV_ENABLED === 'true';
         document.getElementById('cfg-bttv-enabled').checked    = saved.BTTV_ENABLED    === 'true';
+        document.getElementById('cfg-tts-enabled').checked              = saved.TTS_ENABLED === 'true';
+        document.getElementById('cfg-tts-chat-enabled').checked         = saved.TTS_CHAT_ENABLED === 'true';
+        document.getElementById('cfg-tts-chat-say-name').checked        = saved.TTS_CHAT_SAY_NAME !== 'false';
+        document.getElementById('cfg-tts-redemptions-enabled').checked  = saved.TTS_REDEMPTIONS_ENABLED === 'true';
+        document.getElementById('cfg-tts-alerts-enabled').checked       = saved.TTS_ALERTS_ENABLED === 'true';
+        updateTTSUI();
         const modEnabled = saved.MOD_ENABLED !== 'false';
         document.getElementById('cfg-mod-enabled').checked = modEnabled;
         modPortRow.style.opacity = modEnabled ? '1' : '0.4';
@@ -2101,6 +2156,11 @@
       settings.ALERT_MODE = alertMode;
       settings.OVERLAY_MODE = overlayMode;
       settings.MOD_ENABLED = document.getElementById('cfg-mod-enabled').checked ? 'true' : 'false';
+      settings.TTS_ENABLED             = document.getElementById('cfg-tts-enabled').checked             ? 'true' : 'false';
+      settings.TTS_CHAT_ENABLED        = document.getElementById('cfg-tts-chat-enabled').checked        ? 'true' : 'false';
+      settings.TTS_CHAT_SAY_NAME       = document.getElementById('cfg-tts-chat-say-name').checked       ? 'true' : 'false';
+      settings.TTS_REDEMPTIONS_ENABLED = document.getElementById('cfg-tts-redemptions-enabled').checked ? 'true' : 'false';
+      settings.TTS_ALERTS_ENABLED      = document.getElementById('cfg-tts-alerts-enabled').checked      ? 'true' : 'false';
       if (isElectron) {
         await window.electronAPI.saveSettings(settings);
       } else {
@@ -2892,6 +2952,63 @@
         window.electronAPI.openDevTools();
       } else {
         console.log('[dev] DevTools only available inside Electron');
+      }
+    }
+
+    function devResetUIToDefaults() {
+      // Modes
+      setMediaModeUI('os');
+      setSrModeUI('chat');
+      setAlertModeUI('browser_source');
+      setOverlayModeUI('alerts');
+
+      // Checkboxes
+      const cb = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+      cb('cfg-sr-enabled',               true);
+      cb('cfg-seventv-enabled',          false);
+      cb('cfg-bttv-enabled',             false);
+      cb('cfg-mod-enabled',              true);
+      cb('cfg-tts-enabled',              false);
+      cb('cfg-tts-chat-enabled',         false);
+      cb('cfg-tts-chat-say-name',        true);
+      cb('cfg-tts-redemptions-enabled',  false);
+      cb('cfg-tts-alerts-enabled',       false);
+
+      // Selects
+      const sel = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+      sel('cfg-tts-chat-permission', 'everyone');
+
+      // Number/text fields with non-empty defaults
+      const inp = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+      inp('cfg-tts-chat-max-length', '200');
+      inp('cfg-tts-bits-threshold',  '0');
+      inp('cfg-tts-alert-types',     'follow,cheer,sub,resub,giftsub');
+
+      // Mod port visibility
+      const modRow = document.getElementById('mod-port-row');
+      if (modRow) { modRow.style.opacity = '1'; modRow.style.pointerEvents = ''; }
+
+      updateTTSUI();
+
+      document.getElementById('btn-save').click();
+      const result = document.getElementById('dev-reset-result');
+      if (result) result.textContent = '✓ Defaults applied and saved.';
+    }
+
+    async function devWipeSettings() {
+      const result = document.getElementById('dev-reset-result');
+      if (!confirm('Wipe ALL settings? This clears every saved value including Twitch credentials, OBS, Jellyfin, and all configuration. You will need to re-enter everything.')) return;
+      if (result) result.textContent = '⏳ Wiping…';
+      try {
+        if (isElectron) {
+          await window.electronAPI.wipeSettings();
+        } else {
+          await fetch('/api/dev/reset', { method: 'POST' });
+        }
+        if (result) result.textContent = '✓ All settings wiped. Reloading…';
+        setTimeout(() => location.reload(), 1000);
+      } catch (err) {
+        if (result) result.textContent = '✗ Error: ' + err.message;
       }
     }
 
