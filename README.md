@@ -160,7 +160,7 @@ Each alert type has its own colour, message template, and optional sound.
 
 Add the chat browser source URL as a transparent Browser Source in OBS. Displays live Twitch chat with emotes, badges, and configurable appearance.
 
-Appearance is configured under **Settings → Overlays → Chat** or via the visual **Overlay Editor** at [cha0sinc.xyz](https://cha0sinc.xyz/github/projects/cha0s-stream/overlay-editor).
+Appearance is configured under **Settings → Overlays → Chat** or via the visual **Overlay Editor** at [chaosinc.xyz](https://chaosinc.xyz/github/projects/cha0s-stream/overlay-editor).
 
 ### Alert overlay
 
@@ -196,21 +196,6 @@ Viewers request songs with `!sr <query>` or via a channel point redemption. Requ
 Drop a `.js` file into the `plugins/` folder next to the app, or import one via **Plugins → Import Plugin**. Plugins can register chat commands, react to stream events, store state, and render a live panel in the Plugins tab.
 
 See [PLUGINS.md](PLUGINS.md) for the plugin development guide.
-
----
-
-## Macro Deck Plugin
-
-A native Macro Deck plugin is available in the [`MacroDeckPlugin/`](MacroDeckPlugin/) folder. It connects directly to Cha0s Stream over WebSocket and exposes the following actions in Macro Deck:
-
-- **Switch OBS Scene** — switch to a named scene
-- **Toggle Stream** — start, stop, or toggle the OBS stream
-- **Toggle Recording** — start, stop, or toggle OBS recording
-- **Toggle OBS Source** — show or hide a specific source
-- **Send Chat Message** — send a message as bot or broadcaster
-- **Run Command** — trigger any built-in or custom command with optional arguments
-
-Build with Visual Studio or `dotnet build` and drop the output `.dll` into Macro Deck's plugins folder. Configure the host and port from the plugin's settings page.
 
 ---
 
