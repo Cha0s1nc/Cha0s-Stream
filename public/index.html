@@ -98,6 +98,8 @@
     .chat-badge.vip         { background: rgba(224,5,185,0.15);  color: #e005b9; }
     .chat-badge.broadcaster { background: rgba(255,68,68,0.15);  color: #ff4444; }
     .chat-badge.founder     { background: rgba(170,64,213,0.15); color: #aa40d5; }
+    .chat-badge-img { width: 18px; height: 18px; vertical-align: middle; display: inline-block; }
+    .chat-source-tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.08); color: var(--text3); vertical-align: middle; margin-right: 4px; text-transform: lowercase; }
     .chat-emote { height: 1.4em; width: auto; vertical-align: middle; display: inline-block; margin: 0 1px; }
     .stream-event { font-size: 12px; padding: 6px 8px; background: var(--surface); border-radius: 6px; border-left: 2px solid var(--accent); }
     /* OBS panel */
@@ -996,7 +998,23 @@
       return FALLBACK_CHAT_COLOURS[Math.abs(h) % FALLBACK_CHAT_COLOURS.length];
     }
 
-    const BADGE_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
+    // Badge image cache — fetched once from /api/chat/badges
+    let streamBadgeCache = {};
+    fetch('/api/chat/badges').then(r => r.ok ? r.json() : {}).then(d => { streamBadgeCache = d; }).catch(() => {});
+
+    function renderBadges(badges) {
+      if (!badges?.length) return '';
+      return '<span class="chat-badges">' + badges.map(b => {
+        const key = typeof b === 'string' ? b : `${b.set_id}/${b.id}`;
+        const url = streamBadgeCache[key];
+        if (url) return `<img class="chat-badge-img" src="${url}" alt="${b.set_id || b}" title="${b.set_id || b}">`;
+        // Fallback to text pill using set_id
+        const setId = typeof b === 'string' ? b : b.set_id;
+        const PILL_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
+        const cls = PILL_MAP[setId];
+        return cls ? `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'host' : cls}</span>` : '';
+      }).filter(Boolean).join('') + '</span>';
+    }
 
     function addStreamChatMessage(data) {
       const container = document.getElementById('stream-chat');
@@ -1004,20 +1022,13 @@
       container.querySelector('.empty-state')?.remove();
 
       const colour = (data.color && data.color.length === 7) ? data.color : chatNameColour(data.user || '');
-
-      // Badges
-      let badgeHtml = '';
-      if (data.badges?.length) {
-        const pills = data.badges
-          .map(b => BADGE_MAP[b])
-          .filter(Boolean)
-          .map(cls => `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'host' : cls}</span>`);
-        if (pills.length) badgeHtml = `<span class="chat-badges">${pills.join('')}</span>`;
-      }
+      const badgeHtml = renderBadges(data.badges);
+      const sourceTag = data.sourceChannel
+        ? `<span class="chat-source-tag">${escHtml(data.sourceChannel)}</span>` : '';
 
       const el = document.createElement('div');
       el.className = 'chat-msg';
-      el.innerHTML = `${badgeHtml}<span class="chat-user" style="color:${colour}">${escHtml(data.user)}</span><span style="opacity:0.5;margin-right:4px">:</span>${streamRenderBody(data)}`;
+      el.innerHTML = `${badgeHtml}${sourceTag}<span class="chat-user" style="color:${colour}">${escHtml(data.user)}</span><span style="opacity:0.5;margin-right:4px">:</span>${streamRenderBody(data)}`;
       container.appendChild(el);
       container.scrollTop = container.scrollHeight;
       while (container.children.length > STREAM_CHAT_MAX) container.firstChild.remove();

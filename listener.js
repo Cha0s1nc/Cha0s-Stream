@@ -567,6 +567,35 @@ function spotifyStopPolling() {
   if (spotifyPollTimer) { clearInterval(spotifyPollTimer); spotifyPollTimer = null; }
 }
 
+// --- Cascade now-playing polling ---
+let cascadePollTimer = null;
+let cascadeCurrentTrack = null;
+
+async function cascadeGetNowPlaying() {
+  try {
+    const r = await fetch('http://127.0.0.1:47847/cascade/now-playing', { signal: AbortSignal.timeout(2000) });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data.title) return null;
+    return { title: data.title, artist: data.artist || '', isPlaying: data.isPlaying ?? true };
+  } catch { return null; }
+}
+
+function cascadeStartPolling() {
+  if (cascadePollTimer) return;
+  cascadePollTimer = setInterval(async () => {
+    if ((process.env.MEDIA_CONTROL_MODE || 'os') !== 'cascade') return;
+    const track = await cascadeGetNowPlaying();
+    const changed = track?.title !== cascadeCurrentTrack?.title || track?.isPlaying !== cascadeCurrentTrack?.isPlaying;
+    cascadeCurrentTrack = track;
+    if (changed) broadcast({ event: 'now_playing', track: track ? `${track.artist} — ${track.title}` : null, isPlaying: track?.isPlaying ?? false });
+  }, 4000);
+}
+
+function cascadeStopPolling() {
+  if (cascadePollTimer) { clearInterval(cascadePollTimer); cascadePollTimer = null; }
+}
+
 // --- Twitch EventSub ---
 let twitchWs = null;
 let twitchReconnectTimer = null;
@@ -893,18 +922,24 @@ function drainTTSQueue() {
 async function handleChatMessage(event) {
   const user = event?.chatter_user_name || 'unknown';
   const text = event?.message?.text || '';
+  // Shared chat — source channel when message comes from a different broadcaster
+  const sourceChannel = (event?.source_broadcaster_user_login &&
+    event.source_broadcaster_user_login !== event.broadcaster_user_login)
+    ? event.source_broadcaster_user_login : null;
   pluginEvents.emit('chat', { user, text, event });
   broadcast({
     event:     'chat',
     user,
     color:     event?.color || '',
-    badges:    (event?.badges || []).map(b => b.set_id),
+    // Send full {set_id, id} pairs so overlays can look up real badge images
+    badges:    (event?.badges || []).map(b => ({ set_id: b.set_id, id: b.id })),
     message:   text,
     fragments: (event?.message?.fragments || []).map(f => ({
       type:    f.type,
       text:    f.text,
       emoteId: f.emote?.id || null,
     })),
+    sourceChannel, // null if same channel, login name if shared chat
     ts:        Date.now(),
   });
   await dispatchCommand(event, 'chat', user, text);
@@ -1102,6 +1137,17 @@ async function cmdSong(user) {
       if (!track) { await sendChatMessage(`@${user} — Nothing is playing right now.`); return; }
       const song = `${track.artist} — ${track.title}`;
       addLog('system', '!song', `${user} → ${song} [Spotify]`);
+      const tmpl = state.commands.song?.response;
+      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
+    } catch (err) { addLog('system', '!song', err.message, false); }
+    return;
+  }
+  if (mediaMode === 'cascade') {
+    try {
+      const track = await cascadeGetNowPlaying();
+      if (!track) { await sendChatMessage(`@${user} — Nothing is playing right now.`); return; }
+      const song = `${track.artist} — ${track.title}`;
+      addLog('system', '!song', `${user} → ${song} [Cascade]`);
       const tmpl = state.commands.song?.response;
       if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
     } catch (err) { addLog('system', '!song', err.message, false); }
@@ -1661,6 +1707,54 @@ app.get('/api/overlay/config', (req, res) => {
     chat:             { ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}) },
     browserSourceUrl: `http://localhost:${PORT}/overlay`,
   });
+});
+
+// ── Twitch badge cache ────────────────────────────────────────────────────────
+// Builds a flat map: "set_id/version_id" → image_url_1x
+// e.g. "subscriber/3" → "https://static-cdn.jtvnw.net/badges/v1/.../1"
+let badgeCache     = {};   // { "moderator/1": url, ... }
+let badgeCacheTime = 0;
+const BADGE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function fetchBadgeCache() {
+  if (Date.now() - badgeCacheTime < BADGE_TTL_MS && Object.keys(badgeCache).length) return badgeCache;
+  const token      = process.env.TWITCH_OAUTH;
+  const clientId   = getEffectiveClientId();
+  const broadcasterId = state.twitch.broadcasterId;
+  if (!token || !clientId) return badgeCache;
+
+  const headers = { 'Authorization': `Bearer ${token.replace(/^oauth:/i, '')}`, 'Client-Id': clientId };
+  const map = {};
+
+  try {
+    const globalRes = await fetch('https://api.twitch.tv/helix/chat/badges/global', { headers });
+    if (globalRes.ok) {
+      const { data } = await globalRes.json();
+      for (const set of data) {
+        for (const v of set.versions) map[`${set.set_id}/${v.id}`] = v.image_url_1x;
+      }
+    }
+  } catch {}
+
+  if (broadcasterId) {
+    try {
+      const chanRes = await fetch(`https://api.twitch.tv/helix/chat/badges?broadcaster_id=${broadcasterId}`, { headers });
+      if (chanRes.ok) {
+        const { data } = await chanRes.json();
+        for (const set of data) {
+          for (const v of set.versions) map[`${set.set_id}/${v.id}`] = v.image_url_1x;
+        }
+      }
+    } catch {}
+  }
+
+  if (Object.keys(map).length) { badgeCache = map; badgeCacheTime = Date.now(); }
+  return badgeCache;
+}
+
+app.get('/api/chat/badges', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await fetchBadgeCache());
 });
 
 // ── 7TV persistent emote cache ────────────────────────────────────────────────
@@ -2414,9 +2508,11 @@ app.post('/settings', (req, res) => {
   }
   if (updated.includes('MEDIA_CONTROL_MODE')) {
     if (process.env.MEDIA_CONTROL_MODE === 'spotify' && spotifyIsConfigured()) {
-      spotifyStartPolling();
+      spotifyStartPolling(); cascadeStopPolling();
+    } else if (process.env.MEDIA_CONTROL_MODE === 'cascade') {
+      cascadeStartPolling(); spotifyStopPolling();
     } else {
-      spotifyStopPolling();
+      spotifyStopPolling(); cascadeStopPolling();
     }
   }
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
@@ -2798,8 +2894,10 @@ app.post('/api/spotify/disconnect', (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Listener running on http://localhost:${PORT}`);
-  if ((process.env.MEDIA_CONTROL_MODE || 'jellyfin') === 'spotify' && spotifyIsConfigured()) {
+  if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'spotify' && spotifyIsConfigured()) {
     spotifyStartPolling();
+  } else if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'cascade') {
+    cascadeStartPolling();
   }
 });
 

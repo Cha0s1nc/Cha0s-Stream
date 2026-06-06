@@ -77,13 +77,15 @@
   @keyframes msgInRight  { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   @keyframes msgOutRight { to   { transform: translateX(16px); opacity: 0; } }
 
-  .chat-badges { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 5px; }
+  .chat-badges { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 5px; align-items: center; }
   .chat-badge  { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.6; }
   .chat-badge.sub         { background: rgba(145,71,255,0.15);  color: #9147ff; }
   .chat-badge.mod         { background: rgba(0,173,3,0.15);     color: #00ad03; }
   .chat-badge.vip         { background: rgba(224,5,185,0.15);   color: #e005b9; }
   .chat-badge.broadcaster { background: rgba(255,68,68,0.15);   color: #ff4444; }
   .chat-badge.founder     { background: rgba(170,64,213,0.15);  color: #aa40d5; }
+  .chat-badge-img { width: 18px; height: 18px; vertical-align: middle; display: inline-block; }
+  .chat-source-tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.45); vertical-align: middle; margin-right: 4px; text-transform: lowercase; }
   .chat-name   { font-weight: 700; margin-right: 3px; }
   .chat-colon  { opacity: 0.5; margin-right: 4px; }
   .chat-ts     { font-size: 10px; color: rgba(255,255,255,0.35); margin-left: 7px; vertical-align: middle; }
@@ -195,7 +197,10 @@
   let sevenTvEmotes = {};
   const chatActive = [];
 
-  const BADGE_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
+  const PILL_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
+  let badgeCache = {};
+  fetch('/api/chat/badges').then(r => r.ok ? r.json() : {}).then(d => { badgeCache = d; }).catch(() => {});
+
   const FALLBACK_COLOURS = ['#ff6b6b','#ff9f40','#ffd60a','#4ade80','#22d3ee','#818cf8','#e879f9','#fb7185'];
   function nameToColour(n) { let h=0; for(let i=0;i<n.length;i++) h=((h<<5)-h+n.charCodeAt(i))|0; return FALLBACK_COLOURS[Math.abs(h)%FALLBACK_COLOURS.length]; }
 
@@ -236,8 +241,16 @@
     el.className = 'chat-msg';
     let html = '';
     if (CHAT_CFG.showBadges && data.badges?.length) {
-      const pills = data.badges.map(b => BADGE_MAP[b]).filter(Boolean).map(cls => `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'streamer' : cls}</span>`);
-      if (pills.length) html += `<span class="chat-badges">${pills.join('')}</span>`;
+      const imgs = data.badges.map(b => {
+        const key = typeof b === 'string' ? b : `${b.set_id}/${b.id}`;
+        const url = badgeCache[key];
+        if (url) return `<img class="chat-badge-img" src="${url}" alt="${b.set_id||b}" title="${b.set_id||b}">`;
+        const setId = typeof b === 'string' ? b : b.set_id;
+        const cls = PILL_MAP[setId];
+        return cls ? `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'streamer' : cls}</span>` : '';
+      }).filter(Boolean);
+      if (imgs.length) html += `<span class="chat-badges">${imgs.join('')}</span>`;
+      if (data.sourceChannel) html += `<span class="chat-source-tag">${esc(data.sourceChannel)}</span>`;
     }
     const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user);
     html += `<span class="chat-name" style="color:${colour}">${esc(data.user)}</span><span class="chat-colon">:</span><span class="chat-text">${renderChatBody(data)}</span>`;
