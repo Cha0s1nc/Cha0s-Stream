@@ -571,9 +571,20 @@ function spotifyStopPolling() {
 let cascadePollTimer = null;
 let cascadeCurrentTrack = null;
 
+// Cascade's control server requires this token on every request (any local webpage
+// can otherwise reach a loopback port). Cascade writes it to ~/.cascade-control-token;
+// re-read on every call since it's a tiny local file and this avoids needing a restart
+// if Cascade ever regenerates it.
+function cascadeAuthHeaders() {
+  try {
+    const token = fs.readFileSync(require('path').join(require('os').homedir(), '.cascade-control-token'), 'utf8').trim();
+    return { 'X-Cascade-Token': token };
+  } catch { return {}; }
+}
+
 async function cascadeGetNowPlaying() {
   try {
-    const r = await fetch('http://127.0.0.1:47847/cascade/now-playing', { signal: AbortSignal.timeout(2000) });
+    const r = await fetch('http://127.0.0.1:47847/cascade/now-playing', { signal: AbortSignal.timeout(2000), headers: cascadeAuthHeaders() });
     if (!r.ok) return null;
     const data = await r.json();
     if (!data.title) return null;
@@ -1208,7 +1219,7 @@ async function cmdMediaControl(user, action) {
     try {
       const r = await fetch('http://127.0.0.1:47847/cascade/control', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...cascadeAuthHeaders() },
         body: JSON.stringify({ action: cascadeMap[action] || action })
       });
       if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
@@ -1497,6 +1508,15 @@ app.post('/api/reconnect/:service', (req, res) => {
   res.json({ ok: true });
 });
 
+// Frontend can't hit Cascade's control server directly anymore (it now requires
+// the token file only the backend can read), so proxy the presence check through here.
+app.get('/api/cascade/status', async (req, res) => {
+  try {
+    const r = await fetch('http://127.0.0.1:47847/cascade/status', { signal: AbortSignal.timeout(800), headers: cascadeAuthHeaders() });
+    res.json({ running: r.ok });
+  } catch { res.json({ running: false }); }
+});
+
 // --- HTTP Routes (kept for external compat) ---
 app.post('/media', async (req, res) => {
   const { action } = req.body;
@@ -1522,7 +1542,7 @@ app.post('/media', async (req, res) => {
     try {
       const r = await fetch('http://127.0.0.1:47847/cascade/control', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...cascadeAuthHeaders() },
         body: JSON.stringify({ action: cascadeMap[action] || action })
       });
       if (!r.ok) throw new Error(`Cascade returned ${r.status}`);

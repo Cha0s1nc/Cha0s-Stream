@@ -7,7 +7,8 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 ## Features
 
 - **OBS Controls** — scene switching, source toggling, stream and recording control from the dashboard or via chat commands. Full OBS tab with live scene list and source toggles, plus an optional OBS column in the Twitch Stream panel.
-- **Jellyfin playback** — play, pause, skip, previous, and now playing via the Jellyfin API
+- **Cascade integration** — direct playback control for the [Cascade](https://github.com/Cha0s1nc/Cascade-Project) Jellyfin music client via a local connection. `!play`, `!pause`, `!next`, and `!prev` work reliably without OS key simulation
+- **Jellyfin playback** — play, pause, skip, previous, and now playing via the Jellyfin session API
 - **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!next`, and `!prev` through the Spotify Web API (requires Spotify Premium)
 - **OS media keys** — system-level playback control and now playing detection (Spotify, Apple Music on Mac; Windows media transport on Windows; `playerctl` on Linux)
 - **Twitch chat overlays** — transparent browser source for live chat with 7TV, BTTV, and native Twitch emotes, badge pills, and per-message lifetime
@@ -80,11 +81,12 @@ OBS 28 or newer is required (WebSocket is built in).
 
 ### Media Control Mode
 
-Three modes are currently available. Switch between them in Settings or by clicking the mode label in the status bar.
+Four modes are available. Switch between them in Settings or by clicking the mode label in the status bar.
 
-- **Jellyfin** — sends play/pause/skip commands to the active Jellyfin session
+- **Cascade** — controls the [Cascade](https://github.com/Cha0s1nc/Cascade-Project) Jellyfin music client directly over a local connection. The most reliable option for Cascade users — no OS key simulation, no Jellyfin session API. The Cascade mode button only appears after Cascade has been detected running at least once
+- **Jellyfin** — sends play/pause/skip commands to the active Jellyfin session via the API
 - **OS Keys** — sends system media key presses
-- **Spotify** — controls Spotify playback via the Web API
+- **Spotify** — controls Spotify playback via the Web API (requires Spotify Premium for playback controls)
 
 ### Overlays
 

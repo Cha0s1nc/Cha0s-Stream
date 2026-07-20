@@ -1422,9 +1422,9 @@
     async function checkCascadeRunning() {
       if (localStorage.getItem('cascadeDetected')) return; // already unlocked
       try {
-        const res = await fetch('http://127.0.0.1:47847/cascade/status', { signal: AbortSignal.timeout(800) });
+        const res = await fetch('/api/cascade/status', { signal: AbortSignal.timeout(800) });
         const data = await res.json();
-        if (data.ok) {
+        if (data.running) {
           localStorage.setItem('cascadeDetected', '1');
           const btn = document.getElementById('mode-cascade');
           if (btn) btn.style.display = '';
