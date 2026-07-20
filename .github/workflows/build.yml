@@ -1,0 +1,210 @@
+name: Build
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['stable', 'beta']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.1.1) - leave blank to use package.json'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Resolve version & release metadata ────────────────────────────────────
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      should_release: ${{ steps.resolve.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version and release type
+        id: resolve
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+
+          if [[ "${{ github.ref }}" == "refs/heads/beta" ]]; then
+            # Push to beta - auto-increment beta build number
+            BASE="${PKG%%-*}"
+            COUNT=$(git tag -l "v${BASE}-b[0-9]*" | wc -l | tr -d ' ')
+            BETA_NUM=$((COUNT + 1))
+            VERSION="${BASE}-b${BETA_NUM}"
+            TAG="v${VERSION}"
+            echo "version=$VERSION"      >> $GITHUB_OUTPUT
+            echo "tag=$TAG"             >> $GITHUB_OUTPUT
+            echo "prerelease=true"      >> $GITHUB_OUTPUT
+            echo "should_release=true"  >> $GITHUB_OUTPUT
+
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/stable" ]]; then
+            # Push to stable - use package.json version as-is
+            VERSION="$PKG"
+            TAG="v${VERSION}"
+            echo "version=$VERSION"      >> $GITHUB_OUTPUT
+            echo "tag=$TAG"             >> $GITHUB_OUTPUT
+            echo "prerelease=false"     >> $GITHUB_OUTPUT
+            echo "should_release=true"  >> $GITHUB_OUTPUT
+
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            # Tag push - use the tag
+            REF="${{ github.ref_name }}"
+            VERSION="${REF#v}"
+            TAG="$REF"
+            [[ "$REF" == *-* ]] && PRE=true || PRE=false
+            echo "version=$VERSION"      >> $GITHUB_OUTPUT
+            echo "tag=$TAG"             >> $GITHUB_OUTPUT
+            echo "prerelease=$PRE"      >> $GITHUB_OUTPUT
+            echo "should_release=true"  >> $GITHUB_OUTPUT
+
+          else
+            # workflow_dispatch
+            INPUT="${{ github.event.inputs.version }}"
+            VERSION="${INPUT:-$PKG}"
+            TAG="v${VERSION}"
+            echo "version=$VERSION"      >> $GITHUB_OUTPUT
+            echo "tag=$TAG"             >> $GITHUB_OUTPUT
+            echo "prerelease=false"     >> $GITHUB_OUTPUT
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Windows ────────────────────────────────────────────────────────────────
+  build-windows:
+    needs: setup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Windows)
+        run: npm run build:win
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: dist/*.exe
+          retention-days: 7
+
+  # ── macOS ──────────────────────────────────────────────────────────────────
+  build-mac:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Import code-signing certificate
+        if: ${{ env.CSC_LINK != '' }}
+        run: |
+          echo "$CSC_LINK" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Build (macOS)
+        run: npm run build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist/*.dmg
+          retention-days: 7
+
+  # ── Linux (AppImage + deb) ─────────────────────────────────────────────────
+  build-linux:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Linux)
+        run: npm run build:linux
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-appimage
+          path: dist/*.AppImage
+          retention-days: 7
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-deb
+          path: dist/*.deb
+          retention-days: 7
+
+  # ── Release ────────────────────────────────────────────────────────────────
+  release:
+    needs: [setup, build-windows, build-mac, build-linux]
+    if: needs.setup.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.setup.outputs.tag }}
+          files: artifacts/**
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ needs.setup.outputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
