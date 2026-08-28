@@ -477,24 +477,13 @@ ipcMain.on('set-titlebar-overlay', (_e, { mode }) => {
 
 function createWindow() {
   const isDarwin = process.platform === 'darwin';
-  mainWindow = new BrowserWindow({
+  const base = {
     width: 1100,
     height: 720,
     minWidth: 800,
     minHeight: 500,
     title: 'Cha0s Stream',
     backgroundColor: '#111113',
-    // Without this the OS title bar was drawn ABOVE the app's own 38px header,
-    // stacking two title bars. hiddenInset is macOS-only and silently ignored
-    // elsewhere, so Windows/Linux get 'hidden' plus titleBarOverlay, which
-    // draws real caption buttons inside our own strip - index.html reserves
-    // room for them with --caption-reserve.
-    titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
-    ...(isDarwin
-      ? { trafficLightPosition: { x: 12, y: 11 } }
-      // Built defensively: this is the only macOS-untestable part here, so if
-      // the platform rejects the overlay the app must still open.
-      : overlayOptions()),
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
@@ -502,37 +491,74 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     show: false
-  });
+  };
+
+  // Without frameless chrome the OS title bar is drawn ABOVE the app's own 38px
+  // header, stacking two title bars. hiddenInset is macOS-only and is silently
+  // ignored elsewhere, so Windows/Linux get 'hidden' plus titleBarOverlay.
+  //
+  // The try/catch is around the CONSTRUCTOR, not around building the options.
+  // Building a plain object cannot fail; it is BrowserWindow that rejects an
+  // overlay config it dislikes, and a throw here leaves mainWindow undefined and
+  // no window on screen at all. Falling back to the OS title bar means the two
+  // bars stack again, which is ugly - but an ugly window beats an absent one,
+  // and a frameless window with no caption buttons could not even be closed.
+  const chrome = isDarwin
+    ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 11 } }
+    : { titleBarStyle: 'hidden', ...overlayOptions() };
+  try {
+    mainWindow = new BrowserWindow({ ...base, ...chrome });
+  } catch (err) {
+    console.error('[stream] frameless titlebar rejected, using the OS one:', err);
+    mainWindow = new BrowserWindow(base);
+  }
 
   const port = store.get('LISTENER_PORT') || 3000;
-  const url  = `http://localhost:${port}`;
 
-  // This used to be a blind 1500ms wait before loading and showing. The listener
-  // is a forked child that may not be accepting connections by then, and when it
-  // wasn't, the window opened onto a Chromium connection-error page and stayed
-  // there. Retry until it answers, and only show once something actually loaded.
   let shown = false;
-  let failed = false;
-  const show = (why) => {
+  const show = () => {
     if (shown || !mainWindow || mainWindow.isDestroyed()) return;
     shown = true;
-    if (why) console.warn(`[stream] ${why}`);
     mainWindow.show();
   };
-  const load = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    failed = false;
-    mainWindow.loadURL(url).catch(() => {});
+  // Deliberately not hung off 'ready-to-show': on Windows it can simply never
+  // fire. The window paints as backgroundColor until the page arrives, so
+  // showing it early costs a moment of empty dark rather than a white flash.
+  setTimeout(show, 900);
+  mainWindow.webContents.once('did-finish-load', show);
+
+  // Poll the port rather than letting loadURL fail. The listener is a forked
+  // child that is often not accepting connections yet; navigating anyway paints
+  // Chromium's connection-error page, which is what the old blind 1500ms timer
+  // left on screen permanently.
+  const deadline = Date.now() + 60000;
+  let navigated = false;
+  const goLive = () => {
+    if (navigated || !mainWindow || mainWindow.isDestroyed()) return;
+    navigated = true;
+    mainWindow.loadURL(`http://localhost:${port}`).catch(() => {});
   };
-  mainWindow.webContents.on('did-fail-load', (_e, _code, _desc, _u, isMainFrame) => {
-    if (isMainFrame) { failed = true; setTimeout(load, 400); }
-  });
-  // Chromium's error page fires this too, hence the flag - showing on that would
-  // put us right back to displaying the failure we are retrying past.
-  mainWindow.webContents.on('did-finish-load', () => { if (!failed) show(null); });
-  // Backstop: never leave the user staring at no window at all.
-  setTimeout(() => show('listener never answered, showing the window anyway'), 15000);
-  load();
+  const poll = () => {
+    if (navigated || !mainWindow || mainWindow.isDestroyed()) return;
+    let settled = false;
+    const retry = () => {
+      if (settled) return;
+      settled = true;
+      // After a minute the listener is not merely slow. Navigate anyway so the
+      // error page at least says something instead of showing empty dark.
+      if (Date.now() > deadline) return goLive();
+      setTimeout(poll, 300);
+    };
+    const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 1200 }, (res) => {
+      res.resume();
+      if (settled) return;
+      settled = true;
+      goLive();
+    });
+    req.on('timeout', () => { req.destroy(); retry(); });
+    req.on('error', retry);
+  };
+  poll();
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
