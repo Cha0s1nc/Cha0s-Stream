@@ -330,12 +330,27 @@ const obsAlertTimers = new Map();
 // --- Jellyfin ---
 let jellyfinToken = null;
 let jellyfinUserId = null;
+let jellyfinBaseUrl = null;
+
+// Cascade is already signed in to Jellyfin. Rather than make the user configure
+// the same server twice - which they simply don't, and then every !sr silently
+// lands in the wishlist - borrow Cascade's session. Only reached when Stream has
+// no working credentials of its own, so a valid explicit config always wins.
+async function jellyfinCredsFromCascade() {
+  try {
+    const r = await fetch('http://127.0.0.1:47847/cascade/jellyfin', { signal: AbortSignal.timeout(2000), headers: cascadeAuthHeaders() });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d?.url && d?.token ? d : null;
+  } catch { return null; }
+}
 
 async function authenticateJellyfin() {
   const JELLYFIN_URL = process.env.JELLYFIN_URL;
   const username = process.env.JELLYFIN_USERNAME;
   const password = process.env.JELLYFIN_PASSWORD;
   const apiKey = process.env.JELLYFIN_API_KEY;
+  jellyfinBaseUrl = JELLYFIN_URL || null;
 
   if (username && password) {
     try {
@@ -358,12 +373,21 @@ async function authenticateJellyfin() {
       const res = await fetch(`${JELLYFIN_URL}/Users/Me`, { headers: { 'X-Emby-Token': apiKey } });
       if (res.ok) { const data = await res.json(); jellyfinUserId = data.Id || null; }
     } catch {}
+    return;
+  }
+
+  const borrowed = await jellyfinCredsFromCascade();
+  if (borrowed) {
+    jellyfinBaseUrl = borrowed.url.replace(/\/$/, '');
+    jellyfinToken   = borrowed.token;
+    jellyfinUserId  = borrowed.userId || null;
   }
 }
 
 async function jellyfinRequest(path, method = 'GET', body = null) {
-  const JELLYFIN_URL = process.env.JELLYFIN_URL;
   if (!jellyfinToken) await authenticateJellyfin();
+  const JELLYFIN_URL = jellyfinBaseUrl || process.env.JELLYFIN_URL;
+  if (!JELLYFIN_URL) throw new Error('No Jellyfin server configured');
   const url = `${JELLYFIN_URL}${path}`;
   const opts = { method, headers: { 'X-Emby-Token': jellyfinToken, 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
@@ -1457,7 +1481,8 @@ async function handleSongRequest(user, query, source) {
   addLog('jellyfin', '!sr', `${user} requested: ${query}`);
   let resolvedItem = null;
   try {
-    if (jellyfinToken && process.env.JELLYFIN_URL) {
+    if (!jellyfinToken) await authenticateJellyfin();
+    if (jellyfinToken) {
       const uid = jellyfinUserId;
       const searchPath = uid
         ? `/Users/${uid}/Items?searchTerm=${encodeURIComponent(query)}&IncludeItemTypes=Audio&Recursive=true&Limit=1&Fields=Id,Name,Artists,Album`
@@ -2512,7 +2537,7 @@ app.post('/settings', (req, res) => {
     obs.disconnect().catch(() => {}); setTimeout(connectOBS, 500);
   }
   if (updated.some(k => k.startsWith('JELLYFIN_'))) {
-    state.jellyfin.connected = false; jellyfinToken = null; jellyfinUserId = null;
+    state.jellyfin.connected = false; jellyfinToken = null; jellyfinUserId = null; jellyfinBaseUrl = null;
     checkJellyfinConnection();
   }
   if (updated.some(k => k.startsWith('TWITCH_'))) {
