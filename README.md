@@ -232,8 +232,16 @@ npm install
 ### Run in dev mode
 
 ```bash
-npm run electron
+npm start              # launch the app
+npm run dev            # same, with the main-process inspector on :9229
+npm run listener       # backend only, no window (reads .env instead of app settings)
+npm run check          # syntax-check listener.js and electron/main.js
 ```
+
+> Only one copy can hold the listener port (3000 by default) at a time. If a
+> second one is already running, the app will say so and exit rather than
+> starting. `npm run dev` and the VS Code debugger both want :9229, so run one
+> or the other.
 
 ### Build installers
 

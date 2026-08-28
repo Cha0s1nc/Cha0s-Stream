@@ -9,9 +9,9 @@
   "main": "electron/main.js",
   "bin": "electron/main.js",
   "scripts": {
-    "start": "node listener.js",
+    "start": "electron .",
     "dev": "electron . --inspect",
-    "electron": "electron .",
+    "listener": "node listener.js",
     "check": "node --check listener.js && node --check electron/main.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac --publish never",
