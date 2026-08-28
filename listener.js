@@ -409,6 +409,58 @@ async function jellyfinRequest(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+/**
+ * A session that can accept a queue/playback command.
+ *
+ * Not the same thing as getActiveSession(): that one requires NowPlayingItem
+ * because !song and the transport commands read it, which meant approving a
+ * request failed with "No active session" whenever the music happened to be
+ * stopped - exactly when you most want to queue something up.
+ *
+ * The capability flag is checked permissively. Jellyfin exposes it as
+ * SupportsRemoteControl on the session and SupportsMediaControl inside
+ * Capabilities depending on version, so an absent flag is treated as
+ * controllable: attempting the command and letting the server refuse beats
+ * refusing to send it because we looked for the wrong field name.
+ */
+async function getControllableSession() {
+  const sessions = await jellyfinRequest('/Sessions');
+  const deviceId = process.env.JELLYFIN_DEVICE_ID;
+  const username = process.env.JELLYFIN_USERNAME;
+  const matches = (sessions || []).filter(s => {
+    if (!(s.SupportsRemoteControl ?? s.Capabilities?.SupportsMediaControl ?? true)) return false;
+    if (username && s.UserName?.toLowerCase() !== username.toLowerCase()) return false;
+    if (deviceId && s.DeviceId !== deviceId) return false;
+    return true;
+  });
+  // Whatever is actually playing wins when more than one client qualifies.
+  return matches.find(s => s.NowPlayingItem) || matches[0] || null;
+}
+
+/**
+ * Approve a pending request: hand it to the player as "play next".
+ *
+ * Shared by the dashboard route and the mod-queue route, which were identical
+ * apart from their log line and had already drifted once.
+ */
+async function approveQueueEntry(id, via) {
+  const entry = state.queue.find(e => e.id === id);
+  if (!entry) return { status: 404, body: { error: 'Not found' } };
+  if (!entry.resolvedItem) return { status: 400, body: { error: 'No resolved item' } };
+  try {
+    const session = await getControllableSession();
+    if (!session) return { status: 404, body: { error: 'No player to send it to' } };
+    await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${entry.resolvedItem.id}`, 'POST');
+    entry.status = 'approved';
+    broadcast({ event: 'queue_update', entry });
+    addLog('jellyfin', 'queue', `Approved${via ? ` (${via})` : ''}: ${entry.resolvedItem.artist} — ${entry.resolvedItem.name}`);
+    return { status: 200, body: { ok: true } };
+  } catch (err) {
+    addLog('jellyfin', 'queue', `Approve failed: ${err.message}`, false);
+    return { status: 500, body: { error: err.message } };
+  }
+}
+
 async function getActiveSession() {
   const sessions = await jellyfinRequest('/Sessions');
   const deviceId = process.env.JELLYFIN_DEVICE_ID;
@@ -1659,18 +1711,8 @@ app.post('/api/queue/add', async (req, res) => {
 });
 
 app.post('/api/queue/:id/approve', async (req, res) => {
-  const entry = state.queue.find(e => e.id === req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Not found' });
-  if (!entry.resolvedItem) return res.status(400).json({ error: 'No resolved item' });
-  try {
-    const session = await getActiveSession();
-    if (!session) return res.status(404).json({ error: 'No active session' });
-    await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${entry.resolvedItem.id}`, 'POST');
-    entry.status = 'approved';
-    broadcast({ event: 'queue_update', entry });
-    addLog('jellyfin', 'queue', `Approved: ${entry.resolvedItem.artist} — ${entry.resolvedItem.name}`);
-    res.json({ ok: true });
-  } catch (err) { addLog('jellyfin', 'queue', `Approve failed: ${err.message}`, false); res.status(500).json({ error: err.message }); }
+  const { status, body } = await approveQueueEntry(req.params.id, null);
+  res.status(status).json(body);
 });
 
 app.post('/api/queue/:id/skip', (req, res) => {
@@ -3001,18 +3043,8 @@ modWss.on('connection', (ws) => {
 modApp.get('/api/queue', (req, res) => res.json({ queue: state.queue, wishlist: state.wishlist }));
 
 modApp.post('/api/queue/:id/approve', async (req, res) => {
-  const entry = state.queue.find(e => e.id === req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Not found' });
-  if (!entry.resolvedItem) return res.status(400).json({ error: 'No resolved item' });
-  try {
-    const session = await getActiveSession();
-    if (!session) return res.status(404).json({ error: 'No active session' });
-    await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${entry.resolvedItem.id}`, 'POST');
-    entry.status = 'approved';
-    broadcast({ event: 'queue_update', entry });
-    addLog('jellyfin', 'queue', `Approved (mod): ${entry.resolvedItem.artist} — ${entry.resolvedItem.name}`);
-    res.json({ ok: true });
-  } catch (err) { addLog('jellyfin', 'queue', `Approve failed: ${err.message}`, false); res.status(500).json({ error: err.message }); }
+  const { status, body } = await approveQueueEntry(req.params.id, 'mod');
+  res.status(status).json(body);
 });
 
 modApp.post('/api/queue/:id/skip', (req, res) => {
