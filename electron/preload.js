@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDevTools:     () => ipcRenderer.invoke('open-devtools'),
   getDevMode:       () => ipcRenderer.invoke('get-dev-mode'),
   wipeSettings:     () => ipcRenderer.invoke('wipe-settings'),
+  platform:         process.platform,
+  // Recolours the OS-drawn Windows/Linux caption buttons to match the active
+  // theme. No-op on macOS, where the traffic lights are not ours to colour.
+  setTitleBarOverlay: (mode) => ipcRenderer.send('set-titlebar-overlay', { mode }),
 });

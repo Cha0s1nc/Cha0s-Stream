@@ -445,7 +445,38 @@ function startListener(config) {
 
 // ── Main window ────────────────────────────────────────────────────────────────
 
+// The app's own header strip is 38px (public/index.html) - the Window Controls
+// Overlay height must match it or the OS-drawn buttons sit off-centre.
+const TITLEBAR_HEIGHT = 38;
+
+// Matches --surface/--text from index.html's :root and its light theme block.
+function titleBarOverlayColors(mode) {
+  return mode === 'light'
+    ? { color: '#ffffff', symbolColor: '#1c1c1e' }
+    : { color: '#1c1c1e', symbolColor: '#f5f5f7' };
+}
+
+/** titleBarOverlay options for win32/linux, or nothing at all if building them
+ *  fails. Degrading to no overlay costs the OS caption buttons; throwing here
+ *  costs the entire window. */
+function overlayOptions() {
+  try {
+    return { titleBarOverlay: { ...titleBarOverlayColors('dark'), height: TITLEBAR_HEIGHT } };
+  } catch (e) {
+    console.error('[stream] titleBarOverlay unavailable, falling back to a plain hidden titlebar:', e);
+    return {};
+  }
+}
+
+// The renderer owns the theme (it lives in localStorage, not the store), so it
+// recolours the caption buttons itself once applyTheme() has run.
+ipcMain.on('set-titlebar-overlay', (_e, { mode }) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try { mainWindow.setTitleBarOverlay(titleBarOverlayColors(mode)); } catch {}
+});
+
 function createWindow() {
+  const isDarwin = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
@@ -453,6 +484,18 @@ function createWindow() {
     minHeight: 500,
     title: 'Cha0s Stream',
     backgroundColor: '#111113',
+    // Without this the OS title bar was drawn ABOVE the app's own 38px header,
+    // stacking two title bars. hiddenInset is macOS-only and silently ignored
+    // elsewhere, so Windows/Linux get 'hidden' plus titleBarOverlay, which
+    // draws real caption buttons inside our own strip - index.html reserves
+    // room for them with --caption-reserve.
+    titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
+    ...(isDarwin
+      ? { trafficLightPosition: { x: 12, y: 11 } }
+      // Built defensively: this is the only macOS-untestable part here, so if
+      // the platform rejects the overlay the app must still open.
+      : overlayOptions()),
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -462,7 +505,35 @@ function createWindow() {
   });
 
   const port = store.get('LISTENER_PORT') || 3000;
-  setTimeout(() => { mainWindow.loadURL(`http://localhost:${port}`); mainWindow.show(); }, 1500);
+  const url  = `http://localhost:${port}`;
+
+  // This used to be a blind 1500ms wait before loading and showing. The listener
+  // is a forked child that may not be accepting connections by then, and when it
+  // wasn't, the window opened onto a Chromium connection-error page and stayed
+  // there. Retry until it answers, and only show once something actually loaded.
+  let shown = false;
+  let failed = false;
+  const show = (why) => {
+    if (shown || !mainWindow || mainWindow.isDestroyed()) return;
+    shown = true;
+    if (why) console.warn(`[stream] ${why}`);
+    mainWindow.show();
+  };
+  const load = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    failed = false;
+    mainWindow.loadURL(url).catch(() => {});
+  };
+  mainWindow.webContents.on('did-fail-load', (_e, _code, _desc, _u, isMainFrame) => {
+    if (isMainFrame) { failed = true; setTimeout(load, 400); }
+  });
+  // Chromium's error page fires this too, hence the flag - showing on that would
+  // put us right back to displaying the failure we are retrying past.
+  mainWindow.webContents.on('did-finish-load', () => { if (!failed) show(null); });
+  // Backstop: never leave the user staring at no window at all.
+  setTimeout(() => show('listener never answered, showing the window anyway'), 15000);
+  load();
+
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
