@@ -34,9 +34,6 @@
     .tb-accent { width: 10px; height: 10px; border-radius: 50%; background: var(--grad); flex-shrink: 0; }
     .app-title { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
     .titlebar-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
-    .ws-pill { display: flex; align-items: center; gap: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px 3px 7px; font-size: 11px; color: var(--text2); }
-    .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
-    .ws-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
     .update-banner { display: none; align-items: center; justify-content: space-between; padding: 8px 16px; background: rgba(110,79,246,0.15); border-bottom: 1px solid rgba(110,79,246,0.3); font-size: 12px; color: var(--text); flex-shrink: 0; }
     .update-banner.visible { display: flex; }
     .update-banner-text { display: flex; align-items: center; gap: 8px; }
@@ -350,7 +347,7 @@
     /* ── Theme picker ── */
     #theme-dot { cursor: pointer; transition: transform 0.15s, filter 0.15s; }
     #theme-dot:hover { transform: scale(1.2); filter: brightness(1.15); }
-    .theme-picker { position: absolute; top: 46px; left: 10px; z-index: 200; width: 240px;
+    .theme-picker { position: absolute; top: 46px; right: var(--caption-reserve, 10px); z-index: 200; width: 240px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
       padding: 14px 14px 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.4);
       display: none; flex-direction: column; gap: 13px; }
@@ -393,11 +390,10 @@
 <div class="app">
   <header>
     <div class="titlebar-left">
-      <div class="tb-accent" id="theme-dot" onclick="toggleThemePicker()" title="Customize theme"></div>
       <div class="app-title">Cha0s Stream</div>
     </div>
     <div class="titlebar-right">
-      <div class="ws-pill"><div class="ws-dot" id="ws-dot"></div><span id="ws-label">connecting</span></div>
+      <div class="tb-accent" id="theme-dot" onclick="toggleThemePicker()" title="Customize theme"></div>
     </div>
   </header>
   <!-- Theme picker panel -->
@@ -442,8 +438,8 @@
       <div class="nav-item active" id="nav-item-dashboard" data-panel="dashboard"><div class="nav-bar"></div><div class="nav-icon">▦</div><div class="nav-info"><span class="nav-label">Dashboard</span></div></div>
       <div class="nav-item" id="nav-item-requests" data-panel="requests"><div class="nav-bar"></div><div class="nav-icon">♪</div><div class="nav-info"><span class="nav-label">Requests</span></div></div>
       <div class="nav-item" id="nav-item-plugins" data-panel="plugins"><div class="nav-bar"></div><div class="nav-icon">⬡</div><div class="nav-info"><span class="nav-label">Plugins</span></div></div>
-      <div class="nav-item" id="nav-item-settings" data-panel="settings"><div class="nav-bar"></div><div class="nav-icon">⚙</div><div class="nav-info"><span class="nav-label">Settings</span></div></div>
       <div class="nav-spacer"></div>
+      <div class="nav-item" id="nav-item-settings" data-panel="settings"><div class="nav-bar"></div><div class="nav-icon">⚙</div><div class="nav-info"><span class="nav-label">Settings</span></div></div>
       <div class="nav-item" id="nav-item-dev" data-panel="dev" style="display:none"><div class="nav-bar"></div><div class="nav-icon" style="color:var(--yellow)">⚠</div><div class="nav-info"><span class="nav-label" style="color:var(--yellow)">Dev</span></div></div>
     </nav>
     <div class="backdrop" id="backdrop"></div>
@@ -784,15 +780,7 @@
     // --- WebSocket ---
     function connect() {
       ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);
-      ws.onopen = () => {
-        document.getElementById('ws-dot').classList.add('live');
-        document.getElementById('ws-label').textContent = 'live';
-      };
-      ws.onclose = () => {
-        document.getElementById('ws-dot').classList.remove('live');
-        document.getElementById('ws-label').textContent = 'reconnecting';
-        setTimeout(connect, 3000);
-      };
+      ws.onclose = () => { setTimeout(connect, 3000); };
       ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
         if (data.event === 'init') {
