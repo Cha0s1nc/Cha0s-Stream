@@ -83,6 +83,10 @@ app.use('/sounds', express.static(SOUNDS_DIR));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+// ws re-emits the underlying http server's 'error' on the WebSocketServer too,
+// so handling it on `server` alone still left an unhandled 'error' event here -
+// which is what actually crashed the process on a port collision.
+wss.on('error', (err) => console.error(`WebSocket server error: ${err.message}`));
 
 const PORT = process.env.LISTENER_PORT || 3000;
 const MOD_PORT = process.env.MOD_PORT || 3001;
@@ -2937,6 +2941,19 @@ app.post('/api/spotify/disconnect', (req, res) => {
   res.json({ ok: true });
 });
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    // Exit 0 on purpose. electron/main.js restarts the listener on any non-zero
+    // exit, so throwing here produced an unhandled 'error', a stack trace, and
+    // a re-fork every 3 seconds forever - against a port that was never going
+    // to free up. The usual cause is a second copy of the app already running.
+    console.error(`Port ${PORT} is already in use. Another copy of Cha0s Stream is probably running - close it, or change the listener port in Settings.`);
+    process.exit(0);
+  }
+  console.error(`Listener server error: ${err.message}`);
+  process.exit(0);
+});
+
 server.listen(PORT, () => {
   console.log(`Listener running on http://localhost:${PORT}`);
   if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'spotify' && spotifyIsConfigured()) {
@@ -2970,6 +2987,7 @@ modApp.use(express.json());
 
 const modServer = http.createServer(modApp);
 modWss = new WebSocketServer({ server: modServer });
+modWss.on('error', (err) => console.error(`Mod WebSocket server error: ${err.message}`));
 
 modWss.on('connection', (ws) => {
   ws.send(JSON.stringify({
@@ -3176,5 +3194,10 @@ modApp.get('/', (req, res) => {
 });
 
 if (process.env.MOD_ENABLED !== 'false') {
-  modServer.listen(MOD_PORT, () => console.log(`Mod queue running on http://localhost:${MOD_PORT}`));
+  modServer.listen(MOD_PORT, () => console.log(`Mod queue running on http://localhost:${MOD_PORT}`))
+    .on('error', (err) => {
+      // Optional feature: warn and carry on rather than taking the app down.
+      if (err.code === 'EADDRINUSE') console.error(`Mod queue port ${MOD_PORT} already in use — mod queue disabled for this session.`);
+      else console.error(`Mod queue error: ${err.message}`);
+    });
 }
