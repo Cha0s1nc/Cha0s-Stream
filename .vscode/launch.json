@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Debugs the MAIN process, which is where createWindow() and the forked
+      // listener live. The renderer is a separate process and is not attached
+      // here - when the symptom is "no window", there is no renderer to inspect
+      // anyway.
+      "name": "Electron: main",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "args": ["."],
+      // Without this, VS Code reads output over the inspector protocol and can
+      // drop main-process console output - including the [listener] lines that
+      // main.js forwards from the forked child, which is half the diagnosis.
+      "outputCapture": "std",
+      "console": "integratedTerminal",
+      "sourceMaps": true
+    }
+  ]
+}
