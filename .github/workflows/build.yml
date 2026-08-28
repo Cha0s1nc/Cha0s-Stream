@@ -2,7 +2,11 @@ name: Build
 
 on:
   push:
-    tags: ['v*']
+    # NOT tags. Releases are created as drafts, and publishing a draft creates
+    # its tag - which pushes a 'v*' tag, retriggers this workflow, and has it
+    # rebuild and overwrite the assets that were just published. Worse, the tag
+    # lands on whatever target_commitish the release carries, so the rebuild is
+    # of a different commit. Use workflow_dispatch for manual builds instead.
     branches: ['stable', 'beta']
   workflow_dispatch:
     inputs:
@@ -89,7 +93,7 @@ jobs:
           cache: npm
 
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm ci
@@ -117,13 +121,18 @@ jobs:
           cache: npm
 
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm ci
 
+      # Disabled: the only cert available is self-signed, which Gatekeeper treats
+      # as a BROKEN signature ("app is damaged", no Open Anyway button) rather
+      # than as unsigned. scripts/adhoc-sign.js gets the friendlier "unidentified
+      # developer" path instead. Re-enable this and the auto-discovery flag below
+      # if a real Apple Developer ID ever replaces the self-signed cert.
       - name: Import code-signing certificate
-        if: ${{ env.CSC_LINK != '' }}
+        if: false
         run: |
           echo "$CSC_LINK" | base64 --decode > /tmp/cert.p12
           security create-keychain -p "" build.keychain
@@ -139,7 +148,7 @@ jobs:
       - name: Build (macOS)
         run: npm run build:mac
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -164,7 +173,7 @@ jobs:
           cache: npm
 
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm ci

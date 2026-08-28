@@ -1,4 +1,4 @@
- {
+{
   "name": "cha0s-stream",
   "version": "2.2.1",
   "description": "Cha0s_1nc's stream management tool - OBS, Jellyfin, Twitch alerts, song requests, and more.",
@@ -10,7 +10,10 @@
   "bin": "electron/main.js",
   "scripts": {
     "start": "node listener.js",
+    "dev": "electron . --inspect",
     "electron": "electron .",
+    "check": "node --check listener.js && node --check electron/main.js",
+    "build": "electron-builder",
     "build:mac": "electron-builder --mac --publish never",
     "build:win": "electron-builder --win --publish never",
     "build:linux": "electron-builder --linux --publish never",
@@ -32,7 +35,7 @@
       "repo": "cha0s-stream"
     },
     "mac": {
-      "identity":"Cha0s_1nc_Development",
+      "identity": null,
       "target": "dmg",
       "icon": "assets/icon.icns",
       "category": "public.app-category.utilities"
@@ -46,10 +49,14 @@
       "allowToChangeInstallationDirectory": true
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "assets/icon.png",
       "category": "Utility"
-    }
+    },
+    "afterPack": "scripts/adhoc-sign.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",
