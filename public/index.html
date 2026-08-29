@@ -619,6 +619,11 @@
             <div class="setting-row" id="sr-redeem-name-row"><div class="setting-label"><div class="setting-name">Redeem Name</div><div class="setting-desc">Exact name of the channel point reward</div></div><input class="setting-input" id="cfg-sr-redeem-name" type="text" placeholder="Song Request" /></div>
           </div>
           <div class="settings-group">
+            <div class="settings-group-title">Cider</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">App Token</div><div class="setting-desc" id="cider-status-text">Read automatically from Cider's settings. Cider → Settings → Connectivity → Manage External Application Access.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button class="btn btn-secondary btn-sm" id="btn-cider-disconnect" style="display:none;" onclick="ciderDisconnect()">Clear</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Override Token</div><div class="setting-desc">Only needed if the automatic read fails.</div></div><div class="input-wrap"><input class="setting-input" id="cfg-cider-token" type="password" placeholder="read from Cider" /><button class="eye-btn" data-target="cfg-cider-token">👁</button></div></div>
+          </div>
+          <div class="settings-group">
             <div class="settings-group-title">Spotify</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Account</div><div class="setting-desc" id="spotify-status-text">Not connected — requires Spotify Premium.</div></div><div style="display:flex;gap:6px;"><button class="btn btn-secondary btn-sm" id="btn-spotify-disconnect" style="display:none;" onclick="spotifyDisconnect()">Disconnect</button><button class="btn btn-primary btn-sm" id="btn-spotify-connect" onclick="spotifyConnect()">Connect Spotify</button></div></div>
             <details style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span style="font-size:9px;">▶</span> Advanced — Client ID</summary><div>
@@ -723,8 +728,8 @@
 
           <div class="settings-group">
             <div class="settings-group-title">Twitch</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Account <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional)</span></div><div class="setting-desc" id="oauth-bot-status-text">A separate account for chat responses.</div></div><button id="btn-get-bot-token" class="btn btn-secondary btn-sm" onclick="startBotOAuth()">Connect Bot</button></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button id="btn-twitch-disconnect" class="btn btn-secondary btn-sm" style="display:none;" onclick="twitchDisconnect('broadcaster')">Disconnect</button><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Account <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional)</span></div><div class="setting-desc" id="oauth-bot-status-text">A separate account for chat responses.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button id="btn-bot-disconnect" class="btn btn-secondary btn-sm" style="display:none;" onclick="twitchDisconnect('bot')">Disconnect</button><button id="btn-get-bot-token" class="btn btn-secondary btn-sm" onclick="startBotOAuth()">Connect Bot</button></div></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">7TV Emotes</div><div class="setting-desc">Render 7TV global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-seventv" onclick="refreshEmotes('seventv')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-seventv-enabled" /><span class="toggle-track"></span></label></div></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">BTTV Emotes</div><div class="setting-desc">Render BetterTTV global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-bttv" onclick="refreshEmotes('bttv')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-bttv-enabled" /><span class="toggle-track"></span></label></div></div>
             <details id="twitch-advanced" style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span id="adv-arrow" style="font-size:9px;transition:transform 0.15s;">▶</span> Advanced</summary><div>
@@ -933,13 +938,12 @@
           dispatchPluginData(data.pluginId, data.data);
         } else if (data.event === 'oauth_bot_token') {
           const btn = document.getElementById('btn-get-bot-token');
-          const statusText = document.getElementById('oauth-bot-status-text');
           const field = document.getElementById('cfg-twitch-bot-oauth');
           const usernameField = document.getElementById('cfg-twitch-bot-username');
           if (field) field.value = data.token;
           if (data.username && usernameField) usernameField.value = data.username;
-          if (btn) { btn.textContent = data.username ? `✓ ${data.username}` : '✓ Connected'; btn.disabled = false; }
-          if (statusText) statusText.textContent = data.username ? `✓ Connected as ${data.username}` : '✓ Bot authorized.';
+          updateTwitchUI('bot', data.username || 'Connected');
+          if (btn) btn.disabled = false;
           // Update sender toggle with new bot username
           if (data.username && typeof updateSenderBtn === 'function') {
             const senderBtn = document.getElementById('stream-chat-sender');
@@ -948,30 +952,23 @@
           }
           const toSave = { TWITCH_BOT_OAUTH: data.token };
           if (data.username) toSave.TWITCH_BOT_USERNAME = data.username;
-          if (isElectron) {
-            window.electronAPI.saveSettings(toSave);
-          } else {
-            fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave) }).catch(() => {});
-          }
+          persistSettings(toSave);
         } else if (data.event === 'oauth_token') {
           const btn = document.getElementById('btn-get-token');
-          const statusText = document.getElementById('oauth-status-text');
           const field = document.getElementById('cfg-twitch-oauth');
           const channelField = document.getElementById('cfg-twitch-channel');
           if (field) field.value = data.token;
           if (data.username && channelField) channelField.value = data.username;
-          if (btn) { btn.textContent = data.username ? `✓ ${data.username}` : '✓ Connected'; btn.disabled = false; }
-          if (statusText) statusText.textContent = data.username ? `✓ Connected as ${data.username}` : '✓ Authorized.';
+          updateTwitchUI('broadcaster', data.username || 'Connected');
+          if (btn) btn.disabled = false;
           const toSave = { TWITCH_OAUTH: data.token };
           if (data.username) toSave.TWITCH_CHANNEL = data.username;
-          if (isElectron) {
-            window.electronAPI.saveSettings(toSave);
-          } else {
-            fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave) }).catch(() => {});
-          }
+          persistSettings(toSave);
         } else if (data.event === 'now_playing') {
           const el = document.getElementById('np-track');
           if (el) el.textContent = data.track || '—';
+        } else if (data.event === 'twitch_disconnected') {
+          updateTwitchUI(data.which, null);
         } else if (data.event === 'spotify_connected') {
           updateSpotifyUI(true);
         } else if (data.event === 'spotify_disconnected') {
@@ -1416,6 +1413,60 @@
         if (btn) btn.textContent = '✗ Error';
       }
       setTimeout(() => { if (btn) { btn.textContent = 'Test'; btn.disabled = false; } }, 2500);
+    }
+
+    function updateTwitchUI(which, name) {
+      const isBot = which === 'bot';
+      const btn    = document.getElementById(isBot ? 'btn-get-bot-token' : 'btn-get-token');
+      const disc   = document.getElementById(isBot ? 'btn-bot-disconnect' : 'btn-twitch-disconnect');
+      const status = document.getElementById(isBot ? 'oauth-bot-status-text' : 'oauth-status-text');
+      const connected = !!name;
+      if (btn)  btn.textContent = connected ? `✓ ${name}` : (isBot ? 'Connect Bot' : 'Connect Twitch');
+      if (disc) disc.style.display = connected ? '' : 'none';
+      if (status) {
+        status.textContent = connected
+          ? `✓ Connected as ${name}`
+          : (isBot ? 'A separate account for chat responses.' : 'Not connected — click to authorize.');
+      }
+    }
+
+    async function twitchDisconnect(which) {
+      const label = which === 'bot' ? 'the bot account' : 'your broadcaster account';
+      // Reconnecting means going through Twitch's authorize flow again, so this
+      // is worth a confirm even though nothing is destroyed permanently.
+      if (!confirm(`Disconnect ${label}? You'll need to authorize again to reconnect.`)) return;
+      try {
+        await fetch(`/api/twitch/disconnect/${which}`, { method: 'POST' });
+        updateTwitchUI(which, null);
+        // Clear the mirrored advanced fields so a save cannot put the token back.
+        if (which === 'bot') {
+          const u = document.getElementById('cfg-twitch-bot-username'); if (u) u.value = '';
+          const t = document.getElementById('cfg-twitch-bot-oauth');    if (t) t.value = '';
+        } else {
+          const t = document.getElementById('cfg-twitch-oauth');        if (t) t.value = '';
+        }
+      } catch {}
+    }
+
+    function updateCiderUI(hasOverride, running) {
+      const disc   = document.getElementById('btn-cider-disconnect');
+      const status = document.getElementById('cider-status-text');
+      if (disc) disc.style.display = hasOverride ? '' : 'none';
+      if (status) {
+        status.textContent = hasOverride
+          ? '✓ Using the token you entered below.'
+          : running
+            ? "✓ Read automatically from Cider's settings."
+            : "Read automatically from Cider's settings. Cider → Settings → Connectivity → Manage External Application Access.";
+      }
+    }
+
+    async function ciderDisconnect() {
+      try {
+        await fetch('/api/cider/disconnect', { method: 'POST' });
+        const f = document.getElementById('cfg-cider-token'); if (f) f.value = '';
+        updateCiderUI(false, true);
+      } catch {}
     }
 
     function updateSpotifyUI(connected) {
@@ -2341,18 +2392,13 @@
         document.getElementById('cfg-mod-enabled').checked = modEnabled;
         modPortRow.style.opacity = modEnabled ? '1' : '0.4';
         modPortRow.style.pointerEvents = modEnabled ? '' : 'none';
-        const connectBtn = document.getElementById('btn-get-token');
-        const connectStatus = document.getElementById('oauth-status-text');
-        if (saved.TWITCH_OAUTH && saved.TWITCH_CHANNEL && connectBtn) {
-          connectBtn.textContent = `✓ ${saved.TWITCH_CHANNEL}`;
-          if (connectStatus) connectStatus.textContent = `✓ Connected as ${saved.TWITCH_CHANNEL}`;
-        }
-        const botBtn = document.getElementById('btn-get-bot-token');
-        const botStatus = document.getElementById('oauth-bot-status-text');
-        if (saved.TWITCH_BOT_OAUTH && saved.TWITCH_BOT_USERNAME && botBtn) {
-          botBtn.textContent = `✓ ${saved.TWITCH_BOT_USERNAME}`;
-          if (botStatus) botStatus.textContent = `✓ Connected as ${saved.TWITCH_BOT_USERNAME}`;
-        }
+        const ciderField = document.getElementById('cfg-cider-token');
+        if (ciderField) ciderField.value = saved.CIDER_TOKEN || '';
+        updateCiderUI(!!saved.CIDER_TOKEN, false);
+        fetch('/api/cider/status').then(r => r.json())
+          .then(d => updateCiderUI(!!saved.CIDER_TOKEN, d.running)).catch(() => {});
+        updateTwitchUI('broadcaster', saved.TWITCH_OAUTH && saved.TWITCH_CHANNEL ? saved.TWITCH_CHANNEL : null);
+        updateTwitchUI('bot', saved.TWITCH_BOT_OAUTH && saved.TWITCH_BOT_USERNAME ? saved.TWITCH_BOT_USERNAME : null);
         updateOAuthLink();
       } catch {}
     }
@@ -2368,6 +2414,7 @@
       settings.SONG_REQUEST_ENABLED = document.getElementById('cfg-sr-enabled').checked ? 'true' : 'false';
       settings.SEVENTV_ENABLED      = document.getElementById('cfg-seventv-enabled').checked ? 'true' : 'false';
       settings.BTTV_ENABLED         = document.getElementById('cfg-bttv-enabled').checked    ? 'true' : 'false';
+      settings.CIDER_TOKEN = document.getElementById('cfg-cider-token')?.value.trim() || '';
       settings.ALERT_MODE = alertMode;
       settings.OVERLAYS_ENABLED  = JSON.stringify(overlaysEnabled);
       settings.NOWPLAYING_CONFIG = JSON.stringify(nowPlayingCfg);

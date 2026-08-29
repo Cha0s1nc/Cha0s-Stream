@@ -3210,6 +3210,48 @@ app.get('/api/spotify/callback', async (req, res) => {
   }
 });
 
+/**
+ * Forget a connected account.
+ *
+ * Clears the stored credentials and tears down whatever they were driving.
+ * Only the token is dropped - channel and bot username are left alone, since
+ * they are also plain settings a user may have typed themselves.
+ */
+app.post('/api/twitch/disconnect/:which', (req, res) => {
+  const which = req.params.which;
+  if (which === 'broadcaster') {
+    process.env.TWITCH_OAUTH = '';
+    persistEnv();
+    // Drop the socket rather than waiting for Twitch to reject the dead token.
+    if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
+    if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
+    state.twitch.connected = false;
+    broadcast({ event: 'status', service: 'twitch', connected: false, paused: false });
+    broadcast({ event: 'twitch_disconnected', which });
+    addLog('system', 'twitch', 'Broadcaster account disconnected');
+  } else if (which === 'bot') {
+    // The bot is only ever a sender; nothing is subscribed on its behalf, so
+    // there is no socket to tear down. sendChatMessage falls back to the
+    // broadcaster on its own once these are empty.
+    process.env.TWITCH_BOT_OAUTH = '';
+    process.env.TWITCH_BOT_USERNAME = '';
+    persistEnv();
+    broadcast({ event: 'twitch_disconnected', which });
+    addLog('system', 'twitch', 'Bot account disconnected — messages will send as the broadcaster');
+  } else {
+    return res.status(400).json({ error: 'Unknown account' });
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/cider/disconnect', (req, res) => {
+  process.env.CIDER_TOKEN = '';
+  persistEnv();
+  if (mediaMode() === 'cider') nowPlayingStopPolling();
+  addLog('system', 'cider', 'Cider token cleared');
+  res.json({ ok: true });
+});
+
 app.post('/api/spotify/disconnect', (req, res) => {
   process.env.SPOTIFY_ACCESS_TOKEN  = '';
   process.env.SPOTIFY_REFRESH_TOKEN = '';
