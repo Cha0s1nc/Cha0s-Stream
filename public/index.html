@@ -88,7 +88,7 @@
     .stream-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     .stream-chat-input-wrap { display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface); align-items: center; }
     .stream-chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--text1); outline: none; }
-    .stream-chat-input:focus { border-color: var(--accent); }
+    .stream-chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .stream-chat-input:disabled { opacity: 0.4; cursor: not-allowed; }
     .stream-chat-send { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; flex-shrink: 0; transition: opacity 0.15s; }
     .stream-chat-send:hover:not(:disabled) { opacity: 0.85; }
@@ -190,6 +190,7 @@
     .eye-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text3); cursor: pointer; font-size: 13px; padding: 0; line-height: 1; }
     .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 0 0; align-items: center; }
     .btn { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 6px 16px; border-radius: 7px; border: none; cursor: pointer; transition: all 0.15s; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: #7c5ff7; }
     .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
@@ -269,7 +270,7 @@
     .trigger-event-label { font-size: 12px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; padding-top: 4px; }
     .trigger-response-input, .trigger-script-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; transition: border-color 0.15s; }
     .trigger-script-input { font-family: var(--font-mono); font-size: 11px; color: var(--text2); }
-    .trigger-response-input:focus, .trigger-script-input:focus { border-color: var(--accent); }
+    .trigger-response-input:focus, .trigger-script-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .trigger-response-input::placeholder, .trigger-script-input::placeholder { color: var(--text3); }
     .trigger-vars-hint { font-size: 10px; color: var(--text3); margin-top: 3px; }
     .sound-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: var(--surface2); border-radius: 7px; border: 1px solid var(--border); }
@@ -305,7 +306,7 @@
     .color-swatch::-webkit-color-swatch-wrapper { padding: 0; border-radius: 4px; }
     .color-swatch::-webkit-color-swatch { border: none; border-radius: 4px; }
     .alert-msg-input { font-family: var(--font-mono); font-size: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; width: 100%; outline: none; }
-    .alert-msg-input:focus { border-color: var(--accent); }
+    .alert-msg-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .alert-vars-hint { font-size: 10px; color: var(--text3); padding: 2px 14px 6px; font-family: var(--font-mono); }
     .custom-css-wrap { padding: 10px 14px; border-top: 1px solid var(--border); }
     .custom-css-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text2); user-select: none; }
@@ -314,7 +315,7 @@
     .custom-css-body { display: none; margin-top: 10px; }
     .custom-css-body.open { display: block; }
     .css-textarea { width: 100%; min-height: 120px; font-family: var(--font-mono); font-size: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); padding: 8px 10px; outline: none; resize: vertical; line-height: 1.5; }
-    .css-textarea:focus { border-color: var(--accent); }
+    .css-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .css-classes-hint { font-size: 10px; color: var(--text3); margin-top: 6px; line-height: 1.6; font-family: var(--font-mono); }
     .alert-style-save-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--border); background: var(--surface2); }
     .dev-view { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
@@ -341,7 +342,7 @@
     .dev-result.ok  { color: #32d74b; border-color: rgba(50,215,75,0.3); }
     .dev-result.err { color: #ff453a; border-color: rgba(255,69,58,0.3); }
     .dev-input { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-size: 12px; padding: 6px 10px; flex: 1; min-width: 0; outline: none; }
-    .dev-input:focus { border-color: var(--accent); }
+    .dev-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .dev-alert-grid { display: flex; gap: 8px; flex-wrap: wrap; }
 
     /* ── Theme picker ── */
@@ -373,6 +374,32 @@
     .tp-preset.active { border-color: var(--text); }
     .tp-divider { height: 1px; background: var(--border); margin: 0 -14px; }
 
+    /* ── Tooltips ──
+       On <body> rather than a ::after on each host: a pseudo-element cannot
+       escape its host's clipping or stacking context, which is what buried
+       these behind the statusbar and inside panels. */
+    #tooltip {
+      position: fixed; z-index: 10000; pointer-events: none;
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500;
+      white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      opacity: 0; transition: opacity 0.12s;
+      left: 0; top: 0;
+    }
+    #tooltip.show { opacity: 1; }
+
+    /* Honoured here but deliberately NOT in the overlay pages: those render
+       into the broadcast, so the streamer's own motion preference must not
+       strip animation from what viewers see. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
     /* ── Light theme ── */
     html[data-theme="light"] {
       --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
@@ -387,13 +414,14 @@
   </style>
 </head>
 <body>
+<div id="tooltip" role="tooltip" aria-hidden="true"></div>
 <div class="app">
   <header>
     <div class="titlebar-left">
       <div class="app-title">Cha0s Stream</div>
     </div>
     <div class="titlebar-right">
-      <div class="tb-accent" id="theme-dot" onclick="toggleThemePicker()" title="Customize theme"></div>
+      <div class="tb-accent" id="theme-dot" onclick="toggleThemePicker()" data-tip="Customize theme"></div>
     </div>
   </header>
   <!-- Theme picker panel -->
@@ -488,8 +516,8 @@
         </div>
         <div class="sub-panel" id="sub-stream">
           <div class="stream-wrap">
-            <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div><div class="stream-chat-input-wrap"><button class="stream-chat-sender-btn" id="stream-chat-sender" title="Click to switch sender account"><span id="stream-chat-sender-icon">🤖</span><span id="stream-chat-sender-label">Bot</span></button><input class="stream-chat-input" id="stream-chat-input" type="text" placeholder="Send a message…" maxlength="500" autocomplete="off" /><button class="stream-chat-send" id="stream-chat-send">Send</button></div></div>
-            <div class="stream-col"><div class="stream-col-header">Events<button class="obs-col-toggle" id="obs-col-toggle" title="Show OBS controls alongside events" onclick="toggleObsColumn()">OBS</button></div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
+            <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div><div class="stream-chat-input-wrap"><button class="stream-chat-sender-btn" id="stream-chat-sender" data-tip="Click to switch sender account"><span id="stream-chat-sender-icon">🤖</span><span id="stream-chat-sender-label">Bot</span></button><input class="stream-chat-input" id="stream-chat-input" type="text" placeholder="Send a message…" maxlength="500" autocomplete="off" /><button class="stream-chat-send" id="stream-chat-send">Send</button></div></div>
+            <div class="stream-col"><div class="stream-col-header">Events<button class="obs-col-toggle" id="obs-col-toggle" data-tip="Show OBS controls alongside events" onclick="toggleObsColumn()">OBS</button></div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
             <div class="stream-col" id="obs-split-col" style="display:none">
               <div class="stream-col-header">OBS</div>
               <div id="obs-split-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;"></div>
@@ -721,11 +749,11 @@
     </div>
   </div>
   <div class="statusbar">
-    <div class="status-item clickable" id="obs-item" title="OBS" onclick="reconnectService('obs')"><div class="dot off" id="obs-dot"></div><span class="sb-label">OBS</span></div>
-    <div class="status-item clickable" id="jf-item" title="Jellyfin" onclick="reconnectService('jellyfin')"><div class="dot off" id="jf-dot"></div><span class="sb-label">Jellyfin</span></div>
-    <div class="status-item clickable" id="twitch-item" title="Twitch" onclick="reconnectService('twitch')"><div class="dot off" id="twitch-dot"></div><span class="sb-label">Twitch</span></div>
+    <div class="status-item clickable" id="obs-item" data-tip="Reconnect OBS" onclick="reconnectService('obs')"><div class="dot off" id="obs-dot"></div><span class="sb-label">OBS</span></div>
+    <div class="status-item clickable" id="jf-item" data-tip="Reconnect Jellyfin" onclick="reconnectService('jellyfin')"><div class="dot off" id="jf-dot"></div><span class="sb-label">Jellyfin</span></div>
+    <div class="status-item clickable" id="twitch-item" data-tip="Reconnect Twitch" onclick="reconnectService('twitch')"><div class="dot off" id="twitch-dot"></div><span class="sb-label">Twitch</span></div>
     <div class="statusbar-divider"></div>
-    <div class="status-item"><span class="sb-label">Mode:&nbsp;</span><span class="mode-val" id="mode-val" title="Click to toggle media mode">Jellyfin</span></div>
+    <div class="status-item"><span class="sb-label">Mode:&nbsp;</span><span class="mode-val" id="mode-val" data-tip="Click to toggle media mode">Jellyfin</span></div>
     <div class="statusbar-divider"></div>
     <div class="status-item"><span class="sb-label">♪&nbsp;</span><span id="np-track">—</span></div>
     <div class="statusbar-right"><span id="stat-total" class="sb-label">0</span><span class="sb-label"> cmd&nbsp;&nbsp;</span><span id="stat-errors" class="sb-label">0</span><span class="sb-label"> err</span><span id="stat-queue" style="display:none">0</span><span id="stat-wishlist" style="display:none">0</span></div>
@@ -1412,6 +1440,47 @@
       document.getElementById('stat-queue').textContent = document.querySelectorAll('[id^="qi-"]').length;
       document.getElementById('stat-wishlist').textContent = document.querySelectorAll('[id^="wi-"]').length;
     }
+
+    // --- Tooltips ---
+    // Delegated rather than bound per element, so markup added later (plugin
+    // panels, generated rows) is covered without a registration step.
+    const TOOLTIP_GAP = 6;
+    function positionTooltip(host) {
+      const tip = document.getElementById('tooltip');
+      const text = host.getAttribute('data-tip');
+      if (!tip || !text) return;
+      tip.textContent = text;
+      tip.classList.add('show');
+      tip.setAttribute('aria-hidden', 'false');
+      const h = host.getBoundingClientRect();
+      const t = tip.getBoundingClientRect();
+      // Below by default, flipping above only when it would run off the bottom -
+      // which is what the statusbar's tips always need.
+      let top = h.bottom + TOOLTIP_GAP;
+      if (top + t.height > window.innerHeight - 4) top = h.top - t.height - TOOLTIP_GAP;
+      // Clamped so a tip on a control near either edge stays fully on screen.
+      const left = Math.max(4, Math.min(window.innerWidth - t.width - 4, h.left + h.width / 2 - t.width / 2));
+      tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    }
+    function hideTooltip() {
+      const tip = document.getElementById('tooltip');
+      if (!tip) return;
+      tip.classList.remove('show');
+      tip.setAttribute('aria-hidden', 'true');
+    }
+    document.addEventListener('mouseover', (e) => {
+      const host = e.target.closest?.('[data-tip]');
+      if (host) positionTooltip(host);
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (e.target.closest?.('[data-tip]')) hideTooltip();
+    });
+    // Keyboard parity: a tip you can only get with a mouse is not much of a hint.
+    document.addEventListener('focusin', (e) => {
+      const host = e.target.closest?.('[data-tip]');
+      if (host && host.matches(':focus-visible')) positionTooltip(host);
+    });
+    document.addEventListener('focusout', hideTooltip);
 
     // --- Local player detection (Cascade, Cider) ---
     // Each mode button stays hidden until its app has been seen running once,
