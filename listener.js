@@ -675,7 +675,7 @@ function nowPlayingStartPolling() {
   // Spotify without credentials would poll forever and always answer null.
   if (adapter.available && !adapter.available()) return;
 
-  nowPlayingTimer = setInterval(async () => {
+  const poll = async () => {
     // The mode can change under us between ticks; the next call re-arms.
     if (mediaMode() !== mode) return;
     let track = null;
@@ -685,7 +685,12 @@ function nowPlayingStartPolling() {
     const changed = now !== formatTrack(nowPlayingCurrent) || playing !== (nowPlayingCurrent?.isPlaying ?? false);
     nowPlayingCurrent = track;
     if (changed) broadcast(nowPlayingPayload(track));
-  }, NOW_PLAYING_POLL_MS[mode] || 8000);
+  };
+  // Once straight away, then on the interval. Waiting a full period first left
+  // nowPlayingCurrent null, so anything connecting in those first seconds - an
+  // OBS source starting with the app - was told nothing was playing.
+  poll();
+  nowPlayingTimer = setInterval(poll, NOW_PLAYING_POLL_MS[mode] || 8000);
 }
 
 /**
@@ -705,7 +710,8 @@ function nowPlayingPayload(track) {
     title:  track?.title  || null,
     artist: track?.artist || null,
     album:  track?.album  || null,
-    art:    track?.art    || null,
+    // Proxied so the overlay's canvas can read it - see /api/art.
+    art: track?.art ? `/api/art?u=${encodeURIComponent(track.art)}` : null,
     durationMs: track?.durationMs ?? null,
     // Sampled at poll time, so an overlay wanting a smooth bar should tick
     // forward locally from here rather than waiting for the next poll.
@@ -1733,6 +1739,49 @@ app.post('/api/reconnect/:service', (req, res) => {
 // the token file only the backend can read), so proxy the presence check through here.
 // Same shape as the Cascade check below: the browser cannot read Cider's token
 // file, so the presence probe is proxied through here.
+// Artwork proxy.
+//
+// The overlay reads the cover's pixels on a canvas to pick its accent colour,
+// and a cross-origin image taints the canvas so those pixels cannot be read at
+// all. Serving art from our own origin sidesteps that, and keeps the Jellyfin
+// address out of a browser-source URL as a side effect.
+//
+// Origin-restricted rather than open: this happily fetches whatever it is
+// given, and an open fetcher bound to localhost is worth closing even when only
+// local pages can reach it.
+const ART_HOST_ALLOWLIST = [
+  'i.scdn.co', 'mosaic.scdn.co', 'image-cdn-ak.spotifycdn.com', 'image-cdn-fa.spotifycdn.com', // Spotify
+  'is1-ssl.mzstatic.com', 'is2-ssl.mzstatic.com', 'is3-ssl.mzstatic.com',
+  'is4-ssl.mzstatic.com', 'is5-ssl.mzstatic.com', 'a1.mzstatic.com',                            // Apple Music / Cider
+];
+
+function artUrlAllowed(target) {
+  // Whichever Jellyfin we are actually pointed at, however it is addressed.
+  const base = jellyfinBaseUrl || process.env.JELLYFIN_URL;
+  if (base) {
+    try { if (new URL(base).host === target.host) return true; } catch {}
+  }
+  return ART_HOST_ALLOWLIST.includes(target.host);
+}
+
+app.get('/api/art', async (req, res) => {
+  let target;
+  try { target = new URL(req.query.u || ''); } catch { return res.status(400).end(); }
+  if (!/^https?:$/.test(target.protocol)) return res.status(400).end();
+  if (!artUrlAllowed(target)) return res.status(403).end();
+  try {
+    const r = await fetch(target, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return res.status(502).end();
+    const type = r.headers.get('content-type') || '';
+    if (!type.startsWith('image/')) return res.status(415).end();
+    res.set('Content-Type', type);
+    // Art for a given item does not change, and the overlay re-requests it on
+    // every track change.
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch { res.status(504).end(); }
+});
+
 app.get('/api/cider/status', async (req, res) => {
   try { await ciderFetch('/active'); res.json({ running: true }); }
   catch { res.json({ running: false }); }

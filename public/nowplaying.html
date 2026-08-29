@@ -5,15 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cha0s Now Playing</title>
 <style>
-  /* Palette matches Cascade and the Cha0s Stream dashboard (:root in index.html). */
   :root {
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    --surface: #1c1c1e;
     --text: #f5f5f7; --text2: #aeaeb2;
-    --grad: linear-gradient(160deg, #4ade80 0%, #7c3aed 100%);
-    --card-bg: rgba(20, 20, 25, 0.92);
-    --size: 15px;          /* set from ?size=, everything else scales off it */
-    --art: calc(var(--size) * 4.5);
+    /* Replaced at runtime by the colour pulled off the cover, unless ?accent=
+       pins it. Everything tinted keys off this one variable. */
+    --accent: #7c3aed;
+    --size: 15px;
+    --radius: 14px;
+    --width: 440px;
+    --art: calc(var(--size) * 4.4);
+    --panel: rgba(20, 20, 25, 0.92);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -22,174 +24,303 @@
     background: transparent; overflow: hidden;
     width: 100vw; height: 100vh;
     font-family: var(--font);
-    display: flex; padding: 16px;
+    display: flex; padding: 14px;
+    -webkit-font-smoothing: antialiased;
   }
-  body[data-align="left"]          { justify-content: flex-start; align-items: flex-start; }
-  body[data-align="right"]         { justify-content: flex-end;   align-items: flex-start; }
-  body[data-align="bottom-left"]   { justify-content: flex-start; align-items: flex-end; }
-  body[data-align="bottom-right"]  { justify-content: flex-end;   align-items: flex-end; }
-  body[data-align="center"]        { justify-content: center;     align-items: center; }
+  body[data-align="left"]         { justify-content: flex-start; align-items: flex-start; }
+  body[data-align="right"]        { justify-content: flex-end;   align-items: flex-start; }
+  body[data-align="bottom-left"]  { justify-content: flex-start; align-items: flex-end; }
+  body[data-align="bottom-right"] { justify-content: flex-end;   align-items: flex-end; }
+  body[data-align="center"]       { justify-content: center;     align-items: center; }
 
-  .card {
-    display: flex; align-items: center; gap: calc(var(--size) * 0.93);
-    max-width: 100%; max-height: 100%;
-    padding: 12px 18px 12px 12px;
-    border-radius: 14px;
-    background: var(--card-bg);
-    box-shadow: 0 6px 28px rgba(0,0,0,0.55);
+  .np {
+    position: relative; overflow: hidden;
+    width: var(--width); max-width: 100%; max-height: 100%;
+    display: flex; align-items: center; gap: calc(var(--size) * 0.8);
+    padding: calc(var(--size) * 0.72);
+    border-radius: var(--radius);
+    background: var(--panel);
     color: var(--text);
-    /* Starts hidden: an empty card in the corner of a scene looks broken. */
     opacity: 0; transform: translateY(8px);
-    transition: opacity 0.35s ease, transform 0.35s ease;
+    transition: opacity 0.4s ease, transform 0.4s ease;
     will-change: opacity, transform;
   }
-  .card.visible { opacity: 1; transform: none; }
+  .np.visible { opacity: 1; transform: none; }
 
+  /* Blurred cover behind the card. Sits under everything via a stacking
+     context on .np, so it tints the panel without washing out the text. */
+  .bg {
+    position: absolute; inset: 0; z-index: 0;
+    background-size: cover; background-position: center;
+    filter: blur(26px) saturate(1.6) brightness(0.42); transform: scale(1.35);
+    opacity: 0; transition: opacity 0.5s ease;
+  }
+  .np > *:not(.bg) { position: relative; z-index: 1; }
+
+  .art-wrap { position: relative; flex-shrink: 0; }
   .art {
-    width: var(--art); height: var(--art); flex-shrink: 0;
-    border-radius: calc(var(--size) * 0.6); object-fit: cover;
-    background: var(--surface);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    display: block; width: var(--art); height: var(--art);
+    border-radius: calc(var(--size) * 0.55); object-fit: cover;
+    background: rgba(255,255,255,0.06);
   }
-  /* No artwork (OS media keys, and Cascade until its payload carries an item
-     id) - fall back to the accent gradient rather than an empty grey square. */
-  .art.placeholder { background: var(--grad); }
+  /* Nothing to show (OS media keys, Cascade until its payload carries an item
+     id) - the accent beats an empty grey square. */
+  .art.placeholder { background: linear-gradient(150deg, var(--accent), rgba(255,255,255,0.12)); }
 
-  .meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; flex: 1; }
-  .title  { font-size: var(--size); font-weight: 600; letter-spacing: -0.01em; }
-  .artist { font-size: calc(var(--size) * 0.87); color: var(--text2); }
-  .title, .artist {
+  .meta { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+  .title {
+    font-size: var(--size); font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    /* Bounded inside the full card so a long title cannot stretch it off
-       screen; unbounded as its own source, where the source's own width is
-       the bound the user set in OBS. */
-    max-width: calc(var(--size) * 21);
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .artist {
+    font-size: calc(var(--size) * 0.82); color: var(--text2); line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .album {
+    font-size: calc(var(--size) * 0.74); color: var(--text2); opacity: 0.75; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .bar {
-    margin-top: 6px; height: 3px; width: 100%;
-    border-radius: 2px; background: rgba(255,255,255,0.16);
-    overflow: hidden;
+  .prog { display: flex; align-items: center; gap: 8px; margin-top: calc(var(--size) * 0.42); }
+  .bar { position: relative; flex: 1; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.2); overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width 0.25s linear; }
+  .time { font-size: calc(var(--size) * 0.66); color: var(--text2); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+  .off { display: none !important; }
+  .np.paused .title, .np.paused .artist, .np.paused .album { opacity: 0.55; }
+
+  /* ── Themes ─────────────────────────────────────────────────────────────
+     Deliberately not skins of one layout: each moves the pieces, because a
+     theme that only recolours is a colour setting wearing a hat. */
+
+  /* card - the default. Rounded panel, square art, bar under the text. */
+  .np[data-theme="card"] { box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+  .np[data-theme="card"] .bg { opacity: 0.45; }
+
+  /* minimal - no panel at all, art and text over the scene. Needs its own
+     shadow on the text, since there is no background to sit against. */
+  .np[data-theme="minimal"] { background: none; padding: 0; box-shadow: none; }
+  .np[data-theme="minimal"] .bg { display: none; }
+  .np[data-theme="minimal"] .title,
+  .np[data-theme="minimal"] .artist,
+  .np[data-theme="minimal"] .album { text-shadow: 0 2px 6px rgba(0,0,0,0.85); }
+  .np[data-theme="minimal"] .artist { color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; font-size: calc(var(--size) * 0.7); }
+  .np[data-theme="minimal"] .art { box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+
+  /* label - a NOW PLAYING plate, a rule, then the text. No art. */
+  .np[data-theme="label"] { background: rgba(28, 30, 44, 0.95); gap: 0; }
+  .np[data-theme="label"] .art-wrap { display: none; }
+  .np[data-theme="label"] .bg { display: none; }
+  .np[data-theme="label"]::before {
+    content: 'NOW\A PLAYING'; white-space: pre; z-index: 1;
+    font-size: calc(var(--size) * 0.62); font-weight: 800; line-height: 1.15;
+    letter-spacing: 0.08em; text-align: right; color: var(--text);
+    align-self: stretch; display: flex; flex-direction: column; justify-content: center;
+    padding-right: calc(var(--size) * 0.8);
+    border-right: 2px solid var(--accent);
+    margin-right: calc(var(--size) * 0.8);
   }
-  .bar-fill { height: 100%; width: 0; background: var(--grad); border-radius: 2px; }
-  .bar.hidden { display: none; }
+  .np[data-theme="label"] .title { text-transform: uppercase; font-weight: 800; }
+  .np[data-theme="label"] .artist { order: -1; }
 
-  .paused .title, .paused .artist { opacity: 0.55; }
-
-  /* Any part not selected by ?only= is removed outright rather than hidden, so
-     it takes no space in the flex row. */
-  .part-off { display: none !important; }
-
-  /* ── Single-part / bare mode ────────────────────────────────────────────
-     With ?only= the user is compositing the pieces themselves in OBS, so the
-     card chrome would draw a pill around every one of them. Strip it, and let
-     each part fill the browser source it was given. */
-  body[data-bare="1"] { padding: 0; }
-  body[data-bare="1"] .card {
-    background: none; box-shadow: none; padding: 0; border-radius: 0;
-    width: 100%; height: 100%;
+  /* vinyl - circular art that turns while playing. */
+  .np[data-theme="vinyl"] { border-radius: 999px; padding-right: calc(var(--size) * 1.4); }
+  .np[data-theme="vinyl"] .art { border-radius: 50%; animation: spin 6s linear infinite; animation-play-state: paused; }
+  .np[data-theme="vinyl"].playing .art { animation-play-state: running; }
+  .np[data-theme="vinyl"] .art-wrap::after {
+    content: ''; position: absolute; inset: 0; margin: auto;
+    width: 22%; height: 22%; border-radius: 50%;
+    background: var(--panel); box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
   }
-  body[data-bare="1"] .title,
-  body[data-bare="1"] .artist { max-width: 100%; }
-  /* Art alone is the one part worth filling its whole source. */
-  body[data-bare="1"][data-solo="art"] .art { width: 100%; height: 100%; }
-  body[data-bare="1"][data-solo="bar"] .bar { margin-top: 0; height: 100%; border-radius: 0; }
-  body[data-bare="1"][data-solo="bar"] .bar-fill { border-radius: 0; }
+  .np[data-theme="vinyl"] .bg { opacity: 0.5; }
+  .np[data-theme="vinyl"] .prog { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* banner - wide, big type, art bled to the left edge. */
+  .np[data-theme="banner"] { padding: 0; border-radius: calc(var(--radius) * 0.7); gap: calc(var(--size) * 0.9); }
+  .np[data-theme="banner"] .art { width: calc(var(--size) * 5.2); height: calc(var(--size) * 5.2); border-radius: 0; }
+  .np[data-theme="banner"] .meta { padding: calc(var(--size) * 0.5) calc(var(--size) * 0.9) calc(var(--size) * 0.5) 0; }
+  .np[data-theme="banner"] .title { font-size: calc(var(--size) * 1.25); font-weight: 800; text-transform: uppercase; letter-spacing: -0.01em; }
+  .np[data-theme="banner"] .bg { opacity: 0.6; }
+  .np[data-theme="banner"] .bar-fill { box-shadow: 0 0 10px var(--accent); }
+
+  /* frosted - the cover fills the card behind heavy blur and a scrim. */
+  .np[data-theme="frosted"] { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.13); }
+  .np[data-theme="frosted"] .bg { opacity: 0.8; filter: blur(30px) saturate(1.7) brightness(0.3); }
+  .np[data-theme="frosted"] .art { border-radius: 50%; }
+  .np[data-theme="frosted"] .title,
+  .np[data-theme="frosted"] .artist,
+  .np[data-theme="frosted"] .album { text-shadow: 0 1px 4px rgba(0,0,0,0.75); }
+  .np[data-theme="frosted"] .bar { background: rgba(0,0,0,0.35); }
+
+  /* edge - no panel, a full-width accent rule pinned under the text. */
+  .np[data-theme="edge"] { background: linear-gradient(90deg, rgba(0,0,0,0.82), rgba(0,0,0,0.35)); border-radius: 0; padding-bottom: calc(var(--size) * 0.9); }
+  .np[data-theme="edge"] .bg { opacity: 0.45; }
+  .np[data-theme="edge"] .prog { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; gap: 0; }
+  .np[data-theme="edge"] .bar { height: 3px; border-radius: 0; background: rgba(255,255,255,0.15); }
+  .np[data-theme="edge"] .bar-fill { border-radius: 0; }
+  .np[data-theme="edge"] .time { display: none; }
 </style>
 </head>
 <body>
-  <div class="card" id="card">
-    <img class="art" id="art" alt="">
-    <div class="meta" id="meta">
+  <div class="np" id="np">
+    <div class="bg" id="bg"></div>
+    <div class="art-wrap" id="art-wrap"><img class="art" id="art" alt=""></div>
+    <div class="meta">
       <div class="title"  id="title"></div>
       <div class="artist" id="artist"></div>
-      <div class="bar" id="bar"><div class="bar-fill" id="bar-fill"></div></div>
+      <div class="album"  id="album"></div>
+      <div class="prog" id="prog">
+        <span class="time" id="elapsed">0:00</span>
+        <div class="bar"><div class="bar-fill" id="fill"></div></div>
+        <span class="time" id="remain">0:00</span>
+      </div>
     </div>
   </div>
 
 <script>
-  // Configured by query string rather than a settings panel, the way OBS
-  // browser sources usually are:
+  // Everything is a query parameter so the overlay stays a plain browser source
+  // with no state of its own - copy a URL, paste it into OBS, done.
   //
-  //   ?only=art            just the album art, filling the source
-  //   ?only=title          just the title
-  //   ?only=artist         just the artist
-  //   ?only=bar            just the progress bar
-  //   ?only=title,artist   any combination, comma separated
-  //
-  // ?only= also drops the card background so the parts composite cleanly as
-  // separate sources; pass &card=1 to keep it. Everything else:
-  //
-  //   ?align=left|right|bottom-left|bottom-right|center   (default bottom-left)
-  //   ?size=20             base size in px, everything scales off it
-  //   ?hide=0              keep the card up when playback stops
-  const params = new URLSearchParams(location.search);
-  const ALL_PARTS = ['art', 'title', 'artist', 'bar'];
-  const only = (params.get('only') || '')
-    .split(',').map(p => p.trim().toLowerCase()).filter(p => ALL_PARTS.includes(p));
-  const parts = only.length ? only : ALL_PARTS;
+  //   ?theme=card|minimal|label|vinyl|banner|frosted|edge
+  //   ?accent=auto|#ff0055   auto pulls the colour off the cover
+  //   ?width=440             card width in px
+  //   ?size=15               base type size; everything scales off it
+  //   ?radius=14             corner rounding
+  //   ?align=left|right|bottom-left|bottom-right|center
+  //   ?art=0 ?album=0 ?bar=0 ?times=0     hide individual pieces
+  //   ?hide=0                stay on screen when playback stops
+  const q = new URLSearchParams(location.search);
+  const num = (k, fallback) => { const v = parseFloat(q.get(k)); return v > 0 ? v : fallback; };
+  const THEMES = ['card', 'minimal', 'label', 'vinyl', 'banner', 'frosted', 'edge'];
 
-  document.body.dataset.align = params.get('align') || 'bottom-left';
-  // Bare whenever the user picked parts, unless they explicitly ask for the card.
-  document.body.dataset.bare = (only.length && params.get('card') !== '1') ? '1' : '0';
-  if (parts.length === 1) document.body.dataset.solo = parts[0];
-  const size = parseFloat(params.get('size'));
-  if (size > 0) document.documentElement.style.setProperty('--size', size + 'px');
-  const HIDE_WHEN_STOPPED = params.get('hide') !== '0';
+  const theme = THEMES.includes(q.get('theme')) ? q.get('theme') : 'card';
+  const accentParam = (q.get('accent') || 'auto').trim();
+  const AUTO_ACCENT = accentParam === 'auto' || accentParam === '';
+  const SHOW = {
+    art:   q.get('art')   !== '0',
+    album: q.get('album') !== '0',
+    bar:   q.get('bar')   !== '0',
+    times: q.get('times') !== '0',
+  };
+  const HIDE_WHEN_STOPPED = q.get('hide') !== '0';
 
-  const card = document.getElementById('card');
-  const elArt = document.getElementById('art');
-  const elMeta = document.getElementById('meta');
-  const elTitle = document.getElementById('title');
-  const elArtist = document.getElementById('artist');
-  const elBar = document.getElementById('bar');
-  const elFill = document.getElementById('bar-fill');
+  const np = document.getElementById('np');
+  np.dataset.theme = theme;
+  document.body.dataset.align = q.get('align') || 'bottom-left';
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty('--width',  num('width', 440) + 'px');
+  rootStyle.setProperty('--size',   num('size', 15) + 'px');
+  rootStyle.setProperty('--radius', (q.get('radius') !== null ? Math.max(0, parseFloat(q.get('radius')) || 0) : 14) + 'px');
+  if (!AUTO_ACCENT) rootStyle.setProperty('--accent', accentParam);
 
-  const showPart = (el, on) => el.classList.toggle('part-off', !on);
-  showPart(elArt,    parts.includes('art'));
-  showPart(elTitle,  parts.includes('title'));
-  showPart(elArtist, parts.includes('artist'));
-  showPart(elBar,    parts.includes('bar'));
-  // The text column is pure layout - with none of its children selected it
-  // would still contribute gap and flex space to an art-only source.
-  showPart(elMeta, ['title', 'artist', 'bar'].some(p => parts.includes(p)));
+  const el = {
+    bg: document.getElementById('bg'), art: document.getElementById('art'),
+    artWrap: document.getElementById('art-wrap'), title: document.getElementById('title'),
+    artist: document.getElementById('artist'), album: document.getElementById('album'),
+    prog: document.getElementById('prog'), fill: document.getElementById('fill'),
+    elapsed: document.getElementById('elapsed'), remain: document.getElementById('remain'),
+  };
+  el.artWrap.classList.toggle('off', !SHOW.art);
+  el.album.classList.toggle('off', !SHOW.album);
+  el.prog.classList.toggle('off', !SHOW.bar);
+  el.elapsed.classList.toggle('off', !SHOW.times);
+  el.remain.classList.toggle('off', !SHOW.times);
 
-  // positionMs is sampled when the listener polls, up to 8s apart, so the bar
-  // is advanced locally from that sample instead of stepping once per poll.
+  const mmss = (ms) => {
+    if (!Number.isFinite(ms) || ms < 0) ms = 0;
+    const t = Math.floor(ms / 1000);
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  };
+
+  /**
+   * Average the cover, then force it bright and saturated enough to read as an
+   * accent. A plain average is muddy on almost every cover - it lands near grey
+   * - so the hue is kept and the saturation and lightness are pushed to fixed
+   * floors. Artwork is same-origin via /api/art, without which the canvas is
+   * tainted and getImageData throws.
+   */
+  function accentFromArt(img) {
+    try {
+      const N = 16;
+      const c = document.createElement('canvas');
+      c.width = c.height = N;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, N, N);
+      const d = ctx.getImageData(0, 0, N, N).data;
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) continue;            // skip transparent padding
+        r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
+      }
+      if (!n) return null;
+      r /= n; g /= n; b /= n;
+
+      const max = Math.max(r, g, b) / 255, min = Math.min(r, g, b) / 255;
+      const l = (max + min) / 2, d2 = max - min;
+      let h = 0;
+      if (d2) {
+        const rn = r / 255, gn = g / 255, bn = b / 255;
+        if (max === rn)      h = ((gn - bn) / d2 + (gn < bn ? 6 : 0)) / 6;
+        else if (max === gn) h = ((bn - rn) / d2 + 2) / 6;
+        else                 h = ((rn - gn) / d2 + 4) / 6;
+      }
+      const s = d2 === 0 ? 0 : d2 / (1 - Math.abs(2 * l - 1));
+      // A near-grey cover has no hue worth trusting; inventing one would put a
+      // colour on screen that appears nowhere on the sleeve.
+      if (s < 0.12) return null;
+      return `hsl(${Math.round(h * 360)}, ${Math.round(Math.max(0.62, Math.min(1, s)) * 100)}%, ${Math.round(Math.max(0.55, Math.min(0.68, l)) * 100)}%)`;
+    } catch { return null; }
+  }
+
   let track = null;
   let positionAt = 0;
 
   function render() {
     if (!track) {
-      if (HIDE_WHEN_STOPPED) card.classList.remove('visible');
+      if (HIDE_WHEN_STOPPED) np.classList.remove('visible');
       return;
     }
-    card.classList.add('visible');
-    card.classList.toggle('paused', !track.isPlaying);
-    elTitle.textContent = track.title || '';
-    elArtist.textContent = track.artist || '';
+    np.classList.add('visible');
+    np.classList.toggle('paused', !track.isPlaying);
+    np.classList.toggle('playing', !!track.isPlaying);
+    el.title.textContent = track.title || '';
+    el.artist.textContent = track.artist || '';
+    el.album.textContent = track.album || '';
+    // Nothing to say and nothing to measure against.
+    el.prog.classList.toggle('off', !SHOW.bar || !track.durationMs);
 
     if (track.art) {
-      elArt.src = track.art;
-      elArt.classList.remove('placeholder');
+      el.art.classList.remove('placeholder');
+      el.art.crossOrigin = 'anonymous';
+      el.art.src = track.art;
+      el.bg.style.backgroundImage = `url("${track.art}")`;
+      el.bg.style.opacity = '';
     } else {
-      // Clearing src would show a broken-image icon, so drop the element's
-      // image entirely and let the gradient placeholder stand in.
-      elArt.removeAttribute('src');
-      elArt.classList.add('placeholder');
+      // Clearing src shows a broken-image icon, so remove it outright and let
+      // the accent gradient stand in.
+      el.art.removeAttribute('src');
+      el.art.classList.add('placeholder');
+      el.bg.style.backgroundImage = '';
+      el.bg.style.opacity = '0';
+      if (AUTO_ACCENT) rootStyle.removeProperty('--accent');
     }
-    // Only meaningful with a known duration - but never re-hide a bar the user
-    // asked for as its own source, or that source goes blank.
-    if (parts.includes('bar')) elBar.classList.toggle('hidden', !track.durationMs);
   }
+
+  el.art.addEventListener('load', () => {
+    if (!AUTO_ACCENT) return;
+    const c = accentFromArt(el.art);
+    if (c) rootStyle.setProperty('--accent', c);
+    else rootStyle.removeProperty('--accent');
+  });
 
   function tick() {
     if (!track?.durationMs) return;
     const base = track.positionMs ?? 0;
-    const elapsed = track.isPlaying ? Date.now() - positionAt : 0;
-    const pct = Math.min(100, ((base + elapsed) / track.durationMs) * 100);
-    elFill.style.width = pct + '%';
+    const pos = Math.min(track.durationMs, base + (track.isPlaying ? Date.now() - positionAt : 0));
+    el.fill.style.width = (pos / track.durationMs) * 100 + '%';
+    el.elapsed.textContent = mmss(pos);
+    el.remain.textContent = mmss(track.durationMs - pos);
   }
   setInterval(tick, 250);
 
@@ -198,8 +329,8 @@
     ws.onmessage = (e) => {
       let data; try { data = JSON.parse(e.data); } catch { return; }
       if (data.event !== 'now_playing') return;
-      // A null track means nothing is playing - the listener sends the whole
-      // payload on every change, so this is a full replacement, not a patch.
+      // The listener sends the whole payload on every change, so this is a
+      // replacement rather than a patch; a null track means nothing is playing.
       track = data.track ? data : null;
       positionAt = Date.now();
       render();
