@@ -563,8 +563,6 @@ function sendOSMediaKey(action) {
 
 // --- Spotify ---
 const SPOTIFY_SCOPES = 'user-read-currently-playing user-read-playback-state user-modify-playback-state';
-let spotifyPollTimer = null;
-let spotifyCurrentTrack = null; // { title, artist, id, isPlaying }
 
 function spotifyIsConfigured() {
   return !!(process.env.SPOTIFY_ACCESS_TOKEN);
@@ -632,24 +630,7 @@ async function spotifyGetCurrentTrack() {
   } catch { return null; }
 }
 
-function spotifyStartPolling() {
-  if (spotifyPollTimer) return;
-  spotifyPollTimer = setInterval(async () => {
-    if ((process.env.MEDIA_CONTROL_MODE || 'os') !== 'spotify') return;
-    const track = await spotifyGetCurrentTrack();
-    const changed = track?.id !== spotifyCurrentTrack?.id || track?.isPlaying !== spotifyCurrentTrack?.isPlaying;
-    spotifyCurrentTrack = track;
-    if (changed) broadcast({ event: 'now_playing', track: track ? `${track.artist} — ${track.title}` : null, isPlaying: track?.isPlaying ?? false });
-  }, 8000);
-}
-
-function spotifyStopPolling() {
-  if (spotifyPollTimer) { clearInterval(spotifyPollTimer); spotifyPollTimer = null; }
-}
-
 // --- Cascade now-playing polling ---
-let cascadePollTimer = null;
-let cascadeCurrentTrack = null;
 
 // Cascade's control server requires this token on every request (any local webpage
 // can otherwise reach a loopback port). Cascade writes it to ~/.cascade-control-token;
@@ -672,19 +653,40 @@ async function cascadeGetNowPlaying() {
   } catch { return null; }
 }
 
-function cascadeStartPolling() {
-  if (cascadePollTimer) return;
-  cascadePollTimer = setInterval(async () => {
-    if ((process.env.MEDIA_CONTROL_MODE || 'os') !== 'cascade') return;
-    const track = await cascadeGetNowPlaying();
-    const changed = track?.title !== cascadeCurrentTrack?.title || track?.isPlaying !== cascadeCurrentTrack?.isPlaying;
-    cascadeCurrentTrack = track;
-    if (changed) broadcast({ event: 'now_playing', track: track ? `${track.artist} — ${track.title}` : null, isPlaying: track?.isPlaying ?? false });
-  }, 4000);
+// One poller for every mode. There used to be two near-identical ones for
+// Spotify and Cascade only, which is why the dashboard's now-playing line and
+// anything else listening for `now_playing` stayed blank in Jellyfin and OS
+// modes - nothing ever broadcast there.
+let nowPlayingTimer = null;
+let nowPlayingCurrent = null;
+
+// Spotify and Jellyfin are network round trips; Cascade is a loopback read and
+// can afford to be snappier.
+const NOW_PLAYING_POLL_MS = { cascade: 4000, spotify: 8000, jellyfin: 8000, os: 8000 };
+
+function nowPlayingStartPolling() {
+  nowPlayingStopPolling();
+  const mode = mediaMode();
+  const adapter = MEDIA_MODES[mode];
+  // Spotify without credentials would poll forever and always answer null.
+  if (adapter.available && !adapter.available()) return;
+
+  nowPlayingTimer = setInterval(async () => {
+    // The mode can change under us between ticks; the next call re-arms.
+    if (mediaMode() !== mode) return;
+    let track = null;
+    try { track = await adapter.nowPlaying(); } catch { track = null; }
+    const now = formatTrack(track);
+    const playing = track?.isPlaying ?? false;
+    const changed = now !== formatTrack(nowPlayingCurrent) || playing !== (nowPlayingCurrent?.isPlaying ?? false);
+    nowPlayingCurrent = track;
+    if (changed) broadcast({ event: 'now_playing', track: now, isPlaying: playing });
+  }, NOW_PLAYING_POLL_MS[mode] || 8000);
 }
 
-function cascadeStopPolling() {
-  if (cascadePollTimer) { clearInterval(cascadePollTimer); cascadePollTimer = null; }
+function nowPlayingStopPolling() {
+  if (nowPlayingTimer) { clearInterval(nowPlayingTimer); nowPlayingTimer = null; }
+  nowPlayingCurrent = null;
 }
 
 // --- Twitch EventSub ---
@@ -1218,113 +1220,125 @@ function fillTemplate(template, vars) {
     .replace(/\{query\}/g, vars.query || '');
 }
 
+// --- Media control modes ---
+// One adapter per mode, so the four commands that used to each carry their own
+// four-branch if-chain (cmdSong, cmdMediaControl, POST /media, and the two
+// polling switches) share a single lookup. Adding a mode used to mean five
+// pasted copies, and they had already drifted: POST /media never handled
+// Spotify at all and silently fell through to Jellyfin.
+//
+// nowPlaying() returns { title, artist, isPlaying } or null. control() performs
+// play/pause/next/prev and throws on failure - the callers do the logging,
+// since only they know whether they answer in chat or over HTTP.
+
+async function cascadeControl(action) {
+  const map = { play: 'playpause', pause: 'playpause', next: 'next', prev: 'prev' };
+  const r = await fetch('http://127.0.0.1:47847/cascade/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...cascadeAuthHeaders() },
+    body: JSON.stringify({ action: map[action] || action })
+  });
+  if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
+}
+
+async function spotifyControl(action) {
+  const path   = { play: '/me/player/play', pause: '/me/player/pause', next: '/me/player/next', prev: '/me/player/previous' }[action];
+  const method = { play: 'PUT', pause: 'PUT', next: 'POST', prev: 'POST' }[action] || 'POST';
+  if (!path) throw new Error(`Unknown action: ${action}`);
+  if (!spotifyIsConfigured()) throw new Error('Spotify is not connected');
+  // spotifyApiCall hands back the response without inspecting it, so an action
+  // Spotify refused - 404 with no active device being much the commonest - was
+  // being reported to chat as a success.
+  const res = await spotifyApiCall(path, method);
+  if (!res.ok) throw new Error(res.status === 404 ? 'Spotify has no active device' : `Spotify returned ${res.status}`);
+}
+
+async function jellyfinControl(action) {
+  const command = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' }[action];
+  if (!command) throw new Error(`Unknown action: ${action}`);
+  const session = await getActiveSession();
+  if (!session) throw new Error('No active session');
+  await jellyfinRequest(`/Sessions/${session.Id}/Playing/${command}`, 'POST');
+}
+
+async function jellyfinNowPlaying() {
+  const session = await getActiveSession();
+  const item = session?.NowPlayingItem;
+  if (!item) return null;
+  return {
+    title:  item.Name || '',
+    artist: item.Artists?.[0] || item.AlbumArtist || 'Unknown Artist',
+    isPlaying: !session.PlayState?.IsPaused,
+  };
+}
+
+// The OS helper answers with one pre-joined "Artist — Title" string, because
+// that is all the platform scripts can get. Split it back apart so every
+// adapter returns the same shape; an em dash inside a title is why this splits
+// on the first separator only.
+async function osNowPlaying() {
+  const line = await getOSNowPlaying();
+  if (!line) return null;
+  const i = line.indexOf(' — ');
+  return i === -1
+    ? { title: line, artist: '', isPlaying: true }
+    : { title: line.slice(i + 3), artist: line.slice(0, i), isPlaying: true };
+}
+
+const MEDIA_MODES = {
+  cascade:  { label: 'Cascade',        nowPlaying: cascadeGetNowPlaying,  control: cascadeControl },
+  spotify:  { label: 'Spotify',        nowPlaying: spotifyGetCurrentTrack, control: spotifyControl, available: spotifyIsConfigured },
+  jellyfin: { label: 'Jellyfin',       nowPlaying: jellyfinNowPlaying,    control: jellyfinControl },
+  os:       { label: 'OS media keys',  nowPlaying: osNowPlaying,          control: sendOSMediaKey },
+};
+
+/** The configured mode, falling back to 'os' for an unset or unknown value. */
+function mediaMode() {
+  const m = process.env.MEDIA_CONTROL_MODE;
+  return MEDIA_MODES[m] ? m : 'os';
+}
+
+function mediaAdapter() {
+  return MEDIA_MODES[mediaMode()];
+}
+
+/** "Artist — Title", or null. Shared by !song, the pollers and the overlay. */
+function formatTrack(track) {
+  if (!track?.title) return null;
+  return track.artist ? `${track.artist} — ${track.title}` : track.title;
+}
+
 // --- Command implementations ---
 
 async function cmdSong(user) {
-  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'os';
-  if (mediaMode === 'spotify') {
-    try {
-      const track = await spotifyGetCurrentTrack();
-      if (!track) { await sendChatMessage(`@${user} — Nothing is playing right now.`); return; }
-      const song = `${track.artist} — ${track.title}`;
-      addLog('system', '!song', `${user} → ${song} [Spotify]`);
-      const tmpl = state.commands.song?.response;
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
-    } catch (err) { addLog('system', '!song', err.message, false); }
-    return;
-  }
-  if (mediaMode === 'cascade') {
-    try {
-      const track = await cascadeGetNowPlaying();
-      if (!track) { await sendChatMessage(`@${user} — Nothing is playing right now.`); return; }
-      const song = `${track.artist} — ${track.title}`;
-      addLog('system', '!song', `${user} → ${song} [Cascade]`);
-      const tmpl = state.commands.song?.response;
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
-    } catch (err) { addLog('system', '!song', err.message, false); }
-    return;
-  }
-  if (mediaMode === 'os') {
-    try {
-      const song = await getOSNowPlaying();
-      if (!song) {
-        addLog('system', '!song', `${user} — nothing playing`);
-        await sendChatMessage(`@${user} — Nothing is playing right now.`);
-        return;
-      }
-      addLog('system', '!song', `${user} → ${song}`);
-      const tmpl = state.commands.song?.response;
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
-    } catch (err) { addLog('system', '!song', err.message, false); }
-    return;
-  }
+  const { label, nowPlaying } = mediaAdapter();
   try {
-    const session = await getActiveSession();
-    if (!session) {
-      addLog('jellyfin', '!song', `${user} — nothing playing`);
+    const song = formatTrack(await nowPlaying());
+    if (!song) {
+      addLog('system', '!song', `${user} — nothing playing`);
       await sendChatMessage(`@${user} — Nothing is playing right now.`);
       return;
     }
-    const item = session.NowPlayingItem;
-    const artist = item.Artists?.[0] || item.AlbumArtist || 'Unknown Artist';
-    const song = `${artist} — ${item.Name}`;
-    addLog('jellyfin', '!song', `${user} → ${song}`);
+    addLog('system', '!song', `${user} → ${song} [${label}]`);
     const tmpl = state.commands.song?.response;
     if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
-  } catch (err) { addLog('jellyfin', '!song', err.message, false); }
+  } catch (err) { addLog('system', '!song', err.message, false); }
 }
-
 async function cmdSongRequest(user, query) {
   if (!query) return;
   await handleSongRequest(user, query, 'chat');
 }
 
 async function cmdMediaControl(user, action) {
-  const mediaMode = process.env.MEDIA_CONTROL_MODE || 'os';
-  const commandMap = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' };
-  const resultMap  = { play: '▶️ Resumed', pause: '⏸ Paused', next: '⏭ Skipped to next', prev: '⏮ Back to previous' };
+  const { label, control } = mediaAdapter();
+  const resultMap = { play: '\u25b6\ufe0f Resumed', pause: '\u23f8 Paused', next: '\u23ed Skipped to next', prev: '\u23ee Back to previous' };
   const tmpl = state.commands[action]?.response;
-  if (mediaMode === 'spotify') {
-    const spotifyMap = { play: '/me/player/play', pause: '/me/player/pause', next: '/me/player/next', prev: '/me/player/previous' };
-    const spotifyMethod = { play: 'PUT', pause: 'PUT', next: 'POST', prev: 'POST' };
-    try {
-      await spotifyApiCall(spotifyMap[action], spotifyMethod[action] || 'POST');
-      addLog('system', `!${action}`, `${user} → Spotify`);
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '' }));
-    } catch (err) { addLog('system', `!${action}`, err.message, false); }
-    return;
-  }
-  if (mediaMode === 'cascade') {
-    const cascadeMap = { play: 'playpause', pause: 'playpause', next: 'next', prev: 'prev' };
-    try {
-      const r = await fetch('http://127.0.0.1:47847/cascade/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...cascadeAuthHeaders() },
-        body: JSON.stringify({ action: cascadeMap[action] || action })
-      });
-      if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
-      addLog('system', `!${action}`, `${user} → Cascade`);
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '▶️ Done' }));
-    } catch (err) { addLog('system', `!${action}`, `Cascade unreachable: ${err.message}`, false); }
-    return;
-  }
-  if (mediaMode === 'os') {
-    try {
-      await sendOSMediaKey(action);
-      addLog('system', `!${action}`, `${user} → OS media key`);
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '▶️ Done' }));
-    } catch (err) { addLog('system', `!${action}`, err.message, false); }
-  } else {
-    try {
-      const session = await getActiveSession();
-      if (!session) { addLog('jellyfin', `!${action}`, `${user} — no active session`, false); return; }
-      await jellyfinRequest(`/Sessions/${session.Id}/Playing/${commandMap[action]}`, 'POST');
-      addLog('jellyfin', `!${action}`, `${user} → ${commandMap[action]}`);
-      if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '' }));
-    } catch (err) { addLog('jellyfin', `!${action}`, err.message, false); }
-  }
+  try {
+    await control(action);
+    addLog('system', `!${action}`, `${user} \u2192 ${label}`);
+    if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '\u25b6\ufe0f Done' }));
+  } catch (err) { addLog('system', `!${action}`, `${label}: ${err.message}`, false); }
 }
-
 async function cmdScene(user, scene) {
   if (!state.obs.connected) { addLog('obs', '!scene', `${user} — OBS not connected`, false); return; }
   if (!scene) {
@@ -1601,47 +1615,21 @@ app.get('/api/cascade/status', async (req, res) => {
 // --- HTTP Routes (kept for external compat) ---
 app.post('/media', async (req, res) => {
   const { action } = req.body;
+  const { nowPlaying, control } = mediaAdapter();
+
   if (action === 'song') {
-    if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'os') {
-      try {
-        const song = await getOSNowPlaying();
-        return res.json(song ? { song } : { nothing: true });
-      } catch (err) { return res.status(500).json({ error: err.message }); }
-    }
     try {
-      const session = await getActiveSession();
-      if (!session) return res.json({ nothing: true });
-      const item = session.NowPlayingItem;
-      return res.json({ song: `${item.Artists?.[0] || item.AlbumArtist || 'Unknown'} — ${item.Name}` });
+      const song = formatTrack(await nowPlaying());
+      return res.json(song ? { song } : { nothing: true });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
-  const commandMap = { play: 'Unpause', pause: 'Pause', next: 'NextTrack', prev: 'PreviousTrack' };
-  const command = commandMap[action];
-  if (!command) return res.status(400).json({ error: `Unknown action: ${action}` });
-  if (process.env.MEDIA_CONTROL_MODE === 'cascade') {
-    const cascadeMap = { play: 'playpause', pause: 'playpause', next: 'next', prev: 'prev' };
-    try {
-      const r = await fetch('http://127.0.0.1:47847/cascade/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...cascadeAuthHeaders() },
-        body: JSON.stringify({ action: cascadeMap[action] || action })
-      });
-      if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
-      return res.json({ ok: true });
-    } catch (err) { return res.status(503).json({ error: `Cascade unreachable: ${err.message}` }); }
-  }
-  if (process.env.MEDIA_CONTROL_MODE === 'os') {
-    try { await sendOSMediaKey(action); return res.json({ ok: true }); }
-    catch (err) { return res.status(500).json({ error: err.message }); }
-  }
-  try {
-    const session = await getActiveSession();
-    if (!session) return res.status(404).json({ error: 'No active session' });
-    await jellyfinRequest(`/Sessions/${session.Id}/Playing/${command}`, 'POST');
-    return res.json({ ok: true });
-  } catch (err) { return res.status(500).json({ error: err.message }); }
-});
 
+  if (!['play', 'pause', 'next', 'prev'].includes(action)) {
+    return res.status(400).json({ error: `Unknown action: ${action}` });
+  }
+  try { await control(action); return res.json({ ok: true }); }
+  catch (err) { return res.status(503).json({ error: err.message }); }
+});
 app.post('/sound', async (req, res) => {
   await cmdSound('http', req.body.sound);
   res.json({ ok: true });
@@ -2597,15 +2585,7 @@ app.post('/settings', (req, res) => {
     sevenTvCacheTime           = 0;
     sevenTvCacheHadBroadcaster = false;
   }
-  if (updated.includes('MEDIA_CONTROL_MODE')) {
-    if (process.env.MEDIA_CONTROL_MODE === 'spotify' && spotifyIsConfigured()) {
-      spotifyStartPolling(); cascadeStopPolling();
-    } else if (process.env.MEDIA_CONTROL_MODE === 'cascade') {
-      cascadeStartPolling(); spotifyStopPolling();
-    } else {
-      spotifyStopPolling(); cascadeStopPolling();
-    }
-  }
+  if (updated.includes('MEDIA_CONTROL_MODE')) nowPlayingStartPolling();
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
     const enabled = process.env.MOD_ENABLED !== 'false';
     if (!enabled && modServer.listening) {
@@ -2965,7 +2945,7 @@ app.get('/api/spotify/callback', async (req, res) => {
     persistEnv();
     broadcast({ event: 'spotify_connected' });
     addLog('system', 'spotify', 'Spotify connected');
-    if ((process.env.MEDIA_CONTROL_MODE || 'jellyfin') === 'spotify') spotifyStartPolling();
+    if (mediaMode() === 'spotify') nowPlayingStartPolling();
     res.send('<html><body style="font-family:sans-serif;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><h2>✓ Spotify connected! You can close this tab.</h2></body></html>');
   } catch (err) {
     res.send(`<script>window.close()</script>Error: ${err.message}`);
@@ -2977,7 +2957,7 @@ app.post('/api/spotify/disconnect', (req, res) => {
   process.env.SPOTIFY_REFRESH_TOKEN = '';
   process.env.SPOTIFY_TOKEN_EXPIRY  = '';
   persistEnv();
-  spotifyStopPolling();
+  if (mediaMode() === 'spotify') nowPlayingStopPolling();
   broadcast({ event: 'spotify_disconnected' });
   addLog('system', 'spotify', 'Spotify disconnected');
   res.json({ ok: true });
@@ -2998,11 +2978,7 @@ server.on('error', (err) => {
 
 server.listen(PORT, () => {
   console.log(`Listener running on http://localhost:${PORT}`);
-  if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'spotify' && spotifyIsConfigured()) {
-    spotifyStartPolling();
-  } else if ((process.env.MEDIA_CONTROL_MODE || 'os') === 'cascade') {
-    cascadeStartPolling();
-  }
+  nowPlayingStartPolling();
 });
 
 // --- Dedicated OAuth auth server (port 3773) ---
