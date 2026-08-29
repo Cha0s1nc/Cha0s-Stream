@@ -52,6 +52,8 @@ const STORE_SCHEMA = {
   MOD_ENABLED:              { type: 'string', default: 'true' },
   MOD_PORT:                 { type: 'string', default: '3001' },
   ALERT_MODE:               { type: 'string', default: 'browser_source' },
+  OVERLAYS_ENABLED:         { type: 'string', default: '' },
+  NOWPLAYING_CONFIG:        { type: 'string', default: '' },
   ALERT_OBS_SOURCE:         { type: 'string', default: '' },
   ALERT_OBS_DURATION:       { type: 'string', default: '5000' },
 };
@@ -102,6 +104,8 @@ function getConfig() {
     MOD_ENABLED:              store.get('MOD_ENABLED'),
     MOD_PORT:                 store.get('MOD_PORT'),
     ALERT_MODE:               store.get('ALERT_MODE'),
+    OVERLAYS_ENABLED:         store.get('OVERLAYS_ENABLED'),
+    NOWPLAYING_CONFIG:        store.get('NOWPLAYING_CONFIG'),
     ALERT_OBS_SOURCE:         store.get('ALERT_OBS_SOURCE'),
     ALERT_OBS_DURATION:       store.get('ALERT_OBS_DURATION'),
     ALERT_CUSTOM_CONFIG:      store.get('ALERT_CUSTOM_CONFIG'),

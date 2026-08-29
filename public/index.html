@@ -400,6 +400,19 @@
       }
     }
 
+    .overlay-url { font-size: 11px; color: var(--accent); background: var(--surface2); padding: 5px 9px; border-radius: 6px; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+    .settings-group-subtitle.ov-section { font-size: 11px; color: var(--text2); background: var(--surface2); letter-spacing: 0.05em; padding-top: 12px; padding-bottom: 8px; }
+    /* The checkerboard is the point: it shows exactly what OBS keys out. */
+    .np-preview-wrap {
+      margin: 10px 14px 4px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border);
+      background-color: #2a2a2e;
+      background-image: linear-gradient(45deg, #232326 25%, transparent 25%), linear-gradient(-45deg, #232326 25%, transparent 25%),
+                        linear-gradient(45deg, transparent 75%, #232326 75%), linear-gradient(-45deg, transparent 75%, #232326 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    }
+    .np-preview { display: block; width: 100%; height: 190px; border: 0; }
+
     /* ── Light theme ── */
     html[data-theme="light"] {
       --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
@@ -621,13 +634,17 @@
           <!-- ── Overlays (Alerts + Chat combined) ── -->
           <div class="settings-group">
             <div class="settings-group-title">Overlays</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Browser Source Mode</div><div class="setting-desc">How overlays are delivered to OBS.</div></div><div class="seg-control"><button class="seg-btn active" data-overlaymode="alerts" onclick="setOverlayModeUI('alerts')">Alerts</button><button class="seg-btn" data-overlaymode="chat" onclick="setOverlayModeUI('chat')">Chat</button><button class="seg-btn" data-overlaymode="both" onclick="setOverlayModeUI('both')">Both</button></div></div>
-            <div id="overlay-separate-toggle-row" style="display:none;padding:2px 14px 10px;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><span style="font-size:12px;color:var(--text2);">Use separate browser sources</span><label class="toggle"><input type="checkbox" id="overlay-separate-toggle" onchange="setOverlaySeparate(this.checked)" /><span class="toggle-track"></span></label></label></div>
-            <div class="setting-row" id="overlay-url-single-row"><div class="setting-label"><div class="setting-name">Browser Source URL</div><div class="setting-desc">Add in OBS as a Browser Source</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-browser-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()">Copy</button></div></div>
-            <div class="setting-row" id="overlay-url-separate-row" style="display:none"><div class="setting-label"><div class="setting-name">Browser Source URLs</div><div class="setting-desc">Add both as separate Browser Sources in OBS.</div></div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:10px;color:var(--text3);white-space:nowrap;">Alerts</span><code id="overlay-alerts-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-alerts-url')">Copy</button></div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:10px;color:var(--text3);white-space:nowrap;">Chat</span><code id="overlay-chat-url" style="font-size:11px;color:var(--accent);background:var(--surface2);padding:5px 9px;border-radius:6px;white-space:nowrap;">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-chat-url')">Copy</button></div></div></div>
+            <div style="padding:8px 14px 4px;font-size:11px;color:var(--text3);">
+              Each overlay is its own browser source. Switch on the ones you want, then copy their URLs into OBS.
+            </div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Events</div><div class="setting-desc">Follows, subs, cheers and raids.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-alerts-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-alerts-url')">Copy</button><label class="toggle"><input type="checkbox" id="ov-on-events" onchange="setOverlayEnabled('events', this.checked)" /><span class="toggle-track"></span></label></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Chat</div><div class="setting-desc">Chat messages on stream.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-chat-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-chat-url')">Copy</button><label class="toggle"><input type="checkbox" id="ov-on-chat" onchange="setOverlayEnabled('chat', this.checked)" /><span class="toggle-track"></span></label></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Now Playing</div><div class="setting-desc">The current track, from whichever media mode is active.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-np-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-np-url')">Copy</button><label class="toggle"><input type="checkbox" id="ov-on-nowplaying" onchange="setOverlayEnabled('nowplaying', this.checked)" /><span class="toggle-track"></span></label></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Combined Source</div><div class="setting-desc">Events and chat in one browser source, if you would rather not add two.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-browser-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()">Copy</button></div></div>
 
             <!-- ── Alerts settings ── -->
             <div id="overlay-alerts-settings">
+              <div class="settings-group-subtitle ov-section">⚡ Events Overlay</div>
               <div class="settings-group-subtitle">Alert Delivery</div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Delivery Method</div><div class="setting-desc">How alerts fire on stream.</div></div><div class="seg-control"><button class="seg-btn" data-alertmode="disabled" id="alertmode-disabled">Off</button><button class="seg-btn active" data-alertmode="browser_source" id="alertmode-browser_source">Browser Source</button><button class="seg-btn" data-alertmode="obs_websocket" id="alertmode-obs_websocket">OBS Source</button><button class="seg-btn" data-alertmode="both" id="alertmode-both">Both</button></div></div>
               <div class="setting-row" id="alert-obs-source-row"><div class="setting-label"><div class="setting-name">OBS Source Name</div><div class="setting-desc">Exact name of an OBS source to flash on alert.</div></div><input class="setting-input" id="cfg-alert-obs-source" type="text" placeholder="My Alert Source" /></div>
@@ -655,6 +672,7 @@
 
             <!-- ── Chat settings ── -->
             <div id="overlay-chat-settings" style="display:none">
+              <div class="settings-group-subtitle ov-section">💬 Chat Overlay</div>
               <div class="settings-group-subtitle">Chat Layout</div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Which side chat messages appear on.</div></div><div class="seg-control"><button class="seg-btn active" data-chatpos="left">← Left</button><button class="seg-btn" data-chatpos="right">Right →</button></div></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Max Messages</div><div class="setting-desc">Max chat lines visible at once.</div></div><input class="setting-input" id="cfg-chat-max" type="number" min="2" max="20" placeholder="8" style="width:70px;" /></div>
@@ -667,6 +685,39 @@
 
               <div class="custom-css-wrap"><div class="custom-css-toggle" onclick="this.nextElementSibling.classList.toggle('open')"><span class="caret">▶</span><span>Custom CSS</span><span style="font-size:11px;color:var(--text3);margin-left:4px;">— paste from Overlay Editor</span></div><div class="custom-css-body"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"><span style="font-size:11px;color:var(--text3);">From <a href="/overlay-editor" target="_blank" style="color:var(--accent);text-decoration:none;">Overlay Editor → Chat tab ↗</a></span></div><textarea class="css-textarea" id="cfg-chat-custom-css" placeholder="/* .chat-msg { } .chat-name { } */"></textarea><div class="css-classes-hint">body · .chat-msg · .chat-name · .chat-text · .chat-badge · .chat-badges · .chat-ts</div></div></div>
               <div class="alert-style-save-bar"><span class="save-status" id="chat-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveChatConfig()">Save Chat Settings</button></div>
+            </div>
+
+            <!-- ── Now Playing settings ── -->
+            <!-- The overlay is configured entirely by query string, so these
+                 controls compose its URL rather than being read at runtime.
+                 Changing one rewrites the URL above; the source must be
+                 re-copied (or refreshed) for it to take effect. -->
+            <div id="overlay-np-settings" style="display:none">
+              <div class="settings-group-subtitle ov-section">🎵 Now Playing Overlay</div>
+              <div class="settings-group-subtitle">Style</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Theme</div><div class="setting-desc">Each lays the card out differently, not just a recolour.</div></div><select class="setting-input" id="np-theme" style="width:130px;">
+                <option value="card">Card</option><option value="minimal">Minimal</option><option value="label">Label</option>
+                <option value="vinyl">Vinyl</option><option value="banner">Banner</option><option value="frosted">Frosted</option><option value="edge">Edge</option>
+              </select></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Accent Colour</div><div class="setting-desc">Auto pulls it from the album art each track.</div></div><div style="display:flex;align-items:center;gap:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;"><input type="checkbox" id="np-accent-auto" checked /> Auto</label><input type="color" id="np-accent" value="#7c3aed" style="width:34px;height:28px;padding:2px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;" /></div></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Position</div><div class="setting-desc">Where the card sits inside the browser source.</div></div><select class="setting-input" id="np-align" style="width:130px;">
+                <option value="bottom-left">↙ Bottom Left</option><option value="bottom-right">↘ Bottom Right</option>
+                <option value="left">↖ Top Left</option><option value="right">↗ Top Right</option><option value="center">Center</option>
+              </select></div>
+              <div class="settings-group-subtitle">Size</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Width (px)</div></div><input class="setting-input" id="np-width" type="number" min="180" max="1200" placeholder="440" style="width:80px;" /></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Text Size (px)</div><div class="setting-desc">Everything else scales off this.</div></div><input class="setting-input" id="np-size" type="number" min="9" max="48" placeholder="15" style="width:80px;" /></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Corner Radius (px)</div></div><input class="setting-input" id="np-radius" type="number" min="0" max="60" placeholder="14" style="width:80px;" /></div>
+              <div class="settings-group-subtitle">Show</div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Album Art</div></div><label class="toggle"><input type="checkbox" id="np-art" checked /><span class="toggle-track"></span></label></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Album Name</div></div><label class="toggle"><input type="checkbox" id="np-album" checked /><span class="toggle-track"></span></label></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Progress Bar</div><div class="setting-desc">Needs a track length, so OS media keys never show one.</div></div><label class="toggle"><input type="checkbox" id="np-bar" checked /><span class="toggle-track"></span></label></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Times</div><div class="setting-desc">Elapsed and remaining either side of the bar.</div></div><label class="toggle"><input type="checkbox" id="np-times" checked /><span class="toggle-track"></span></label></div>
+
+              <div class="settings-group-subtitle">Preview</div>
+              <!-- Checkerboard shows what OBS will key out as transparent. -->
+              <div class="np-preview-wrap"><iframe class="np-preview" id="np-preview" title="Now Playing preview"></iframe></div>
+              <div class="alert-style-save-bar"><span class="save-status" id="np-save-status">✓ Saved</span><button class="btn btn-primary" onclick="saveNowPlayingConfig()">Save Now Playing Settings</button></div>
             </div>
           </div>
 
@@ -1555,56 +1606,116 @@
       btn.addEventListener('click', () => setAlertModeUI(btn.dataset.alertmode));
     });
 
-    // --- Overlay mode UI ---
-    let overlayMode = 'alerts';
-
-    let overlaySeparate = false;
-
-    function setOverlaySeparate(sep) {
-      overlaySeparate = sep;
-      const isSeparate = sep;
-      document.getElementById('overlay-url-single-row').style.display   = isSeparate ? 'none' : '';
-      document.getElementById('overlay-url-separate-row').style.display = isSeparate ? ''     : 'none';
-      if (isSeparate) {
-        const au = document.getElementById('overlay-alerts-url');
-        const cu = document.getElementById('overlay-chat-url');
-        if (au) au.textContent = `http://${location.host}/alerts`;
-        if (cu) cu.textContent = `http://${location.host}/chat`;
-      } else {
-        const urlEl = document.getElementById('overlay-browser-url');
-        if (urlEl) urlEl.textContent = `http://${location.host}/overlay`;
-      }
+    // --- Overlays ---
+    /** Persist a partial settings patch, by whichever route this page has. */
+    function persistSettings(patch) {
+      if (isElectron) window.electronAPI?.saveSettings(patch);
+      else fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }).catch(() => {});
     }
 
-    function setOverlayModeUI(mode) {
-      overlayMode = mode;
-      document.querySelectorAll('.seg-btn[data-overlaymode]').forEach(b => b.classList.toggle('active', b.dataset.overlaymode === mode));
-      document.getElementById('overlay-alerts-settings').style.display = (mode === 'chat')   ? 'none' : '';
-      document.getElementById('overlay-chat-settings').style.display   = (mode === 'alerts') ? 'none' : '';
-      // Show the separate toggle only in Both mode
-      const sepRow = document.getElementById('overlay-separate-toggle-row');
-      if (sepRow) sepRow.style.display = (mode === 'both') ? 'flex' : 'none';
-      // Reset separate state when leaving Both mode
-      if (mode !== 'both') {
-        overlaySeparate = false;
-        const tog = document.getElementById('overlay-separate-toggle');
-        if (tog) tog.checked = false;
-        document.getElementById('overlay-url-single-row').style.display   = '';
-        document.getElementById('overlay-url-separate-row').style.display = 'none';
-      }
-      if (!overlaySeparate) {
-        const urlEl = document.getElementById('overlay-browser-url');
-        if (urlEl) {
-          if (mode === 'alerts') urlEl.textContent = `http://${location.host}/alerts`;
-          else if (mode === 'chat') urlEl.textContent = `http://${location.host}/chat`;
-          else urlEl.textContent = `http://${location.host}/overlay`;
-        }
-      }
+    // Each overlay is independent now: its own page, its own browser source,
+    // its own switch. The old single mode forced one-of, which is why "both"
+    // and a separate-sources toggle existed to work around it.
+    let overlaysEnabled = { events: true, chat: false, nowplaying: false };
+    let nowPlayingCfg = { theme: 'card', accent: 'auto', width: 440, size: 15, radius: 14,
+                          align: 'bottom-left', art: true, album: true, bar: true, times: true };
+    const NP_DEFAULTS = { ...nowPlayingCfg };
+
+    function setOverlayEnabled(which, on) {
+      overlaysEnabled[which] = on;
+      applyOverlayEnabledUI();
+      persistSettings({ OVERLAYS_ENABLED: JSON.stringify(overlaysEnabled) });
     }
 
-    document.querySelectorAll('.seg-btn[data-overlaymode]').forEach(btn => {
-      btn.addEventListener('click', () => setOverlayModeUI(btn.dataset.overlaymode));
-    });
+    function applyOverlayEnabledUI() {
+      for (const [key, id] of [['events', 'ov-on-events'], ['chat', 'ov-on-chat'], ['nowplaying', 'ov-on-nowplaying']]) {
+        const box = document.getElementById(id);
+        if (box) box.checked = !!overlaysEnabled[key];
+      }
+      // A section with its switch off is noise, so it collapses away entirely.
+      document.getElementById('overlay-alerts-settings').style.display = overlaysEnabled.events     ? '' : 'none';
+      document.getElementById('overlay-chat-settings').style.display   = overlaysEnabled.chat       ? '' : 'none';
+      document.getElementById('overlay-np-settings').style.display     = overlaysEnabled.nowplaying ? '' : 'none';
+    }
+
+    /** Read the Now Playing form back into the config object. */
+    function readNowPlayingForm() {
+      const v = (id) => document.getElementById(id);
+      const auto = v('np-accent-auto').checked;
+      v('np-accent').style.opacity = auto ? '0.35' : '';
+      return {
+        theme:  v('np-theme').value,
+        accent: auto ? 'auto' : v('np-accent').value,
+        width:  parseInt(v('np-width').value, 10)  || NP_DEFAULTS.width,
+        size:   parseInt(v('np-size').value, 10)   || NP_DEFAULTS.size,
+        radius: v('np-radius').value === '' ? NP_DEFAULTS.radius : Math.max(0, parseInt(v('np-radius').value, 10) || 0),
+        align:  v('np-align').value,
+        art:    v('np-art').checked, album: v('np-album').checked,
+        bar:    v('np-bar').checked, times: v('np-times').checked,
+      };
+    }
+
+    function writeNowPlayingForm(cfg) {
+      const v = (id) => document.getElementById(id);
+      v('np-theme').value = cfg.theme; v('np-align').value = cfg.align;
+      v('np-width').value = cfg.width; v('np-size').value = cfg.size; v('np-radius').value = cfg.radius;
+      const auto = cfg.accent === 'auto';
+      v('np-accent-auto').checked = auto;
+      if (!auto) v('np-accent').value = cfg.accent;
+      v('np-accent').style.opacity = auto ? '0.35' : '';
+      v('np-art').checked = cfg.art; v('np-album').checked = cfg.album;
+      v('np-bar').checked = cfg.bar; v('np-times').checked = cfg.times;
+    }
+
+    /** The overlay has no state of its own - its settings ARE its URL. Mirrors
+     *  nowPlayingUrl() in listener.js; only non-defaults are emitted so the
+     *  common case stays a clean /nowplaying. */
+    function buildNowPlayingUrl(cfg) {
+      const q = new URLSearchParams();
+      if (cfg.theme  !== NP_DEFAULTS.theme)  q.set('theme', cfg.theme);
+      if (cfg.accent !== NP_DEFAULTS.accent) q.set('accent', cfg.accent);
+      if (+cfg.width  !== NP_DEFAULTS.width)  q.set('width', cfg.width);
+      if (+cfg.size   !== NP_DEFAULTS.size)   q.set('size', cfg.size);
+      if (+cfg.radius !== NP_DEFAULTS.radius) q.set('radius', cfg.radius);
+      if (cfg.align  !== NP_DEFAULTS.align)  q.set('align', cfg.align);
+      for (const k of ['art', 'album', 'bar', 'times']) if (!cfg[k]) q.set(k, '0');
+      const qs = q.toString();
+      return `http://${location.host}/nowplaying${qs ? '?' + qs : ''}`;
+    }
+
+    function refreshNowPlayingUrl() {
+      nowPlayingCfg = readNowPlayingForm();
+      const url = buildNowPlayingUrl(nowPlayingCfg);
+      const el = document.getElementById('overlay-np-url');
+      if (el) el.textContent = url;
+      // The preview is the overlay itself, so what you see is literally what
+      // OBS will render - no second implementation to drift.
+      const frame = document.getElementById('np-preview');
+      if (frame) {
+        const previewUrl = url + (url.includes('?') ? '&' : '?') + 'align=center&hide=0';
+        if (frame.src !== previewUrl) frame.src = previewUrl;
+      }
+      return url;
+    }
+
+    ['np-theme','np-align','np-width','np-size','np-radius','np-accent','np-accent-auto','np-art','np-album','np-bar','np-times']
+      .forEach(id => document.getElementById(id)?.addEventListener('input', refreshNowPlayingUrl));
+
+    function saveNowPlayingConfig() {
+      refreshNowPlayingUrl();
+      persistSettings({ NOWPLAYING_CONFIG: JSON.stringify(nowPlayingCfg) });
+      const st = document.getElementById('np-save-status');
+      if (st) { st.textContent = '✓ Saved'; st.style.opacity = '1'; setTimeout(() => st.style.opacity = '0.5', 1800); }
+    }
+
+    function setOverlayUrls() {
+      const base = `http://${location.host}`;
+      const set = (id, url) => { const el = document.getElementById(id); if (el) el.textContent = url; };
+      set('overlay-alerts-url', `${base}/alerts`);
+      set('overlay-chat-url',   `${base}/chat`);
+      set('overlay-browser-url', `${base}/overlay`);
+      refreshNowPlayingUrl();
+    }
 
     function copyUrl(elId) {
       const url = document.getElementById(elId)?.textContent;
@@ -1619,8 +1730,8 @@
 
     function copyOverlayUrl() { copyUrl('overlay-browser-url'); }
 
-    // Set initial overlay mode UI
-    setOverlayModeUI('alerts');
+    applyOverlayEnabledUI();
+    setOverlayUrls();
     setAlertModeUI('browser_source');
 
     // --- Filters ---
@@ -2206,7 +2317,17 @@
         updateSpotifyUI(!!saved.SPOTIFY_ACCESS_TOKEN);
         if (saved.SONG_REQUEST_MODE) setSrModeUI(saved.SONG_REQUEST_MODE);
         if (saved.ALERT_MODE) setAlertModeUI(saved.ALERT_MODE);
-        if (saved.OVERLAY_MODE) setOverlayModeUI(saved.OVERLAY_MODE);
+        // OVERLAYS_ENABLED replaced OVERLAY_MODE. Fall back to deriving from the
+        // old key so an existing setup is not silently switched off on upgrade.
+        try {
+          if (saved.OVERLAYS_ENABLED) overlaysEnabled = { ...overlaysEnabled, ...JSON.parse(saved.OVERLAYS_ENABLED) };
+          else if (saved.OVERLAY_MODE === 'chat') overlaysEnabled = { ...overlaysEnabled, events: false, chat: true };
+          else if (saved.OVERLAY_MODE === 'both') overlaysEnabled = { ...overlaysEnabled, events: true, chat: true };
+        } catch {}
+        try { if (saved.NOWPLAYING_CONFIG) nowPlayingCfg = { ...nowPlayingCfg, ...JSON.parse(saved.NOWPLAYING_CONFIG) }; } catch {}
+        writeNowPlayingForm(nowPlayingCfg);
+        applyOverlayEnabledUI();
+        setOverlayUrls();
         document.getElementById('cfg-sr-enabled').checked = saved.SONG_REQUEST_ENABLED !== 'false';
         document.getElementById('cfg-seventv-enabled').checked = saved.SEVENTV_ENABLED === 'true';
         document.getElementById('cfg-bttv-enabled').checked    = saved.BTTV_ENABLED    === 'true';
@@ -2248,7 +2369,8 @@
       settings.SEVENTV_ENABLED      = document.getElementById('cfg-seventv-enabled').checked ? 'true' : 'false';
       settings.BTTV_ENABLED         = document.getElementById('cfg-bttv-enabled').checked    ? 'true' : 'false';
       settings.ALERT_MODE = alertMode;
-      settings.OVERLAY_MODE = overlayMode;
+      settings.OVERLAYS_ENABLED  = JSON.stringify(overlaysEnabled);
+      settings.NOWPLAYING_CONFIG = JSON.stringify(nowPlayingCfg);
       settings.MOD_ENABLED = document.getElementById('cfg-mod-enabled').checked ? 'true' : 'false';
       settings.TTS_ENABLED             = document.getElementById('cfg-tts-enabled').checked             ? 'true' : 'false';
       settings.TTS_CHAT_ENABLED        = document.getElementById('cfg-tts-chat-enabled').checked        ? 'true' : 'false';
@@ -2677,7 +2799,6 @@
         const r = await fetch('/api/chat/config');
         if (!r.ok) return;
         const c = await r.json();
-        // browser URL is managed by setOverlayModeUI
 
         // Position
         document.querySelectorAll('.seg-btn[data-chatpos]').forEach(b => b.classList.toggle('active', b.dataset.chatpos === (c.position || 'left')));
@@ -3054,7 +3175,11 @@
       setMediaModeUI('os');
       setSrModeUI('chat');
       setAlertModeUI('browser_source');
-      setOverlayModeUI('alerts');
+      overlaysEnabled = { events: true, chat: false, nowplaying: false };
+      nowPlayingCfg = { ...NP_DEFAULTS };
+      writeNowPlayingForm(nowPlayingCfg);
+      applyOverlayEnabledUI();
+      setOverlayUrls();
 
       // Checkboxes
       const cb = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
@@ -3228,12 +3353,7 @@
         .filter(m => { const b = document.querySelector(`.seg-btn[data-mode="${m}"]`); return b && b.style.display !== 'none'; });
       const next = cycle[(cycle.indexOf(mediaMode) + 1) % cycle.length] || 'jellyfin';
       setMediaModeUI(next);
-      // persist the change the same way the seg-btn would
-      if (isElectron) {
-        window.electronAPI?.saveSettings({ MEDIA_CONTROL_MODE: next });
-      } else {
-        fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ MEDIA_CONTROL_MODE: next }) }).catch(() => {});
-      }
+      persistSettings({ MEDIA_CONTROL_MODE: next });
     });
 
     connect();

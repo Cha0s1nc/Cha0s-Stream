@@ -13,7 +13,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','OVERLAY_MODE',
+  'CHAT_OVERLAY_CONFIG','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
   'SEVENTV_ENABLED','BTTV_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
@@ -1979,15 +1979,67 @@ app.post('/api/chat/config', (req, res) => {
 });
 
 // ── Combined overlay config (mode + alert + chat merged) ──────────────────────
+// Which overlays the user has switched on. Replaces the old single
+// OVERLAY_MODE choice, which forced one-of - now that every overlay has its own
+// page and its own browser source, they are independent.
+const OVERLAYS_ENABLED_DEFAULTS = { events: true, chat: false, nowplaying: false };
+function getOverlaysEnabled() {
+  try {
+    const raw = process.env.OVERLAYS_ENABLED;
+    if (raw) return { ...OVERLAYS_ENABLED_DEFAULTS, ...JSON.parse(raw) };
+  } catch {}
+  // First run after an upgrade: derive from whatever OVERLAY_MODE said, so an
+  // existing setup keeps working without being reconfigured.
+  const legacy = process.env.OVERLAY_MODE;
+  if (legacy === 'chat')  return { ...OVERLAYS_ENABLED_DEFAULTS, events: false, chat: true };
+  if (legacy === 'both')  return { ...OVERLAYS_ENABLED_DEFAULTS, events: true,  chat: true };
+  return { ...OVERLAYS_ENABLED_DEFAULTS };
+}
+
+const NOWPLAYING_DEFAULTS = {
+  theme: 'card', accent: 'auto', width: 440, size: 15, radius: 14,
+  align: 'bottom-left', art: true, album: true, bar: true, times: true,
+};
+function getNowPlayingConfig() {
+  try {
+    const raw = process.env.NOWPLAYING_CONFIG;
+    if (raw) return { ...NOWPLAYING_DEFAULTS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...NOWPLAYING_DEFAULTS };
+}
+
+/** The overlay is configured entirely by query string, so its settings ARE its
+ *  URL - built here so the dashboard and any caller agree on one answer. */
+function nowPlayingUrl(cfg = getNowPlayingConfig(), host = `localhost:${PORT}`) {
+  const q = new URLSearchParams();
+  if (cfg.theme  !== NOWPLAYING_DEFAULTS.theme)  q.set('theme', cfg.theme);
+  if (cfg.accent !== NOWPLAYING_DEFAULTS.accent) q.set('accent', cfg.accent);
+  if (+cfg.width  !== NOWPLAYING_DEFAULTS.width)  q.set('width', cfg.width);
+  if (+cfg.size   !== NOWPLAYING_DEFAULTS.size)   q.set('size', cfg.size);
+  if (+cfg.radius !== NOWPLAYING_DEFAULTS.radius) q.set('radius', cfg.radius);
+  if (cfg.align  !== NOWPLAYING_DEFAULTS.align)  q.set('align', cfg.align);
+  for (const k of ['art', 'album', 'bar', 'times']) if (!cfg[k]) q.set(k, '0');
+  const qs = q.toString();
+  return `http://${host}/nowplaying${qs ? '?' + qs : ''}`;
+}
+
 app.get('/api/overlay/config', (req, res) => {
   let alertCfg = {};
   try { const r = process.env.ALERT_CUSTOM_CONFIG; if (r) alertCfg = JSON.parse(r); } catch {}
+  const enabled = getOverlaysEnabled();
+  const npCfg = getNowPlayingConfig();
   res.json({
-    mode:             process.env.OVERLAY_MODE || 'alerts',
+    // Kept for the combined /overlay page, which still asks what to render.
+    // Derived rather than stored so the switches are the single source of truth.
+    mode: enabled.events && enabled.chat ? 'both' : enabled.chat ? 'chat' : 'alerts',
+    enabled,
     alert:            alertCfg,
     chat:             { ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}) },
+    nowPlaying:       npCfg,
     browserSourceUrl: `http://localhost:${PORT}/overlay`,
-    nowPlayingUrl:    `http://localhost:${PORT}/nowplaying`,
+    alertsUrl:        `http://localhost:${PORT}/alerts`,
+    chatUrl:          `http://localhost:${PORT}/chat`,
+    nowPlayingUrl:    nowPlayingUrl(npCfg),
   });
 });
 
@@ -2738,9 +2790,9 @@ app.get('/api/state', (req, res) => res.json({
 const SETTINGS_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
   'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
-  'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
+  'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','CIDER_TOKEN','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
   'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
-  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION',
+  'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
