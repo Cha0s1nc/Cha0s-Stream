@@ -56,6 +56,28 @@ const STORE_SCHEMA = {
   NOWPLAYING_CONFIG:        { type: 'string', default: '' },
   ALERT_OBS_SOURCE:         { type: 'string', default: '' },
   ALERT_OBS_DURATION:       { type: 'string', default: '5000' },
+  ALERT_CUSTOM_CONFIG:      { type: 'string', default: '' },
+  CHAT_OVERLAY_CONFIG:      { type: 'string', default: '' },
+  OVERLAY_MODE:             { type: 'string', default: '' },
+  SEVENTV_ENABLED:          { type: 'string', default: '' },
+  BTTV_ENABLED:             { type: 'string', default: '' },
+  EVENT_TRIGGERS:           { type: 'string', default: '' },
+  SPOTIFY_CLIENT_ID:        { type: 'string', default: '' },
+  SPOTIFY_ACCESS_TOKEN:     { type: 'string', default: '' },
+  SPOTIFY_REFRESH_TOKEN:    { type: 'string', default: '' },
+  SPOTIFY_TOKEN_EXPIRY:     { type: 'string', default: '' },
+  TTS_ENABLED:              { type: 'string', default: '' },
+  TTS_VOICE:                { type: 'string', default: '' },
+  TTS_RATE:                 { type: 'string', default: '' },
+  TTS_CHAT_ENABLED:         { type: 'string', default: '' },
+  TTS_CHAT_PERMISSION:      { type: 'string', default: '' },
+  TTS_CHAT_SAY_NAME:        { type: 'string', default: '' },
+  TTS_CHAT_MAX_LENGTH:      { type: 'string', default: '' },
+  TTS_BITS_THRESHOLD:       { type: 'string', default: '' },
+  TTS_REDEMPTIONS_ENABLED:  { type: 'string', default: '' },
+  TTS_REDEMPTION_NAMES:     { type: 'string', default: '' },
+  TTS_ALERTS_ENABLED:       { type: 'string', default: '' },
+  TTS_ALERT_TYPES:          { type: 'string', default: '' },
 };
 
 let store;
@@ -74,63 +96,18 @@ let listenerProcess;
 let updaterWindow      = null;
 let pendingDownload    = null; // { version, downloadUrl, assetName, releaseUrl, destPath }
 
+/**
+ * The settings handed to the listener on start.
+ *
+ * Derived from STORE_SCHEMA rather than listed by hand. The two lists drifted:
+ * a key added to one and not the other is either saved and never read back, or
+ * read back and never saved, and both look to the user like a setting that will
+ * not stick. The schema is the single source of truth now.
+ */
 function getConfig() {
-  return {
-    JELLYFIN_URL:             store.get('JELLYFIN_URL'),
-    JELLYFIN_API_KEY:         store.get('JELLYFIN_API_KEY'),
-    JELLYFIN_USERNAME:        store.get('JELLYFIN_USERNAME'),
-    JELLYFIN_PASSWORD:        store.get('JELLYFIN_PASSWORD'),
-    JELLYFIN_DEVICE_ID:       store.get('JELLYFIN_DEVICE_ID'),
-    OBS_HOST:                 store.get('OBS_HOST'),
-    OBS_PORT:                 store.get('OBS_PORT'),
-    OBS_PASSWORD:             store.get('OBS_PASSWORD'),
-    LISTENER_PORT:            store.get('LISTENER_PORT'),
-    TWITCH_USERNAME:          store.get('TWITCH_USERNAME'),
-    TWITCH_OAUTH:             store.get('TWITCH_OAUTH'),
-    TWITCH_CHANNEL:           store.get('TWITCH_CHANNEL'),
-    TWITCH_CLIENT_ID:         store.get('TWITCH_CLIENT_ID'),
-    TWITCH_BOT_USERNAME:      store.get('TWITCH_BOT_USERNAME'),
-    TWITCH_BOT_OAUTH:         store.get('TWITCH_BOT_OAUTH'),
-    TWITCH_CLIENT_SECRET:     store.get('TWITCH_CLIENT_SECRET'),
-    SCRIPT_ALLOWLIST:         store.get('SCRIPT_ALLOWLIST'),
-    COMMANDS_CONFIG:          store.get('COMMANDS_CONFIG'),
-    CUSTOM_COMMANDS:          store.get('CUSTOM_COMMANDS'),
-    MEDIA_CONTROL_MODE:       store.get('MEDIA_CONTROL_MODE'),
-    CIDER_TOKEN:              store.get('CIDER_TOKEN'),
-    SONG_REQUEST_MODE:        store.get('SONG_REQUEST_MODE'),
-    SONG_REQUEST_REDEEM_NAME: store.get('SONG_REQUEST_REDEEM_NAME'),
-    SONG_REQUEST_ENABLED:     store.get('SONG_REQUEST_ENABLED'),
-    REDEEM_ACTIONS:           store.get('REDEEM_ACTIONS'),
-    MOD_ENABLED:              store.get('MOD_ENABLED'),
-    MOD_PORT:                 store.get('MOD_PORT'),
-    ALERT_MODE:               store.get('ALERT_MODE'),
-    OVERLAYS_ENABLED:         store.get('OVERLAYS_ENABLED'),
-    NOWPLAYING_CONFIG:        store.get('NOWPLAYING_CONFIG'),
-    ALERT_OBS_SOURCE:         store.get('ALERT_OBS_SOURCE'),
-    ALERT_OBS_DURATION:       store.get('ALERT_OBS_DURATION'),
-    ALERT_CUSTOM_CONFIG:      store.get('ALERT_CUSTOM_CONFIG'),
-    CHAT_OVERLAY_CONFIG:      store.get('CHAT_OVERLAY_CONFIG'),
-    OVERLAY_MODE:             store.get('OVERLAY_MODE'),
-    SEVENTV_ENABLED:          store.get('SEVENTV_ENABLED'),
-    BTTV_ENABLED:             store.get('BTTV_ENABLED'),
-    EVENT_TRIGGERS:           store.get('EVENT_TRIGGERS'),
-    SPOTIFY_CLIENT_ID:        store.get('SPOTIFY_CLIENT_ID'),
-    SPOTIFY_ACCESS_TOKEN:     store.get('SPOTIFY_ACCESS_TOKEN'),
-    SPOTIFY_REFRESH_TOKEN:    store.get('SPOTIFY_REFRESH_TOKEN'),
-    SPOTIFY_TOKEN_EXPIRY:     store.get('SPOTIFY_TOKEN_EXPIRY'),
-    TTS_ENABLED:              store.get('TTS_ENABLED'),
-    TTS_VOICE:                store.get('TTS_VOICE'),
-    TTS_RATE:                 store.get('TTS_RATE'),
-    TTS_CHAT_ENABLED:         store.get('TTS_CHAT_ENABLED'),
-    TTS_CHAT_PERMISSION:      store.get('TTS_CHAT_PERMISSION'),
-    TTS_CHAT_SAY_NAME:        store.get('TTS_CHAT_SAY_NAME'),
-    TTS_CHAT_MAX_LENGTH:      store.get('TTS_CHAT_MAX_LENGTH'),
-    TTS_BITS_THRESHOLD:       store.get('TTS_BITS_THRESHOLD'),
-    TTS_REDEMPTIONS_ENABLED:  store.get('TTS_REDEMPTIONS_ENABLED'),
-    TTS_REDEMPTION_NAMES:     store.get('TTS_REDEMPTION_NAMES'),
-    TTS_ALERTS_ENABLED:       store.get('TTS_ALERTS_ENABLED'),
-    TTS_ALERT_TYPES:          store.get('TTS_ALERT_TYPES'),
-  };
+  const config = {};
+  for (const key of Object.keys(STORE_SCHEMA)) config[key] = store.get(key);
+  return config;
 }
 
 // ── Version helpers ────────────────────────────────────────────────────────────
@@ -436,6 +413,26 @@ function startListener(config) {
     console.error('Failed to fork listener:', err.message);
     return;
   }
+
+  // The listener owns settings the dashboard saves through its own endpoints -
+  // alert config, chat overlay config, triggers, commands. It used to persist
+  // those to a .env file beside itself, which in a packaged build is inside
+  // app.asar and read-only, and which this process overwrites from the store on
+  // the next restart anyway. It reports them here instead.
+  //
+  // Deliberately no restart: the listener already has these values, that is
+  // where they came from. Restarting would drop every websocket for nothing.
+  listenerProcess.on('message', (msg) => {
+    if (!msg || msg.type !== 'persist' || !msg.patch) return;
+    let n = 0;
+    for (const [key, value] of Object.entries(msg.patch)) {
+      if (!(key in STORE_SCHEMA)) continue;          // schema is the allowlist
+      if (store.get(key) === value) continue;
+      store.set(key, value);
+      n++;
+    }
+    if (n) console.log(`[stream] persisted ${n} setting(s) from the listener`);
+  });
 
   listenerProcess.stdout?.on('data', d => console.log('[listener]', d.toString().trim()));
   listenerProcess.stderr?.on('data', d => console.error('[listener error]', d.toString().trim()));

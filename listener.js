@@ -54,6 +54,28 @@ function persistEnv() {
     console.error('Failed to persist .env:', err.message);
   }
 }
+
+/**
+ * Persist the settings this process owns.
+ *
+ * Under Electron the .env file is the wrong place and, in a packaged build, an
+ * impossible one: listener.js runs from inside app.asar, so __dirname/.env is
+ * read-only and every write threw into a console nobody sees. Worse, the app
+ * restarts this process from electron-store, so anything only ever written to
+ * .env was overwritten on the next save. That is why alert, chat and overlay
+ * settings did not stick.
+ *
+ * So hand them to the main process, which owns the store. Standalone
+ * (`npm run listener`) still writes .env, which is the right place there.
+ */
+function persistSettings() {
+  if (typeof process.send === 'function') {
+    const patch = {};
+    for (const key of PERSIST_KEYS) if (process.env[key] != null) patch[key] = process.env[key];
+    try { process.send({ type: 'persist', patch }); return; } catch {}
+  }
+  persistEnv();
+}
 const express = require('express');
 const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
@@ -195,7 +217,7 @@ function createPluginApi(pluginId) {
       getAll()          { return { ...(pluginStore[pluginId] || {}) }; }
     },
     getSetting: (key)        => process.env[key],
-    setSetting: (key, value) => { process.env[key] = value; persistEnv(); }
+    setSetting: (key, value) => { process.env[key] = value; persistSettings(); }
   };
 }
 
@@ -587,7 +609,7 @@ async function spotifyRefreshToken() {
     process.env.SPOTIFY_ACCESS_TOKEN  = data.access_token;
     process.env.SPOTIFY_TOKEN_EXPIRY  = String(Date.now() + (data.expires_in - 60) * 1000);
     if (data.refresh_token) process.env.SPOTIFY_REFRESH_TOKEN = data.refresh_token;
-    persistEnv();
+    persistSettings();
     return true;
   } catch { return false; }
 }
@@ -1974,7 +1996,7 @@ app.post('/api/chat/send', async (req, res) => {
 app.post('/api/chat/config', (req, res) => {
   if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
   process.env.CHAT_OVERLAY_CONFIG = JSON.stringify(req.body);
-  persistEnv();
+  persistSettings();
   res.json({ ok: true });
 });
 
@@ -2418,7 +2440,7 @@ app.post('/api/alerts/config', (req, res) => {
   if (typeof obsSource === 'string') process.env.ALERT_OBS_SOURCE = obsSource;
   if (obsDuration != null && !isNaN(parseInt(obsDuration))) process.env.ALERT_OBS_DURATION = String(parseInt(obsDuration));
   if (custom && typeof custom === 'object') process.env.ALERT_CUSTOM_CONFIG = JSON.stringify(custom);
-  persistEnv();
+  persistSettings();
   broadcast({ event: 'alerts_config_update', mode: process.env.ALERT_MODE, obsSource: process.env.ALERT_OBS_SOURCE, obsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000 });
   addLog('system', 'settings', `Alert config updated — mode: ${process.env.ALERT_MODE}`);
   res.json({ ok: true });
@@ -2563,7 +2585,7 @@ app.post('/api/triggers', (req, res) => {
     if (typeof val.script   === 'string')  current[type].script   = val.script;
   }
   process.env.EVENT_TRIGGERS = JSON.stringify(current);
-  persistEnv();
+  persistSettings();
   addLog('system', 'settings', 'Event triggers updated');
   res.json({ ok: true });
 });
@@ -2574,7 +2596,7 @@ app.post('/api/redeems', (req, res) => {
   if (typeof redeems !== 'object') return res.status(400).json({ error: 'Invalid' });
   state.redeemActions = redeems;
   process.env.REDEEM_ACTIONS = JSON.stringify(redeems);
-  persistEnv();
+  persistSettings();
   addLog('system', 'settings', 'Redeem actions updated');
   res.json({ ok: true });
 });
@@ -2678,7 +2700,7 @@ app.post('/api/commands', (req, res) => {
     }
   }
   process.env.COMMANDS_CONFIG = JSON.stringify(state.commands);
-  persistEnv();
+  persistSettings();
   broadcast({ event: 'commands_update', commands: state.commands });
   addLog('system', 'settings', 'Command config updated');
   res.json({ ok: true });
@@ -2704,7 +2726,7 @@ app.post('/api/custom-commands', (req, res) => {
     };
   }
   process.env.CUSTOM_COMMANDS = JSON.stringify(state.customCommands);
-  persistEnv();
+  persistSettings();
   broadcast({ event: 'custom_commands_update', commands: state.customCommands });
   addLog('system', 'settings', 'Custom commands updated');
   res.json({ ok: true });
@@ -2793,6 +2815,7 @@ const SETTINGS_KEYS = [
   'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','CIDER_TOKEN','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
   'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
+  'SEVENTV_ENABLED','BTTV_ENABLED',
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
@@ -2851,7 +2874,7 @@ app.post('/settings', (req, res) => {
       modServer.listen(port, () => addLog('system', 'mod', `Mod server started on port ${port}`));
     }
   }
-  if (updated.length) persistEnv();
+  if (updated.length) persistSettings();
   res.json({ ok: true, updated });
 });
 
@@ -3139,14 +3162,14 @@ async function handleOAuthCallback(req, res) {
     if (flow.type === 'bot') {
       process.env.TWITCH_BOT_OAUTH = oauthToken;
       if (username) { process.env.TWITCH_BOT_USERNAME = username; }
-      persistEnv();
+      persistSettings();
       addLog('system', 'twitch', `Bot OAuth token acquired${username ? ` (${username})` : ''}`);
       broadcast({ event: 'oauth_bot_token', token: oauthToken, username });
       res.send(page('✅', 'Bot authorized!', `Logged in as <strong>${username || 'unknown'}</strong>. You can close this tab.`));
     } else {
       process.env.TWITCH_OAUTH = oauthToken;
       if (username) { process.env.TWITCH_CHANNEL = username; }
-      persistEnv();
+      persistSettings();
       addLog('system', 'twitch', `OAuth token acquired${username ? ` (${username})` : ''}`);
       broadcast({ event: 'oauth_token', token: oauthToken, username });
       // Reconnect EventSub with the fresh token
@@ -3200,7 +3223,7 @@ app.get('/api/spotify/callback', async (req, res) => {
     process.env.SPOTIFY_ACCESS_TOKEN  = data.access_token;
     process.env.SPOTIFY_REFRESH_TOKEN = data.refresh_token;
     process.env.SPOTIFY_TOKEN_EXPIRY  = String(Date.now() + (data.expires_in - 60) * 1000);
-    persistEnv();
+    persistSettings();
     broadcast({ event: 'spotify_connected' });
     addLog('system', 'spotify', 'Spotify connected');
     if (mediaMode() === 'spotify') nowPlayingStartPolling();
@@ -3221,7 +3244,7 @@ app.post('/api/twitch/disconnect/:which', (req, res) => {
   const which = req.params.which;
   if (which === 'broadcaster') {
     process.env.TWITCH_OAUTH = '';
-    persistEnv();
+    persistSettings();
     // Drop the socket rather than waiting for Twitch to reject the dead token.
     if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
@@ -3235,7 +3258,7 @@ app.post('/api/twitch/disconnect/:which', (req, res) => {
     // broadcaster on its own once these are empty.
     process.env.TWITCH_BOT_OAUTH = '';
     process.env.TWITCH_BOT_USERNAME = '';
-    persistEnv();
+    persistSettings();
     broadcast({ event: 'twitch_disconnected', which });
     addLog('system', 'twitch', 'Bot account disconnected — messages will send as the broadcaster');
   } else {
@@ -3246,7 +3269,7 @@ app.post('/api/twitch/disconnect/:which', (req, res) => {
 
 app.post('/api/cider/disconnect', (req, res) => {
   process.env.CIDER_TOKEN = '';
-  persistEnv();
+  persistSettings();
   if (mediaMode() === 'cider') nowPlayingStopPolling();
   addLog('system', 'cider', 'Cider token cleared');
   res.json({ ok: true });
@@ -3256,7 +3279,7 @@ app.post('/api/spotify/disconnect', (req, res) => {
   process.env.SPOTIFY_ACCESS_TOKEN  = '';
   process.env.SPOTIFY_REFRESH_TOKEN = '';
   process.env.SPOTIFY_TOKEN_EXPIRY  = '';
-  persistEnv();
+  persistSettings();
   if (mediaMode() === 'spotify') nowPlayingStopPolling();
   broadcast({ event: 'spotify_disconnected' });
   addLog('system', 'spotify', 'Spotify disconnected');
