@@ -653,7 +653,23 @@ async function cascadeGetNowPlaying() {
     if (!r.ok) return null;
     const data = await r.json();
     if (!data.title) return null;
-    return { title: data.title, artist: data.artist || '', isPlaying: data.isPlaying ?? true };
+    // Cascade sends Jellyfin ids rather than a URL, because its own artUrl()
+    // embeds Cascade's token. We build ours from the session we already have -
+    // which, on a machine where only Cascade is configured, was borrowed from
+    // Cascade in the first place (see jellyfinCredsFromCascade).
+    const base = jellyfinBaseUrl || process.env.JELLYFIN_URL;
+    const art = base && data.artItemId
+      ? `${base}/Items/${data.artItemId}/Images/Primary?maxHeight=600${data.artImageTag ? `&tag=${data.artImageTag}` : ''}`
+      : null;
+    return {
+      title: data.title,
+      artist: data.artist || '',
+      album: data.album || '',
+      art,
+      durationMs: data.durationMs ?? null,
+      positionMs: data.positionMs ?? null,
+      isPlaying: data.isPlaying ?? true,
+    };
   } catch { return null; }
 }
 
