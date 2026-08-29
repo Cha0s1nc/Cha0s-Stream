@@ -1997,6 +1997,7 @@ app.post('/api/chat/config', (req, res) => {
   if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
   process.env.CHAT_OVERLAY_CONFIG = JSON.stringify(req.body);
   persistSettings();
+  broadcast({ event: 'overlay_config_update', scope: 'chat' });
   res.json({ ok: true });
 });
 
@@ -2442,6 +2443,7 @@ app.post('/api/alerts/config', (req, res) => {
   if (custom && typeof custom === 'object') process.env.ALERT_CUSTOM_CONFIG = JSON.stringify(custom);
   persistSettings();
   broadcast({ event: 'alerts_config_update', mode: process.env.ALERT_MODE, obsSource: process.env.ALERT_OBS_SOURCE, obsDuration: parseInt(process.env.ALERT_OBS_DURATION) || 5000 });
+  broadcast({ event: 'overlay_config_update', scope: 'alerts' });
   addLog('system', 'settings', `Alert config updated — mode: ${process.env.ALERT_MODE}`);
   res.json({ ok: true });
 });

@@ -320,6 +320,8 @@
       if (data.event === 'alert'        && MODE !== 'chat')   queueAlert(data);
       if (data.event === 'chat'         && MODE !== 'alerts') addChatMessage(data);
       if (data.event === 'seventv_ready'&& MODE !== 'alerts') loadEmotes();
+      // Covers both layers: loadConfig re-reads alerts and chat together.
+      if (data.event === 'overlay_config_update') loadConfig();
     };
     ws.onclose = () => setTimeout(connect, 3000);
     ws.onerror = () => {};
