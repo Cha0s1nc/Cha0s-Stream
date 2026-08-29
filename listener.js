@@ -625,6 +625,10 @@ async function spotifyGetCurrentTrack() {
       artist:    data.item.artists?.map(a => a.name).join(', ') || 'Unknown',
       album:     data.item.album?.name || '',
       id:        data.item.id,
+      // images[0] is the largest Spotify offers; the overlay scales it down.
+      art:        data.item.album?.images?.[0]?.url || null,
+      durationMs: data.item.duration_ms ?? null,
+      positionMs: data.progress_ms ?? null,
       isPlaying: data.is_playing,
     };
   } catch { return null; }
@@ -680,7 +684,19 @@ function nowPlayingStartPolling() {
     const playing = track?.isPlaying ?? false;
     const changed = now !== formatTrack(nowPlayingCurrent) || playing !== (nowPlayingCurrent?.isPlaying ?? false);
     nowPlayingCurrent = track;
-    if (changed) broadcast({ event: 'now_playing', track: now, isPlaying: playing });
+    if (changed) broadcast({
+      event: 'now_playing',
+      track: now,                     // kept: the dashboard reads only this
+      isPlaying: playing,
+      title:  track?.title  || null,
+      artist: track?.artist || null,
+      album:  track?.album  || null,
+      art:    track?.art    || null,
+      durationMs: track?.durationMs ?? null,
+      // Sampled at poll time, so an overlay wanting a smooth bar should tick
+      // forward locally from here rather than waiting for the next poll.
+      positionMs: track?.positionMs ?? null,
+    });
   }, NOW_PLAYING_POLL_MS[mode] || 8000);
 }
 
@@ -1265,9 +1281,19 @@ async function jellyfinNowPlaying() {
   const session = await getActiveSession();
   const item = session?.NowPlayingItem;
   if (!item) return null;
+  const base = jellyfinBaseUrl || process.env.JELLYFIN_URL;
+  // Jellyfin serves item images without a token, so the overlay can load this
+  // directly - no proxy route and no credential in a browser-source URL. The
+  // tag busts the cache when the artwork is replaced.
+  const artId = item.AlbumId || item.Id;
+  const artTag = item.AlbumPrimaryImageTag || item.ImageTags?.Primary;
   return {
     title:  item.Name || '',
     artist: item.Artists?.[0] || item.AlbumArtist || 'Unknown Artist',
+    album:  item.Album || '',
+    art: base && artId ? `${base}/Items/${artId}/Images/Primary?maxHeight=600${artTag ? `&tag=${artTag}` : ''}` : null,
+    durationMs: item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10000) : null,
+    positionMs: session.PlayState?.PositionTicks ? Math.round(session.PlayState.PositionTicks / 10000) : null,
     isPlaying: !session.PlayState?.IsPaused,
   };
 }
@@ -1742,6 +1768,10 @@ app.get('/api/jellyfin/search', async (req, res) => {
 app.get('/alerts',  (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
 app.get('/chat',    (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'chat.html')));
 app.get('/overlay', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'overlay.html')));
+// Its own page rather than a layer in /overlay, matching /alerts and /chat: it
+// is a small card you position and size as its own OBS source. Configured by
+// query string (align, art, bar, hide) - see the top of nowplaying.html.
+app.get('/nowplaying', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'nowplaying.html')));
 // ── Chat overlay config ──────────────────────────────────────────
 const CHAT_OVERLAY_DEFAULTS = {
   maxMessages: 8, lifetime: 30000,
@@ -1785,6 +1815,7 @@ app.get('/api/overlay/config', (req, res) => {
     alert:            alertCfg,
     chat:             { ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}) },
     browserSourceUrl: `http://localhost:${PORT}/overlay`,
+    nowPlayingUrl:    `http://localhost:${PORT}/nowplaying`,
   });
 });
 
