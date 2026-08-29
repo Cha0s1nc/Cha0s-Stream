@@ -1480,6 +1480,49 @@ function formatTrack(track) {
 
 // --- Command implementations ---
 
+// A command that fails logs it and, until now, said nothing in chat - so from
+// chat's side a misconfigured command was indistinguishable from a working one
+// that had nothing to say. Whoever ran it deserves to know it did not work.
+// { until, cooldown } per command name.
+const cmdWarn = new Map();
+const CMD_WARN_BASE_MS = 20_000;
+const CMD_WARN_MAX_MS  = 5 * 60_000;
+
+/**
+ * Report a failed command: to the log always, and to chat on a cooldown.
+ *
+ * The cooldown escalates. A broken command is an invitation to spam it, and a
+ * bot that answers every invocation is both a self-inflicted timeout and a way
+ * for chat to make it shout on demand. So each attempt that arrives while the
+ * warning is still cooling down doubles the wait, up to five minutes; a quiet
+ * spell decays it back to the base.
+ */
+function cmdFailed(source, cmd, user, reason) {
+  addLog(source, `!${cmd}`, user ? `${user} — ${reason}` : reason, false);
+  if (!user) return;
+
+  const now = Date.now();
+  const st = cmdWarn.get(cmd) || { until: 0, cooldown: CMD_WARN_BASE_MS };
+
+  if (now < st.until) {
+    // Still cooling down and they tried again: that is the abuse case, so back
+    // further off rather than just staying quiet.
+    st.cooldown = Math.min(st.cooldown * 2, CMD_WARN_MAX_MS);
+    st.until = now + st.cooldown;
+    cmdWarn.set(cmd, st);
+    return;
+  }
+  // Quiet for a full cooldown past expiry - treat it as a fresh incident.
+  if (now > st.until + st.cooldown) st.cooldown = CMD_WARN_BASE_MS;
+  st.until = now + st.cooldown;
+  cmdWarn.set(cmd, st);
+
+  // Deliberately not a configurable template: this fires when the setup is
+  // wrong, which is exactly when a user-edited response is least trustworthy.
+  sendChatMessage(`@${user} — I couldn't run "!${cmd}" (${reason}). Is it set up right?`).catch(() => {});
+}
+
+
 async function cmdSong(user) {
   const { label, nowPlaying } = mediaAdapter();
   try {
@@ -1492,7 +1535,7 @@ async function cmdSong(user) {
     addLog('system', '!song', `${user} → ${song} [${label}]`);
     const tmpl = state.commands.song?.response;
     if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, song }));
-  } catch (err) { addLog('system', '!song', err.message, false); }
+  } catch (err) { cmdFailed('system', 'song', user, err.message); }
 }
 async function cmdSongRequest(user, query) {
   if (!query) return;
@@ -1507,10 +1550,10 @@ async function cmdMediaControl(user, action) {
     await control(action);
     addLog('system', `!${action}`, `${user} \u2192 ${label}`);
     if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, result: resultMap[action] || '\u25b6\ufe0f Done' }));
-  } catch (err) { addLog('system', `!${action}`, `${label}: ${err.message}`, false); }
+  } catch (err) { cmdFailed('system', action, user, `${label}: ${err.message}`); }
 }
 async function cmdScene(user, scene) {
-  if (!state.obs.connected) { addLog('obs', '!scene', `${user} — OBS not connected`, false); return; }
+  if (!state.obs.connected) { cmdFailed('obs', 'scene', user, 'OBS is not connected'); return; }
   if (!scene) {
     // No argument — list available scenes
     try {
@@ -1522,11 +1565,11 @@ async function cmdScene(user, scene) {
     return;
   }
   try { await obs.call('SetCurrentProgramScene', { sceneName: scene }); addLog('obs', '!scene', `${user} → ${scene}`); }
-  catch (err) { addLog('obs', '!scene', err.message, false); }
+  catch (err) { cmdFailed('obs', 'scene', user, err.message); }
 }
 
 async function cmdSource(user, source, onoff) {
-  if (!state.obs.connected) { addLog('obs', '!source', `${user} — OBS not connected`, false); return; }
+  if (!state.obs.connected) { cmdFailed('obs', 'source', user, 'OBS is not connected'); return; }
   if (!source) {
     // No argument — list sources in the current scene
     try {
@@ -1535,7 +1578,7 @@ async function cmdSource(user, source, onoff) {
       const names = sceneItems.map(i => `${i.sourceName}(${i.sceneItemEnabled ? 'on' : 'off'})`);
       await sendChatMessage(`Sources in "${currentProgramSceneName}": ${names.join(', ')} — use !source <name> on|off`);
       addLog('obs', '!source', `${user} — listed sources`);
-    } catch (err) { addLog('obs', '!source', err.message, false); }
+    } catch (err) { cmdFailed('obs', 'source', user, err.message); }
     return;
   }
   const visible = onoff?.toLowerCase() !== 'off';
@@ -1552,7 +1595,7 @@ async function cmdSource(user, source, onoff) {
     }
     addLog('obs', '!source', `Source not found: ${source}`, false);
     await sendChatMessage(`@${user} Source "${source}" not found. Use !source to list available sources.`);
-  } catch (err) { addLog('obs', '!source', err.message, false); }
+  } catch (err) { cmdFailed('obs', 'source', user, err.message); }
 }
 
 async function cmdSound(user, sound) {
@@ -1578,12 +1621,12 @@ async function cmdSound(user, sound) {
 }
 
 async function cmdRecord(user, action) {
-  if (!state.obs.connected) { addLog('obs', '!record', `${user} — OBS not connected`, false); return; }
+  if (!state.obs.connected) { cmdFailed('obs', 'record', user, 'OBS is not connected'); return; }
   try {
     if (action === 'start') { await obs.call('StartRecord'); addLog('obs', '!record', `${user} → started`); }
     else if (action === 'stop') { await obs.call('StopRecord'); addLog('obs', '!record', `${user} → stopped`); }
     else addLog('obs', '!record', `${user} — unknown action: ${action}`, false);
-  } catch (err) { addLog('obs', '!record', err.message, false); }
+  } catch (err) { cmdFailed('obs', 'record', user, err.message); }
 }
 
 async function cmdRun(user, scriptUrl) {
@@ -1622,7 +1665,7 @@ async function cmdRun(user, scriptUrl) {
 }
 
 async function cmdKillswitch(user) {
-  if (!state.obs.connected) { addLog('obs', '!killswitch', `${user} — OBS not connected`, false); return; }
+  if (!state.obs.connected) { cmdFailed('obs', 'killswitch', user, 'OBS is not connected'); return; }
   try {
     await obs.call('StopStream'); addLog('obs', '!killswitch', `${user} → stream stopped`);
     try { await obs.call('StopRecord'); addLog('obs', '!killswitch', 'Recording stopped'); } catch {}
