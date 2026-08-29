@@ -569,7 +569,7 @@
             <div class="setting-row jellyfin-only" id="jf-row-password"><div class="setting-label"><div class="setting-name">Password</div><div class="setting-desc">Used instead of API key if set</div></div><div class="input-wrap"><input class="setting-input" id="cfg-jellyfin-password" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-jellyfin-password">👁</button></div></div>
             <div class="setting-row jellyfin-only" id="jf-row-username"><div class="setting-label"><div class="setting-name">Username</div><div class="setting-desc">Your Jellyfin username</div></div><input class="setting-input" id="cfg-jellyfin-username" type="text" placeholder="Username" /></div>
             <div class="setting-row jellyfin-only" id="jf-row-device"><div class="setting-label"><div class="setting-name">Device ID</div><div class="setting-desc">Leave blank for auto</div></div><input class="setting-input" id="cfg-jellyfin-device" type="text" placeholder="Optional" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Cascade: direct control via Cascade app. Jellyfin: API session control. OS: system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn" data-mode="cascade" id="mode-cascade" style="display:none">Cascade</button><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Cascade: direct control via Cascade app. Cider: Cider's local API. Jellyfin: API session control. OS: system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn" data-mode="cascade" id="mode-cascade" style="display:none">Cascade</button><button class="seg-btn" data-mode="cider" id="mode-cider" style="display:none">Cider</button><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
           </div>
           <div class="settings-group">
             <div class="settings-group-title">Song Requests</div>
@@ -1413,34 +1413,43 @@
       document.getElementById('stat-wishlist').textContent = document.querySelectorAll('[id^="wi-"]').length;
     }
 
-    // --- Cascade presence detection ---
-    // Once Cascade is seen even once, permanently show the mode button
-    if (localStorage.getItem('cascadeDetected')) {
-      const btn = document.getElementById('mode-cascade');
+    // --- Local player detection (Cascade, Cider) ---
+    // Each mode button stays hidden until its app has been seen running once,
+    // then stays visible for good - the app being closed later is not a reason
+    // to take the option away.
+    const LOCAL_PLAYERS = [
+      { id: 'cascade', flag: 'cascadeDetected', btn: 'mode-cascade' },
+      { id: 'cider',   flag: 'ciderDetected',   btn: 'mode-cider'   },
+    ];
+    function unlockPlayer(p) {
+      const btn = document.getElementById(p.btn);
       if (btn) btn.style.display = '';
     }
-    async function checkCascadeRunning() {
-      if (localStorage.getItem('cascadeDetected')) return; // already unlocked
-      try {
-        const res = await fetch('/api/cascade/status', { signal: AbortSignal.timeout(800) });
-        const data = await res.json();
-        if (data.running) {
-          localStorage.setItem('cascadeDetected', '1');
-          const btn = document.getElementById('mode-cascade');
-          if (btn) btn.style.display = '';
-        }
-      } catch {}
+    LOCAL_PLAYERS.forEach(p => { if (localStorage.getItem(p.flag)) unlockPlayer(p); });
+
+    async function checkLocalPlayers() {
+      for (const p of LOCAL_PLAYERS) {
+        if (localStorage.getItem(p.flag)) continue; // already unlocked
+        try {
+          const res = await fetch(`/api/${p.id}/status`, { signal: AbortSignal.timeout(800) });
+          if ((await res.json()).running) {
+            localStorage.setItem(p.flag, '1');
+            unlockPlayer(p);
+          }
+        } catch {}
+      }
     }
     // Check on load, then every 15s until detected
-    checkCascadeRunning();
-    setInterval(checkCascadeRunning, 15000);
+    checkLocalPlayers();
+    setInterval(checkLocalPlayers, 15000);
 
     // --- Media mode UI ---
     function setMediaModeUI(mode) {
       mediaMode = mode;
       document.querySelectorAll('.seg-btn[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
       const modeVal = document.getElementById('mode-val');
-      if (modeVal) modeVal.textContent = mode === 'cascade' ? 'Cascade' : mode === 'os' ? 'OS Media Keys' : mode === 'spotify' ? 'Spotify' : 'Jellyfin';
+      const MODE_LABELS = { cascade: 'Cascade', cider: 'Cider', os: 'OS Media Keys', spotify: 'Spotify', jellyfin: 'Jellyfin' };
+      if (modeVal) modeVal.textContent = MODE_LABELS[mode] || 'Jellyfin';
       const jellyfinOnly = mode !== 'jellyfin';
       document.querySelectorAll('.jellyfin-only').forEach(el => el.classList.toggle('dimmed', jellyfinOnly));
     }
@@ -3144,7 +3153,11 @@
 
     // --- Statusbar mode toggle ---
     document.getElementById('mode-val')?.addEventListener('click', () => {
-      const next = mediaMode === 'cascade' ? 'jellyfin' : mediaMode === 'jellyfin' ? 'os' : mediaMode === 'os' ? 'spotify' : 'cascade';
+      // Cycles only through modes whose button is actually available, so the
+      // statusbar cannot land on a player this machine has never seen running.
+      const cycle = ['cascade', 'cider', 'jellyfin', 'os', 'spotify']
+        .filter(m => { const b = document.querySelector(`.seg-btn[data-mode="${m}"]`); return b && b.style.display !== 'none'; });
+      const next = cycle[(cycle.indexOf(mediaMode) + 1) % cycle.length] || 'jellyfin';
       setMediaModeUI(next);
       // persist the change the same way the seg-btn would
       if (isElectron) {

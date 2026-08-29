@@ -9,7 +9,7 @@ const PERSIST_KEYS = [
   'LISTENER_PORT','MOD_PORT','MOD_ENABLED',
   'TWITCH_OAUTH','TWITCH_CHANNEL','TWITCH_CLIENT_ID','TWITCH_CLIENT_SECRET',
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH',
-  'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE',
+  'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE','CIDER_TOKEN',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
@@ -666,7 +666,7 @@ let nowPlayingCurrent = null;
 
 // Spotify and Jellyfin are network round trips; Cascade is a loopback read and
 // can afford to be snappier.
-const NOW_PLAYING_POLL_MS = { cascade: 4000, spotify: 8000, jellyfin: 8000, os: 8000 };
+const NOW_PLAYING_POLL_MS = { cascade: 4000, cider: 4000, spotify: 8000, jellyfin: 8000, os: 8000 };
 
 function nowPlayingStartPolling() {
   nowPlayingStopPolling();
@@ -1324,10 +1324,97 @@ async function osNowPlaying() {
     : { title: line.slice(i + 3), artist: line.slice(0, i), isPlaying: true };
 }
 
+// --- Cider ---
+// Cider's local REST API, same idea as Cascade's control server but a documented
+// first-party feature (Settings -> Connectivity -> Manage External Application
+// Access). The header is `apptoken`: Cider's own docs say `apitoken`, and that
+// is simply wrong - verified against a running Cider, apptoken returns 200 and
+// apitoken 403.
+const CIDER_BASE = 'http://127.0.0.1:10767/api/v1/playback';
+
+/** Cider's config, where the tokens generated in its UI are stored. */
+function ciderConfigPath() {
+  const os = require('os'), path = require('path');
+  const dir = 'sh.cider.genten';
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', dir, 'spa-config.yml');
+  if (process.platform === 'win32')  return path.join(process.env.APPDATA || '', dir, 'spa-config.yml');
+  return path.join(os.homedir(), '.config', dir, 'spa-config.yml');
+}
+
+/**
+ * An app token for Cider, preferring an explicitly configured one.
+ *
+ * The fallback scrapes the first token out of Cider's YAML rather than pulling
+ * in a YAML parser for one field. Re-read each call so generating a token in
+ * Cider does not need a Stream restart.
+ */
+function ciderToken() {
+  if (process.env.CIDER_TOKEN) return process.env.CIDER_TOKEN;
+  try {
+    const raw = fs.readFileSync(ciderConfigPath(), 'utf8');
+    const block = raw.slice(raw.indexOf('apiTokens:'));
+    return block.match(/token:\s*(\S+)/)?.[1] || '';
+  } catch { return ''; }
+}
+
+function ciderIsConfigured() { return !!ciderToken(); }
+
+async function ciderFetch(path, method = 'GET') {
+  const token = ciderToken();
+  if (!token) throw new Error('No Cider app token (Settings \u2192 Connectivity \u2192 Manage External Application Access)');
+  const r = await fetch(`${CIDER_BASE}${path}`, {
+    method, signal: AbortSignal.timeout(2000), headers: { apptoken: token },
+  });
+  if (!r.ok) throw new Error(r.status === 403 ? 'Cider rejected the app token' : `Cider returned ${r.status}`);
+  return r;
+}
+
+async function ciderControl(action) {
+  // Cider has real play and pause, so these do not collapse into a toggle the
+  // way Cascade's do - !play on an already-playing track is a no-op, not a stop.
+  const path = { play: '/play', pause: '/pause', next: '/next', prev: '/previous' }[action];
+  if (!path) throw new Error(`Unknown action: ${action}`);
+  await ciderFetch(path, 'POST');
+}
+
+/**
+ * Apple Music artwork URLs carry {w}/{h} placeholders that must be substituted
+ * before the URL resolves. Left as-is they 404.
+ */
+function ciderArtUrl(url) {
+  return typeof url === 'string' ? url.replace(/\{w\}/g, '600').replace(/\{h\}/g, '600') : null;
+}
+
+async function ciderNowPlaying() {
+  try {
+    const [npRes, playRes] = await Promise.all([
+      ciderFetch('/now-playing'),
+      ciderFetch('/is-playing').catch(() => null),
+    ]);
+    const info = (await npRes.json())?.info;
+    // Verified against a running Cider: the envelope is { status, info }, and
+    // with nothing loaded `info` carries only shuffle/repeat/library flags and
+    // no track at all - which is what a missing name means here.
+    if (!info?.name) return null;
+    const isPlaying = playRes ? (await playRes.json())?.is_playing ?? true : true;
+    return {
+      title:  info.name,
+      artist: info.artistName || '',
+      album:  info.albumName || '',
+      art:    ciderArtUrl(info.artwork?.url),
+      durationMs: info.durationInMillis ?? null,
+      // Cider reports elapsed time in seconds, unlike every other field here.
+      positionMs: info.currentPlaybackTime != null ? Math.round(info.currentPlaybackTime * 1000) : null,
+      isPlaying,
+    };
+  } catch { return null; }
+}
+
 const MEDIA_MODES = {
   cascade:  { label: 'Cascade',        nowPlaying: cascadeGetNowPlaying,  control: cascadeControl },
   spotify:  { label: 'Spotify',        nowPlaying: spotifyGetCurrentTrack, control: spotifyControl, available: spotifyIsConfigured },
   jellyfin: { label: 'Jellyfin',       nowPlaying: jellyfinNowPlaying,    control: jellyfinControl },
+  cider:    { label: 'Cider',          nowPlaying: ciderNowPlaying,       control: ciderControl,   available: ciderIsConfigured },
   os:       { label: 'OS media keys',  nowPlaying: osNowPlaying,          control: sendOSMediaKey },
 };
 
@@ -1644,6 +1731,13 @@ app.post('/api/reconnect/:service', (req, res) => {
 
 // Frontend can't hit Cascade's control server directly anymore (it now requires
 // the token file only the backend can read), so proxy the presence check through here.
+// Same shape as the Cascade check below: the browser cannot read Cider's token
+// file, so the presence probe is proxied through here.
+app.get('/api/cider/status', async (req, res) => {
+  try { await ciderFetch('/active'); res.json({ running: true }); }
+  catch { res.json({ running: false }); }
+});
+
 app.get('/api/cascade/status', async (req, res) => {
   try {
     const r = await fetch('http://127.0.0.1:47847/cascade/status', { signal: AbortSignal.timeout(800), headers: cascadeAuthHeaders() });
