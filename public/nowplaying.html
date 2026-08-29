@@ -8,10 +8,12 @@
   /* Palette matches Cascade and the Cha0s Stream dashboard (:root in index.html). */
   :root {
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    --surface: #1c1c1e; --border: #3a3a3c;
+    --surface: #1c1c1e;
     --text: #f5f5f7; --text2: #aeaeb2;
     --grad: linear-gradient(160deg, #4ade80 0%, #7c3aed 100%);
     --card-bg: rgba(20, 20, 25, 0.92);
+    --size: 15px;          /* set from ?size=, everything else scales off it */
+    --art: calc(var(--size) * 4.5);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -22,15 +24,15 @@
     font-family: var(--font);
     display: flex; padding: 16px;
   }
-  body[data-align="left"]   { justify-content: flex-start; align-items: flex-start; }
-  body[data-align="right"]  { justify-content: flex-end;   align-items: flex-start; }
-  body[data-align="bottom-left"]  { justify-content: flex-start; align-items: flex-end; }
-  body[data-align="bottom-right"] { justify-content: flex-end;   align-items: flex-end; }
-  body[data-align="center"] { justify-content: center; align-items: center; }
+  body[data-align="left"]          { justify-content: flex-start; align-items: flex-start; }
+  body[data-align="right"]         { justify-content: flex-end;   align-items: flex-start; }
+  body[data-align="bottom-left"]   { justify-content: flex-start; align-items: flex-end; }
+  body[data-align="bottom-right"]  { justify-content: flex-end;   align-items: flex-end; }
+  body[data-align="center"]        { justify-content: center;     align-items: center; }
 
   .card {
-    display: flex; align-items: center; gap: 14px;
-    max-width: 100%;
+    display: flex; align-items: center; gap: calc(var(--size) * 0.93);
+    max-width: 100%; max-height: 100%;
     padding: 12px 18px 12px 12px;
     border-radius: 14px;
     background: var(--card-bg);
@@ -44,20 +46,26 @@
   .card.visible { opacity: 1; transform: none; }
 
   .art {
-    width: 68px; height: 68px; flex-shrink: 0;
-    border-radius: 9px; object-fit: cover;
+    width: var(--art); height: var(--art); flex-shrink: 0;
+    border-radius: calc(var(--size) * 0.6); object-fit: cover;
     background: var(--surface);
     box-shadow: 0 2px 10px rgba(0,0,0,0.4);
   }
   /* No artwork (OS media keys, and Cascade until its payload carries an item
      id) - fall back to the accent gradient rather than an empty grey square. */
   .art.placeholder { background: var(--grad); }
-  body[data-art="0"] .art { display: none; }
 
-  .meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .title  { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-  .artist { font-size: 13px; color: var(--text2); }
-  .title, .artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+  .meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+  .title  { font-size: var(--size); font-weight: 600; letter-spacing: -0.01em; }
+  .artist { font-size: calc(var(--size) * 0.87); color: var(--text2); }
+  .title, .artist {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    /* Bounded inside the full card so a long title cannot stretch it off
+       screen; unbounded as its own source, where the source's own width is
+       the bound the user set in OBS. */
+    max-width: calc(var(--size) * 21);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
 
   .bar {
     margin-top: 6px; height: 3px; width: 100%;
@@ -65,16 +73,35 @@
     overflow: hidden;
   }
   .bar-fill { height: 100%; width: 0; background: var(--grad); border-radius: 2px; }
-  /* Hidden when the source gives no duration, and by ?bar=0. */
-  body[data-bar="0"] .bar, .bar.hidden { display: none; }
+  .bar.hidden { display: none; }
 
   .paused .title, .paused .artist { opacity: 0.55; }
+
+  /* Any part not selected by ?only= is removed outright rather than hidden, so
+     it takes no space in the flex row. */
+  .part-off { display: none !important; }
+
+  /* ── Single-part / bare mode ────────────────────────────────────────────
+     With ?only= the user is compositing the pieces themselves in OBS, so the
+     card chrome would draw a pill around every one of them. Strip it, and let
+     each part fill the browser source it was given. */
+  body[data-bare="1"] { padding: 0; }
+  body[data-bare="1"] .card {
+    background: none; box-shadow: none; padding: 0; border-radius: 0;
+    width: 100%; height: 100%;
+  }
+  body[data-bare="1"] .title,
+  body[data-bare="1"] .artist { max-width: 100%; }
+  /* Art alone is the one part worth filling its whole source. */
+  body[data-bare="1"][data-solo="art"] .art { width: 100%; height: 100%; }
+  body[data-bare="1"][data-solo="bar"] .bar { margin-top: 0; height: 100%; border-radius: 0; }
+  body[data-bare="1"][data-solo="bar"] .bar-fill { border-radius: 0; }
 </style>
 </head>
 <body>
   <div class="card" id="card">
     <img class="art" id="art" alt="">
-    <div class="meta">
+    <div class="meta" id="meta">
       <div class="title"  id="title"></div>
       <div class="artist" id="artist"></div>
       <div class="bar" id="bar"><div class="bar-fill" id="bar-fill"></div></div>
@@ -84,22 +111,49 @@
 <script>
   // Configured by query string rather than a settings panel, the way OBS
   // browser sources usually are:
+  //
+  //   ?only=art            just the album art, filling the source
+  //   ?only=title          just the title
+  //   ?only=artist         just the artist
+  //   ?only=bar            just the progress bar
+  //   ?only=title,artist   any combination, comma separated
+  //
+  // ?only= also drops the card background so the parts composite cleanly as
+  // separate sources; pass &card=1 to keep it. Everything else:
+  //
   //   ?align=left|right|bottom-left|bottom-right|center   (default bottom-left)
-  //   ?art=0   hide album art
-  //   ?bar=0   hide the progress bar
-  //   ?hide=0  keep the card up when playback stops
+  //   ?size=20             base size in px, everything scales off it
+  //   ?hide=0              keep the card up when playback stops
   const params = new URLSearchParams(location.search);
+  const ALL_PARTS = ['art', 'title', 'artist', 'bar'];
+  const only = (params.get('only') || '')
+    .split(',').map(p => p.trim().toLowerCase()).filter(p => ALL_PARTS.includes(p));
+  const parts = only.length ? only : ALL_PARTS;
+
   document.body.dataset.align = params.get('align') || 'bottom-left';
-  document.body.dataset.art   = params.get('art')   === '0' ? '0' : '1';
-  document.body.dataset.bar   = params.get('bar')   === '0' ? '0' : '1';
+  // Bare whenever the user picked parts, unless they explicitly ask for the card.
+  document.body.dataset.bare = (only.length && params.get('card') !== '1') ? '1' : '0';
+  if (parts.length === 1) document.body.dataset.solo = parts[0];
+  const size = parseFloat(params.get('size'));
+  if (size > 0) document.documentElement.style.setProperty('--size', size + 'px');
   const HIDE_WHEN_STOPPED = params.get('hide') !== '0';
 
   const card = document.getElementById('card');
   const elArt = document.getElementById('art');
+  const elMeta = document.getElementById('meta');
   const elTitle = document.getElementById('title');
   const elArtist = document.getElementById('artist');
   const elBar = document.getElementById('bar');
   const elFill = document.getElementById('bar-fill');
+
+  const showPart = (el, on) => el.classList.toggle('part-off', !on);
+  showPart(elArt,    parts.includes('art'));
+  showPart(elTitle,  parts.includes('title'));
+  showPart(elArtist, parts.includes('artist'));
+  showPart(elBar,    parts.includes('bar'));
+  // The text column is pure layout - with none of its children selected it
+  // would still contribute gap and flex space to an art-only source.
+  showPart(elMeta, ['title', 'artist', 'bar'].some(p => parts.includes(p)));
 
   // positionMs is sampled when the listener polls, up to 8s apart, so the bar
   // is advanced locally from that sample instead of stepping once per poll.
@@ -125,7 +179,9 @@
       elArt.removeAttribute('src');
       elArt.classList.add('placeholder');
     }
-    elBar.classList.toggle('hidden', !track.durationMs);
+    // Only meaningful with a known duration - but never re-hide a bar the user
+    // asked for as its own source, or that source goes blank.
+    if (parts.includes('bar')) elBar.classList.toggle('hidden', !track.durationMs);
   }
 
   function tick() {

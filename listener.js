@@ -684,20 +684,33 @@ function nowPlayingStartPolling() {
     const playing = track?.isPlaying ?? false;
     const changed = now !== formatTrack(nowPlayingCurrent) || playing !== (nowPlayingCurrent?.isPlaying ?? false);
     nowPlayingCurrent = track;
-    if (changed) broadcast({
-      event: 'now_playing',
-      track: now,                     // kept: the dashboard reads only this
-      isPlaying: playing,
-      title:  track?.title  || null,
-      artist: track?.artist || null,
-      album:  track?.album  || null,
-      art:    track?.art    || null,
-      durationMs: track?.durationMs ?? null,
-      // Sampled at poll time, so an overlay wanting a smooth bar should tick
-      // forward locally from here rather than waiting for the next poll.
-      positionMs: track?.positionMs ?? null,
-    });
+    if (changed) broadcast(nowPlayingPayload(track));
   }, NOW_PLAYING_POLL_MS[mode] || 8000);
+}
+
+/**
+ * The now_playing message, built in one place because it is sent from two: the
+ * poller on a change, and every newly connected client.
+ *
+ * That second one is not cosmetic. The poller only broadcasts on change, so an
+ * OBS browser source added or refreshed mid-song used to connect and receive
+ * nothing at all until the track changed - a blank overlay for however long the
+ * song had left. Same for the dashboard's now-playing line.
+ */
+function nowPlayingPayload(track) {
+  return {
+    event: 'now_playing',
+    track: formatTrack(track),      // kept: the dashboard reads only this
+    isPlaying: track?.isPlaying ?? false,
+    title:  track?.title  || null,
+    artist: track?.artist || null,
+    album:  track?.album  || null,
+    art:    track?.art    || null,
+    durationMs: track?.durationMs ?? null,
+    // Sampled at poll time, so an overlay wanting a smooth bar should tick
+    // forward locally from here rather than waiting for the next poll.
+    positionMs: track?.positionMs ?? null,
+  };
 }
 
 function nowPlayingStopPolling() {
@@ -2632,6 +2645,9 @@ app.post('/settings', (req, res) => {
 });
 
 wss.on('connection', (ws) => {
+  // Whatever is playing right now, so a source that connected mid-song is not
+  // blank until the next track change.
+  ws.send(JSON.stringify(nowPlayingPayload(nowPlayingCurrent)));
   ws.send(JSON.stringify({
     event: 'init',
     obs: state.obs, jellyfin: state.jellyfin, twitch: state.twitch, log: state.log,
