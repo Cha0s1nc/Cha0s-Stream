@@ -2404,6 +2404,20 @@
     }
 
     document.getElementById('btn-save').addEventListener('click', async () => {
+      // The alert and chat overlays persist through their own endpoints, so this
+      // button used to skip them entirely: change the alert position, press the
+      // big Save, and nothing wrote it - then switching panels reloaded the old
+      // value from the store and it looked like the setting had reset. Save the
+      // whole page, not the part of it that happens to live in `fields`.
+      //
+      // Awaited before the bulk save below, because that one restarts the
+      // listener and the restart reads these back out of the store.
+      await saveAlertConfig();
+      await saveChatConfig();
+      // nowPlayingCfg is normally kept current by input events; re-read the form
+      // so the bulk save cannot depend on one having fired.
+      refreshNowPlayingUrl();
+
       const settings = {};
       Object.entries(fields).forEach(([id, key]) => {
         const el = document.getElementById(id);
