@@ -234,42 +234,70 @@
   };
 
   /**
-   * Average the cover, then force it bright and saturated enough to read as an
-   * accent. A plain average is muddy on almost every cover - it lands near grey
-   * - so the hue is kept and the saturation and lightness are pushed to fixed
-   * floors. Artwork is same-origin via /api/art, without which the canvas is
-   * tainted and getImageData throws.
+   * Pick an accent off the cover.
+   *
+   * Not an average: averaging washes almost every sleeve toward grey. A pale
+   * sky with a red sweater in front of it averages to near-white, and the
+   * overlay then falls back to its default colour on artwork that plainly has
+   * one. Instead, throw away the pixels that cannot be an accent - near-white,
+   * near-black, and the desaturated - bucket what is left by hue, and weight
+   * each pixel by its saturation so a vivid area punches above its size
+   * without a stray speck winning outright.
+   *
+   * Artwork is same-origin via /api/art; without that the canvas is tainted
+   * and getImageData throws.
    */
+  const HUE_BUCKETS = 24;
+
   function accentFromArt(img) {
     try {
-      const N = 16;
+      const N = 32;
       const c = document.createElement('canvas');
       c.width = c.height = N;
       const ctx = c.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(img, 0, 0, N, N);
       const d = ctx.getImageData(0, 0, N, N).data;
-      let r = 0, g = 0, b = 0, n = 0;
+
+      const buckets = Array.from({ length: HUE_BUCKETS }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+      let considered = 0;
       for (let i = 0; i < d.length; i += 4) {
-        if (d[i + 3] < 128) continue;            // skip transparent padding
-        r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
+        if (d[i + 3] < 128) continue;                       // transparent padding
+        const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const l = (max + min) / 2, delta = max - min;
+        if (l > 0.92 || l < 0.08) continue;                 // paper white, near black
+        const sat = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+        if (sat < 0.15) continue;                           // greys carry no hue
+        let h;
+        if (max === r)      h = ((g - b) / delta + (g < b ? 6 : 0)) / 6;
+        else if (max === g) h = ((b - r) / delta + 2) / 6;
+        else                h = ((r - g) / delta + 4) / 6;
+        const idx = Math.min(HUE_BUCKETS - 1, Math.floor(h * HUE_BUCKETS));
+        const bkt = buckets[idx];
+        bkt.w += sat; bkt.r += d[i] * sat; bkt.g += d[i + 1] * sat; bkt.b += d[i + 2] * sat;
+        considered++;
       }
-      if (!n) return null;
-      r /= n; g /= n; b /= n;
+      // A genuinely monochrome sleeve: inventing a colour would put something on
+      // screen that appears nowhere on the cover.
+      if (!considered) return null;
+
+      const best = buckets.reduce((a, b) => (b.w > a.w ? b : a));
+      if (!best.w) return null;
+      const r = best.r / best.w, g = best.g / best.w, b = best.b / best.w;
 
       const max = Math.max(r, g, b) / 255, min = Math.min(r, g, b) / 255;
-      const l = (max + min) / 2, d2 = max - min;
+      const l = (max + min) / 2, delta = max - min;
       let h = 0;
-      if (d2) {
+      if (delta) {
         const rn = r / 255, gn = g / 255, bn = b / 255;
-        if (max === rn)      h = ((gn - bn) / d2 + (gn < bn ? 6 : 0)) / 6;
-        else if (max === gn) h = ((bn - rn) / d2 + 2) / 6;
-        else                 h = ((rn - gn) / d2 + 4) / 6;
+        if (max === rn)      h = ((gn - bn) / delta + (gn < bn ? 6 : 0)) / 6;
+        else if (max === gn) h = ((bn - rn) / delta + 2) / 6;
+        else                 h = ((rn - gn) / delta + 4) / 6;
       }
-      const s = d2 === 0 ? 0 : d2 / (1 - Math.abs(2 * l - 1));
-      // A near-grey cover has no hue worth trusting; inventing one would put a
-      // colour on screen that appears nowhere on the sleeve.
-      if (s < 0.12) return null;
-      return `hsl(${Math.round(h * 360)}, ${Math.round(Math.max(0.62, Math.min(1, s)) * 100)}%, ${Math.round(Math.max(0.55, Math.min(0.68, l)) * 100)}%)`;
+      const sat = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+      // Floors, so a muted sleeve still yields something that reads as an accent
+      // against the card rather than another shade of grey.
+      return `hsl(${Math.round(h * 360)}, ${Math.round(Math.max(0.55, Math.min(1, sat)) * 100)}%, ${Math.round(Math.max(0.52, Math.min(0.68, l)) * 100)}%)`;
     } catch { return null; }
   }
 

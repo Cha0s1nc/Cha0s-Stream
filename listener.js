@@ -1422,8 +1422,10 @@ async function ciderControl(action) {
 }
 
 /**
- * Apple Music artwork URLs carry {w}/{h} placeholders that must be substituted
- * before the URL resolves. Left as-is they 404.
+ * Apple Music artwork URLs can carry {w}/{h} placeholders, which 404 unless
+ * substituted. Cider resolves them itself before reporting a track - verified
+ * against a live queue - so this is usually a no-op, kept for the sources that
+ * hand them over raw.
  */
 function ciderArtUrl(url) {
   return typeof url === 'string' ? url.replace(/\{w\}/g, '600').replace(/\{h\}/g, '600') : null;
