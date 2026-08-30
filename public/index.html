@@ -788,7 +788,7 @@
               <div id="sounds-list" style="display:flex;flex-direction:column;gap:4px;"><div class="empty-state" style="padding:12px 0;font-size:12px;">No sounds yet</div></div>
             </div>
           </div>
-          <div class="settings-actions"><span class="save-status" id="save-status">✓ Saved</span><button class="btn btn-secondary" id="btn-check-updates" style="margin-right:auto">Check for Updates</button><button class="btn btn-secondary" id="btn-reset">Reset</button><button class="btn btn-primary" id="btn-save">Save Settings</button></div>
+          <div class="settings-actions"><span class="save-status" id="save-status">✓ Saved</span><button class="btn btn-secondary" id="btn-check-updates" style="margin-right:auto">Check for Updates</button><button class="btn btn-secondary" id="btn-reset">Reset</button><button class="btn btn-primary" id="btn-save">Save All Settings</button></div>
         </div>
       </div>
       <div class="panel-view" id="tab-dev">
@@ -1881,7 +1881,26 @@
       document.querySelectorAll('.sources-panel.open').forEach(p => p.classList.remove('open'));
     });
 
+    /**
+     * Toggle one source on a command.
+     *
+     * This used to be two function declarations of the same name, the second
+     * wrapping the first for the "new command" form via
+     * `const _orig = toggleSource`. Declarations hoist, so that capture bound
+     * the wrapper to itself and every real command blew the stack instead of
+     * changing anything. One declaration cannot shadow itself.
+     */
     function toggleSource(name, source, checked) {
+      // The new-command form has no entry in commandsConfig yet - its sources
+      // live in newCmdSources until the command is actually created.
+      if (name === 'new') {
+        newCmdSources = checked
+          ? [...new Set([...newCmdSources, source])]
+          : newCmdSources.filter(s => s !== source);
+        const newLabel = document.getElementById('sl-new');
+        if (newLabel) newLabel.textContent = sourcesLabel(newCmdSources);
+        return;
+      }
       if (!commandsConfig[name]) return;
       const sources = commandsConfig[name].sources || [];
       commandsConfig[name].sources = checked
@@ -2019,20 +2038,6 @@
     function deleteCustomCommand(name) {
       delete customCommandsConfig[name];
       renderCustomCommandsTable();
-    }
-
-    // Override toggleSource for the "new command" form
-    const _origToggleSource = toggleSource;
-    function toggleSource(name, source, checked) {
-      if (name === 'new') {
-        newCmdSources = checked
-          ? [...new Set([...newCmdSources, source])]
-          : newCmdSources.filter(s => s !== source);
-        const label = document.getElementById('sl-new');
-        if (label) label.textContent = sourcesLabel(newCmdSources);
-        return;
-      }
-      _origToggleSource(name, source, checked);
     }
 
     function updateNewCmdPlaceholder() {
@@ -2404,16 +2409,22 @@
     }
 
     document.getElementById('btn-save').addEventListener('click', async () => {
-      // The alert and chat overlays persist through their own endpoints, so this
-      // button used to skip them entirely: change the alert position, press the
-      // big Save, and nothing wrote it - then switching panels reloaded the old
-      // value from the store and it looked like the setting had reset. Save the
-      // whole page, not the part of it that happens to live in `fields`.
+      // Six sections of this page persist through their own endpoints rather
+      // than through `fields`, each with its own save button. This one skipped
+      // all of them: change the alert position, press the big Save, and nothing
+      // wrote it - then switching panels reloaded the old value from the store
+      // and the section looked like it had reset itself. If the button says All,
+      // it has to mean all.
       //
-      // Awaited before the bulk save below, because that one restarts the
-      // listener and the restart reads these back out of the store.
+      // Every one of these is awaited BEFORE the bulk save below, because that
+      // restarts the listener and these post to it. saveRedeems() used to run
+      // after, so it was posting into a server that was on its way down.
       await saveAlertConfig();
       await saveChatConfig();
+      await saveCommands();
+      await saveCustomCommands();
+      await saveTriggers();
+      await saveRedeems();
       // nowPlayingCfg is normally kept current by input events; re-read the form
       // so the bulk save cannot depend on one having fired.
       refreshNowPlayingUrl();
@@ -2443,7 +2454,6 @@
       } else {
         try { await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }); } catch {}
       }
-      await saveRedeems();
       const status = document.getElementById('save-status');
       status.classList.add('visible'); setTimeout(() => status.classList.remove('visible'), 3000);
     });
