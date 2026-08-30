@@ -615,6 +615,12 @@
           <div class="settings-group">
             <div class="settings-group-title">Song Requests</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Enable Song Requests</div><div class="setting-desc">Allow viewers to request songs.</div></div><label class="toggle"><input type="checkbox" id="cfg-sr-enabled" /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Request Handling</div><div class="setting-desc">Approve: a mod or you must approve each request before it queues. Open: requests queue immediately.</div></div><div class="seg-control"><button class="seg-btn active" data-srapproval="approve">Approve first</button><button class="seg-btn" data-srapproval="open">Open</button></div></div>
+            <div class="settings-group-subtitle">Request Filters</div>
+            <div style="padding:6px 14px 4px;font-size:11px;color:var(--text3);">Checked against the track a request resolves to, not what was typed. Matching is case-insensitive and partial, so a short entry can catch more than you meant — "war" would also block "Warpaint".</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Allow Explicit</div><div class="setting-desc">Off refuses tracks marked explicit. Apple Music and Spotify report this; Jellyfin does not, so it cannot be filtered there.</div></div><label class="toggle"><input type="checkbox" id="cfg-sr-allow-explicit" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Blocked Artists</div><div class="setting-desc">One per line.</div></div><textarea class="css-textarea" id="cfg-sr-blocked-artists" style="height:64px;" placeholder="Rick Astley"></textarea></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Blocked Songs</div><div class="setting-desc">One per line.</div></div><textarea class="css-textarea" id="cfg-sr-blocked-songs" style="height:64px;" placeholder="Baby Shark"></textarea></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Request Mode</div><div class="setting-desc">Chat: !sr [song]. Channel Points: requires affiliate.</div></div><div class="seg-control"><button class="seg-btn active" data-srmode="chat" id="srmode-chat">Chat (!sr)</button><button class="seg-btn" data-srmode="channel_points" id="srmode-redeem">Channel Points</button></div></div>
             <div class="setting-row" id="sr-redeem-name-row"><div class="setting-label"><div class="setting-name">Redeem Name</div><div class="setting-desc">Exact name of the channel point reward</div></div><input class="setting-input" id="cfg-sr-redeem-name" type="text" placeholder="Song Request" /></div>
           </div>
@@ -1647,6 +1653,28 @@
       btn.addEventListener('click', () => setAlertModeUI(btn.dataset.alertmode));
     });
 
+    // --- Song requests ---
+    let srApproval = 'approve';
+    function setSrApprovalUI(mode) {
+      srApproval = mode === 'open' ? 'open' : 'approve';
+      document.querySelectorAll('.seg-btn[data-srapproval]').forEach(b =>
+        b.classList.toggle('active', b.dataset.srapproval === srApproval));
+    }
+    document.querySelectorAll('.seg-btn[data-srapproval]').forEach(btn =>
+      btn.addEventListener('click', () => setSrApprovalUI(btn.dataset.srapproval)));
+
+    /** Textareas are one-per-line; the stored shape is an array. */
+    const linesToList = (id) => (document.getElementById(id)?.value || '')
+      .split('\n').map(v => v.trim()).filter(Boolean);
+
+    function songRequestFilters() {
+      return {
+        blockedArtists: linesToList('cfg-sr-blocked-artists'),
+        blockedSongs:   linesToList('cfg-sr-blocked-songs'),
+        allowExplicit:  document.getElementById('cfg-sr-allow-explicit')?.checked !== false,
+      };
+    }
+
     // --- Overlays ---
     /** Persist a partial settings patch, by whichever route this page has. */
     function persistSettings(patch) {
@@ -2362,6 +2390,13 @@
         if (saved.MEDIA_CONTROL_MODE) setMediaModeUI(saved.MEDIA_CONTROL_MODE);
         updateSpotifyUI(!!saved.SPOTIFY_ACCESS_TOKEN);
         if (saved.SONG_REQUEST_MODE) setSrModeUI(saved.SONG_REQUEST_MODE);
+        setSrApprovalUI(saved.SONG_REQUEST_APPROVAL || 'approve');
+        try {
+          const f = saved.SONG_REQUEST_FILTERS ? JSON.parse(saved.SONG_REQUEST_FILTERS) : {};
+          document.getElementById('cfg-sr-blocked-artists').value = (f.blockedArtists || []).join('\n');
+          document.getElementById('cfg-sr-blocked-songs').value   = (f.blockedSongs   || []).join('\n');
+          document.getElementById('cfg-sr-allow-explicit').checked = f.allowExplicit !== false;
+        } catch {}
         if (saved.ALERT_MODE) setAlertModeUI(saved.ALERT_MODE);
         // OVERLAYS_ENABLED replaced OVERLAY_MODE. Fall back to deriving from the
         // old key so an existing setup is not silently switched off on upgrade.
@@ -2430,6 +2465,8 @@
       settings.SEVENTV_ENABLED      = document.getElementById('cfg-seventv-enabled').checked ? 'true' : 'false';
       settings.BTTV_ENABLED         = document.getElementById('cfg-bttv-enabled').checked    ? 'true' : 'false';
       settings.CIDER_TOKEN = document.getElementById('cfg-cider-token')?.value.trim() || '';
+      settings.SONG_REQUEST_APPROVAL = srApproval;
+      settings.SONG_REQUEST_FILTERS  = JSON.stringify(songRequestFilters());
       settings.ALERT_MODE = alertMode;
       settings.OVERLAYS_ENABLED  = JSON.stringify(overlaysEnabled);
       settings.NOWPLAYING_CONFIG = JSON.stringify(nowPlayingCfg);
@@ -3235,6 +3272,7 @@
       // Modes
       setMediaModeUI('os');
       setSrModeUI('chat');
+      setSrApprovalUI('approve');
       setAlertModeUI('browser_source');
       overlaysEnabled = { events: true, chat: false, nowplaying: false };
       nowPlayingCfg = { ...NP_DEFAULTS };
