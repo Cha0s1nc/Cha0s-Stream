@@ -11,6 +11,7 @@ const PERSIST_KEYS = [
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH',
   'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE','CIDER_TOKEN','SPOTIFY_CLIENT_ID',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
+  'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
   'CHAT_OVERLAY_CONFIG','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
@@ -470,9 +471,9 @@ async function approveQueueEntry(id, via) {
   if (!entry) return { status: 404, body: { error: 'Not found' } };
   if (!entry.resolvedItem) return { status: 400, body: { error: 'No resolved item' } };
   try {
-    const session = await getControllableSession();
-    if (!session) return { status: 404, body: { error: 'No player to send it to' } };
-    await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${entry.resolvedItem.id}`, 'POST');
+    const { label, queueNext } = mediaAdapter();
+    if (!queueNext) return { status: 400, body: { error: `${label} cannot queue song requests` } };
+    await queueNext(entry.resolvedItem);
     entry.status = 'approved';
     broadcast({ event: 'queue_update', entry });
     addLog('jellyfin', 'queue', `Approved${via ? ` (${via})` : ''}: ${entry.resolvedItem.artist} — ${entry.resolvedItem.name}`);
@@ -1374,7 +1375,7 @@ async function osNowPlaying() {
 // Access). The header is `apptoken`: Cider's own docs say `apitoken`, and that
 // is simply wrong - verified against a running Cider, apptoken returns 200 and
 // apitoken 403.
-const CIDER_BASE = 'http://127.0.0.1:10767/api/v1/playback';
+const CIDER_API = 'http://127.0.0.1:10767/api/v1';
 
 /** Cider's config, where the tokens generated in its UI are stored. */
 function ciderConfigPath() {
@@ -1403,11 +1404,14 @@ function ciderToken() {
 
 function ciderIsConfigured() { return !!ciderToken(); }
 
-async function ciderFetch(path, method = 'GET') {
+async function ciderFetch(path, method = 'GET', body = null) {
   const token = ciderToken();
   if (!token) throw new Error('No Cider app token (Settings \u2192 Connectivity \u2192 Manage External Application Access)');
-  const r = await fetch(`${CIDER_BASE}${path}`, {
-    method, signal: AbortSignal.timeout(2000), headers: { apptoken: token },
+  const headers = { apptoken: token };
+  if (body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(`${CIDER_API}${path}`, {
+    method, signal: AbortSignal.timeout(6000), headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) throw new Error(r.status === 403 ? 'Cider rejected the app token' : `Cider returned ${r.status}`);
   return r;
@@ -1416,7 +1420,7 @@ async function ciderFetch(path, method = 'GET') {
 async function ciderControl(action) {
   // Cider has real play and pause, so these do not collapse into a toggle the
   // way Cascade's do - !play on an already-playing track is a no-op, not a stop.
-  const path = { play: '/play', pause: '/pause', next: '/next', prev: '/previous' }[action];
+  const path = { play: '/playback/play', pause: '/playback/pause', next: '/playback/next', prev: '/playback/previous' }[action];
   if (!path) throw new Error(`Unknown action: ${action}`);
   await ciderFetch(path, 'POST');
 }
@@ -1434,8 +1438,8 @@ function ciderArtUrl(url) {
 async function ciderNowPlaying() {
   try {
     const [npRes, playRes] = await Promise.all([
-      ciderFetch('/now-playing'),
-      ciderFetch('/is-playing').catch(() => null),
+      ciderFetch('/playback/now-playing'),
+      ciderFetch('/playback/is-playing').catch(() => null),
     ]);
     const info = (await npRes.json())?.info;
     // Verified against a running Cider: the envelope is { status, info }, and
@@ -1456,11 +1460,94 @@ async function ciderNowPlaying() {
   } catch { return null; }
 }
 
+// --- Song request backends ---
+// search() resolves a query to { id, type, name, artist, album, explicit } or
+// null; queueNext() puts a resolved item next in the player. A mode without
+// both simply cannot take song requests, and says so rather than dropping every
+// request into the wishlist.
+
+async function jellyfinSearch(query) {
+  if (!jellyfinToken) await authenticateJellyfin();
+  if (!jellyfinToken) throw new Error('Jellyfin is not connected');
+  const uid = jellyfinUserId;
+  const fields = 'Id,Name,Artists,Album,AlbumArtist';
+  const path = uid
+    ? `/Users/${uid}/Items?searchTerm=${encodeURIComponent(query)}&IncludeItemTypes=Audio&Recursive=true&Limit=1&Fields=${fields}`
+    : `/Items?searchTerm=${encodeURIComponent(query)}&IncludeItemTypes=Audio&Recursive=true&Limit=1&Fields=${fields}`;
+  const item = (await jellyfinRequest(path))?.Items?.[0];
+  if (!item) return null;
+  return {
+    id: item.Id, type: 'jellyfin',
+    name: item.Name || '',
+    artist: item.Artists?.[0] || item.AlbumArtist || '',
+    album: item.Album || '',
+    // Jellyfin has no reliable explicit flag on audio, so nothing to filter on.
+    explicit: false,
+  };
+}
+
+async function jellyfinQueueNext(item) {
+  const session = await getControllableSession();
+  if (!session) throw new Error('No player to send it to');
+  await jellyfinRequest(`/Sessions/${session.Id}/Playing?playCommand=PlayNext&itemIds=${item.id}`, 'POST');
+}
+
+/** Apple Music catalog search, through Cider's passthrough to the user's own
+ *  subscription. Cider exposes no search of its own; run-v3 forwards a raw
+ *  Apple Music API path. */
+async function ciderSearch(query) {
+  const storefront = process.env.CIDER_STOREFRONT || 'us';
+  const path = `/v1/catalog/${storefront}/search?term=${encodeURIComponent(query)}&types=songs&limit=1`;
+  const r = await ciderFetch('/amapi/run-v3', 'POST', { path });
+  const song = (await r.json())?.data?.results?.songs?.data?.[0];
+  if (!song) return null;
+  const a = song.attributes || {};
+  return {
+    id: song.id, type: 'songs',
+    name: a.name || '',
+    artist: a.artistName || '',
+    album: a.albumName || '',
+    explicit: a.contentRating === 'explicit',
+  };
+}
+
+async function ciderQueueNext(item) {
+  // Schema is { type, id } - both required strings, per the endpoint's own
+  // validation error.
+  await ciderFetch('/playback/play-next', 'POST', { type: item.type || 'songs', id: item.id });
+}
+
+async function spotifySearch(query) {
+  if (!spotifyIsConfigured()) throw new Error('Spotify is not connected');
+  const res = await spotifyApiCall(`/search?q=${encodeURIComponent(query)}&type=track&limit=1`);
+  if (!res.ok) throw new Error(`Spotify returned ${res.status}`);
+  const t = (await res.json())?.tracks?.items?.[0];
+  if (!t) return null;
+  return {
+    id: t.uri, type: 'track',
+    name: t.name || '',
+    artist: t.artists?.map(a => a.name).join(', ') || '',
+    album: t.album?.name || '',
+    explicit: !!t.explicit,
+  };
+}
+
+async function spotifyQueueNext(item) {
+  // Spotify has no "play next" - add-to-queue appends after the current track,
+  // which is the closest thing it offers.
+  const res = await spotifyApiCall(`/me/player/queue?uri=${encodeURIComponent(item.id)}`, 'POST');
+  if (!res.ok) throw new Error(res.status === 404 ? 'Spotify has no active device' : `Spotify returned ${res.status}`);
+}
+
 const MEDIA_MODES = {
-  cascade:  { label: 'Cascade',        nowPlaying: cascadeGetNowPlaying,  control: cascadeControl },
-  spotify:  { label: 'Spotify',        nowPlaying: spotifyGetCurrentTrack, control: spotifyControl, available: spotifyIsConfigured },
-  jellyfin: { label: 'Jellyfin',       nowPlaying: jellyfinNowPlaying,    control: jellyfinControl },
-  cider:    { label: 'Cider',          nowPlaying: ciderNowPlaying,       control: ciderControl,   available: ciderIsConfigured },
+  cascade:  { label: 'Cascade',        nowPlaying: cascadeGetNowPlaying,  control: cascadeControl,
+              search: jellyfinSearch, queueNext: jellyfinQueueNext },
+  spotify:  { label: 'Spotify',        nowPlaying: spotifyGetCurrentTrack, control: spotifyControl, available: spotifyIsConfigured,
+              search: spotifySearch,  queueNext: spotifyQueueNext },
+  jellyfin: { label: 'Jellyfin',       nowPlaying: jellyfinNowPlaying,    control: jellyfinControl,
+              search: jellyfinSearch, queueNext: jellyfinQueueNext },
+  cider:    { label: 'Cider',          nowPlaying: ciderNowPlaying,       control: ciderControl,   available: ciderIsConfigured,
+              search: ciderSearch,    queueNext: ciderQueueNext },
   os:       { label: 'OS media keys',  nowPlaying: osNowPlaying,          control: sendOSMediaKey },
 };
 
@@ -1761,41 +1848,106 @@ async function handleRedeem(redeemTitle, user, input) {
 }
 
 // --- Song request handler ---
+// --- Song request filtering ---
+// Blocked artists and songs are matched case-insensitively as substrings, so
+// "kanye" catches "Kanye West" without anyone maintaining exact spellings. That
+// also means a short entry can over-match: "war" would block "Warpaint". The
+// settings copy says so.
+const SR_FILTER_DEFAULTS = { blockedArtists: [], blockedSongs: [], allowExplicit: true };
+
+function getSongRequestFilters() {
+  try {
+    const raw = process.env.SONG_REQUEST_FILTERS;
+    if (raw) return { ...SR_FILTER_DEFAULTS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...SR_FILTER_DEFAULTS };
+}
+
+/** Why this request is refused, or null to allow it. */
+function songRequestBlockedReason(item) {
+  const f = getSongRequestFilters();
+  if (!f.allowExplicit && item.explicit) return 'it is marked explicit';
+  const artist = (item.artist || '').toLowerCase();
+  const name   = (item.name   || '').toLowerCase();
+  const hit = (list, hay) => (Array.isArray(list) ? list : [])
+    .map(v => String(v).trim().toLowerCase()).filter(Boolean)
+    .find(v => hay.includes(v));
+  const badArtist = hit(f.blockedArtists, artist);
+  if (badArtist) return `"${badArtist}" is on the blocked artists list`;
+  const badSong = hit(f.blockedSongs, name);
+  if (badSong) return `"${badSong}" is on the blocked songs list`;
+  return null;
+}
+
+/** 'approve' (default) holds requests for a mod; 'open' queues them straight. */
+function songRequestMode() {
+  return process.env.SONG_REQUEST_APPROVAL === 'open' ? 'open' : 'approve';
+}
+
 async function handleSongRequest(user, query, source) {
   if (!query || process.env.SONG_REQUEST_ENABLED === 'false') return;
-  addLog('jellyfin', '!sr', `${user} requested: ${query}`);
-  let resolvedItem = null;
-  try {
-    if (!jellyfinToken) await authenticateJellyfin();
-    if (jellyfinToken) {
-      const uid = jellyfinUserId;
-      const searchPath = uid
-        ? `/Users/${uid}/Items?searchTerm=${encodeURIComponent(query)}&IncludeItemTypes=Audio&Recursive=true&Limit=1&Fields=Id,Name,Artists,Album`
-        : `/Items?searchTerm=${encodeURIComponent(query)}&IncludeItemTypes=Audio&Recursive=true&Limit=1&Fields=Id,Name,Artists,Album`;
-      const result = await jellyfinRequest(searchPath);
-      if (result?.Items?.length > 0) {
-        const item = result.Items[0];
-        resolvedItem = { id: item.Id, name: item.Name, artist: item.Artists?.[0] || item.AlbumArtist || '', album: item.Album || '' };
-      }
-    }
-  } catch (err) { console.log('Song search error:', err.message); }
+  const { label, search, queueNext } = mediaAdapter();
+  const tmpl = state.commands.sr?.response;
+  const reply = async (result) => { if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, query, result })); };
+  addLog('system', '!sr', `${user} requested: ${query}`);
 
-  if (!resolvedItem) {
+  // OS media keys can drive a player but cannot search one, so say that rather
+  // than wishlisting every request as "not found".
+  if (!search || !queueNext) {
+    addLog('system', '!sr', `${label} cannot take song requests`, false);
+    await reply(`song requests aren't available in ${label} mode.`);
+    return;
+  }
+
+  let item = null;
+  try {
+    item = await search(query);
+  } catch (err) {
+    addLog('system', '!sr', `${label}: ${err.message}`, false);
+    await reply(`I couldn't search ${label} (${err.message}).`);
+    return;
+  }
+
+  if (!item) {
     const entry = { id: `wish_${Date.now()}`, user, query, addedAt: new Date().toISOString() };
     state.wishlist.unshift(entry);
     if (state.wishlist.length > 200) state.wishlist.pop();
     broadcast({ event: 'wishlist_add', entry });
-    addLog('jellyfin', '!sr', `"${query}" not in library — added to wishlist`, false);
-    const tmpl = state.commands.sr?.response;
-    if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, query, result: `"${query}" wasn't found in the library — added to the wishlist!` }));
-  } else {
-    const entry = { id: `req_${Date.now()}`, user, query, source, resolvedItem, status: 'pending', addedAt: new Date().toISOString() };
-    state.queue.push(entry);
-    broadcast({ event: 'queue_add', entry });
-    addLog('jellyfin', '!sr', `Queued: ${resolvedItem.artist} — ${resolvedItem.name}`);
-    const tmpl = state.commands.sr?.response;
-    if (tmpl) await sendChatMessage(fillTemplate(tmpl, { user, query, result: `"${resolvedItem.artist} — ${resolvedItem.name}" added to the queue!` }));
+    addLog('system', '!sr', `"${query}" not found — added to wishlist`, false);
+    await reply(`"${query}" wasn't found — added to the wishlist!`);
+    return;
   }
+
+  // Filters run on the resolved track, not the raw query: someone asking for
+  // "that one song" should still be caught by the artist it resolves to.
+  const blocked = songRequestBlockedReason(item);
+  if (blocked) {
+    addLog('system', '!sr', `Blocked: ${item.artist} — ${item.name} (${blocked})`, false);
+    await reply(`"${item.artist} — ${item.name}" can't be requested: ${blocked}.`);
+    return;
+  }
+
+  const track = `${item.artist} — ${item.name}`;
+  if (songRequestMode() === 'open') {
+    try {
+      await queueNext(item);
+      const entry = { id: `req_${Date.now()}`, user, query, source, resolvedItem: item, status: 'approved', addedAt: new Date().toISOString() };
+      state.queue.push(entry);
+      broadcast({ event: 'queue_add', entry });
+      addLog('system', '!sr', `Queued (open): ${track}`);
+      await reply(`"${track}" added to the queue!`);
+    } catch (err) {
+      addLog('system', '!sr', `Queue failed: ${err.message}`, false);
+      await reply(`I found "${track}" but couldn't queue it (${err.message}).`);
+    }
+    return;
+  }
+
+  const entry = { id: `req_${Date.now()}`, user, query, source, resolvedItem: item, status: 'pending', addedAt: new Date().toISOString() };
+  state.queue.push(entry);
+  broadcast({ event: 'queue_add', entry });
+  addLog('system', '!sr', `Pending approval: ${track}`);
+  await reply(`"${track}" is waiting for a mod to approve it.`);
 }
 
 // --- Service reconnect ---
@@ -1866,7 +2018,7 @@ app.get('/api/art', async (req, res) => {
 });
 
 app.get('/api/cider/status', async (req, res) => {
-  try { await ciderFetch('/active'); res.json({ running: true }); }
+  try { await ciderFetch('/playback/active'); res.json({ running: true }); }
   catch { res.json({ running: false }); }
 });
 
@@ -2860,7 +3012,8 @@ const SETTINGS_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
   'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
   'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','CIDER_TOKEN','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
-  'SONG_REQUEST_ENABLED','TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
+  'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT',
+  'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
   'SEVENTV_ENABLED','BTTV_ENABLED',
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
