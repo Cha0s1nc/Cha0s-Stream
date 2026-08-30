@@ -817,7 +817,7 @@
 </div>
 <input type="file" id="sound-upload-trigger-input" accept=".mp3,.wav,.ogg,.flac" style="display:none;">
 <script>
-    let ws, totalCommands = 0, totalErrors = 0, activeFilter = 'all', songPollInterval;
+    let ws, totalCommands = 0, totalErrors = 0, activeFilter = 'all';
     let mediaMode = 'jellyfin';
     let srMode = 'chat';
     let srEnabled = true;
@@ -965,8 +965,12 @@
           if (data.username) toSave.TWITCH_CHANNEL = data.username;
           persistSettings(toSave);
         } else if (data.event === 'now_playing') {
+          // The only thing that writes this. It used to fight a 15s poll of
+          // /media that was started and cleared by Jellyfin's connection state,
+          // so on Cider, Spotify or OS modes without Jellyfin the failing check
+          // wiped the bar every 30 seconds.
           const el = document.getElementById('np-track');
-          if (el) el.textContent = data.track || '—';
+          if (el) el.textContent = data.track || 'Nothing playing';
         } else if (data.event === 'twitch_disconnected') {
           updateTwitchUI(data.which, null);
         } else if (data.event === 'spotify_connected') {
@@ -1004,10 +1008,6 @@
         item.classList.toggle('paused', paused);
         const svcName = service === 'jellyfin' ? 'Jellyfin' : service === 'obs' ? 'OBS' : 'Twitch';
         item.title = paused ? `${svcName} — paused, click to retry` : svcName;
-      }
-      if (service === 'jellyfin') {
-        if (connected) startSongPoll();
-        else { clearInterval(songPollInterval); document.getElementById('np-track').textContent = '—'; }
       }
     }
 
@@ -1497,16 +1497,6 @@
         if (dot) { dot.classList.remove('paused'); dot.classList.add('off'); }
         if (item) { item.classList.remove('paused'); }
       } catch (e) { console.warn('reconnect failed', e); }
-    }
-
-    function startSongPoll() { fetchSong(); clearInterval(songPollInterval); songPollInterval = setInterval(fetchSong, 15000); }
-
-    async function fetchSong() {
-      try {
-        const res = await fetch('/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'song' }) });
-        const data = await res.json();
-        document.getElementById('np-track').textContent = (data.nothing || !data.song) ? 'Nothing playing' : data.song;
-      } catch { document.getElementById('np-track').textContent = 'Could not reach Jellyfin'; }
     }
 
     function addLog(entry) {
