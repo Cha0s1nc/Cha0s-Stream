@@ -11,7 +11,7 @@ const PERSIST_KEYS = [
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH',
   'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE','CIDER_TOKEN','SPOTIFY_CLIENT_ID',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
-  'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT',
+  'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
   'CHAT_OVERLAY_CONFIG','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
@@ -2017,6 +2017,21 @@ app.get('/api/art', async (req, res) => {
   } catch { res.status(504).end(); }
 });
 
+// The mod queue link, token included. Served from the main app rather than the
+// mod server so the streamer can read it without already holding the token.
+app.get('/api/mod/link', (req, res) => {
+  const port = parseInt(process.env.MOD_PORT) || MOD_PORT;
+  res.json({ url: `http://localhost:${port}/?token=${modToken()}` });
+});
+
+app.post('/api/mod/link', (req, res) => {
+  process.env.MOD_TOKEN = crypto.randomBytes(24).toString('hex');
+  persistSettings();
+  modWss.clients.forEach(c => c.terminate());   // old link stops working now, not on reconnect
+  addLog('system', 'mod', 'Mod queue link regenerated — existing sessions disconnected');
+  res.json({ ok: true });
+});
+
 app.get('/api/cider/status', async (req, res) => {
   try { await ciderFetch('/playback/active'); res.json({ running: true }); }
   catch { res.json({ running: false }); }
@@ -3012,7 +3027,7 @@ const SETTINGS_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
   'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
   'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','CIDER_TOKEN','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
-  'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT',
+  'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
   'SEVENTV_ENABLED','BTTV_ENABLED',
@@ -3526,8 +3541,52 @@ if (!process.env.ELECTRON_MODE) {
 const modApp = express();
 modApp.use(express.json());
 
+// --- Mod queue auth ---
+// This page is documented as something you share with mods over Tailscale or a
+// Cloudflare Tunnel, and it binds every interface - so it has never been merely
+// local. It carried no authentication at all, while its socket accepts a
+// `command` action that dispatches with broadcaster badges. Anyone who reached
+// the port could switch scenes, stop the stream, or talk in chat as the
+// broadcaster.
+//
+// A shared token is the smallest thing that closes that. It is generated on
+// first use and travels in the URL, because the people using this are opening a
+// link on a phone, not typing headers.
+function modToken() {
+  if (!process.env.MOD_TOKEN) {
+    process.env.MOD_TOKEN = crypto.randomBytes(24).toString('hex');
+    persistSettings();
+    addLog('system', 'mod', 'Generated a mod queue token — re-share the mod URL from Settings');
+  }
+  return process.env.MOD_TOKEN;
+}
+
+/** Constant-time compare, so the token cannot be guessed a character at a time. */
+function modTokenValid(given) {
+  const want = modToken();
+  if (typeof given !== 'string' || given.length !== want.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want));
+}
+
+modApp.use((req, res, next) => {
+  const given = req.query.token || req.get('x-mod-token') || '';
+  if (modTokenValid(String(given))) return next();
+  res.status(401).type('html').send(
+    '<body style="font-family:system-ui;background:#111113;color:#f5f5f7;display:flex;align-items:center;'
+    + 'justify-content:center;height:100vh;margin:0;text-align:center">'
+    + '<div><h2>Not authorised</h2><p style="color:#aeaeb2">Open the mod queue using the full link from '
+    + 'the streamer&rsquo;s Settings &rarr; Mod Queue.</p></div></body>');
+});
+
 const modServer = http.createServer(modApp);
-modWss = new WebSocketServer({ server: modServer });
+modWss = new WebSocketServer({ server: modServer, verifyClient: (info, done) => {
+  // The upgrade request skips the express middleware above, so it is checked here.
+  let token = '';
+  try { token = new URL(info.req.url, 'http://x').searchParams.get('token') || ''; } catch {}
+  if (modTokenValid(token)) return done(true);
+  addLog('system', 'mod', 'Rejected an unauthorised mod queue connection', false);
+  done(false, 401, 'Unauthorized');
+} });
 modWss.on('error', (err) => console.error(`Mod WebSocket server error: ${err.message}`));
 
 modWss.on('connection', (ws) => {
@@ -3683,7 +3742,8 @@ modApp.get('/', (req, res) => {
   }
 
   function connect() {
-    const ws = new WebSocket('ws://' + location.host);
+    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
+      + location.host + '/?token=' + encodeURIComponent(new URLSearchParams(location.search).get('token') || ''));
     ws.onopen = () => {
       document.getElementById('ws-dot').classList.add('live');
       document.getElementById('ws-label').textContent = 'live';

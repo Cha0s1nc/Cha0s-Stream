@@ -110,6 +110,8 @@ Under **Settings → Twitch**, enable **7TV Emotes** and/or **BTTV Emotes** to r
 
 The mod page runs at `http://<ip>:3001` and shows only the song request queue with approve/deny controls. Share it with mods via a tool like [Tailscale](https://tailscale.com) or something like a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
+> **Share the link from Settings, not just the address.** The mod page requires an access token that the link carries in its query string. Anyone holding that link can approve requests and act in your channel, so treat it like a password — and use **New link** in Settings to revoke it, which disconnects every open session immediately.
+
 ---
 
 ## Commands

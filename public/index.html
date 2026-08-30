@@ -761,6 +761,7 @@
             <div class="settings-group-title">Listener</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Port</div><div class="setting-desc">Port the listener runs on</div></div><input class="setting-input" id="cfg-listener-port" type="text" placeholder="3000" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue</div><div class="setting-desc">Enable the mod queue page on a separate port</div></div><label class="toggle"><input type="checkbox" id="cfg-mod-enabled" checked /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue Link</div><div class="setting-desc">Share this exact link — it carries the access token. Anyone holding it can approve requests and act in your channel, so treat it like a password.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="mod-queue-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('mod-queue-url')">Copy</button><button class="btn btn-secondary btn-sm" onclick="regenerateModToken()">New link</button></div></div>
             <div class="setting-row" id="mod-port-row"><div class="setting-label"><div class="setting-name">Mod Queue Port</div><div class="setting-desc">Port for the mod queue page</div></div><input class="setting-input" id="cfg-mod-port" type="text" placeholder="3001" /></div>
           </div>
           <div class="settings-group" id="sounds-group">
@@ -1777,6 +1778,20 @@
       if (st) { st.textContent = '✓ Saved'; st.style.opacity = '1'; setTimeout(() => st.style.opacity = '0.5', 1800); }
     }
 
+    async function refreshModQueueUrl() {
+      try {
+        const r = await fetch('/api/mod/link');
+        const el = document.getElementById('mod-queue-url');
+        if (el && r.ok) el.textContent = (await r.json()).url || '—';
+      } catch {}
+    }
+
+    async function regenerateModToken() {
+      if (!confirm('Generate a new mod queue link?\n\nThe old one stops working immediately and every mod will need the new one.')) return;
+      try { await fetch('/api/mod/link', { method: 'POST' }); } catch {}
+      refreshModQueueUrl();
+    }
+
     function setOverlayUrls() {
       const base = `http://${location.host}`;
       const set = (id, url) => { const el = document.getElementById(id); if (el) el.textContent = url; };
@@ -1784,6 +1799,7 @@
       set('overlay-chat-url',   `${base}/chat`);
       set('overlay-browser-url', `${base}/overlay`);
       refreshNowPlayingUrl();
+      refreshModQueueUrl();
     }
 
     function copyUrl(elId) {

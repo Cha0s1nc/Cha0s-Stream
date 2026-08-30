@@ -54,6 +54,7 @@ const STORE_SCHEMA = {
   CIDER_STOREFRONT:         { type: 'string', default: 'us' },
   MOD_ENABLED:              { type: 'string', default: 'true' },
   MOD_PORT:                 { type: 'string', default: '3001' },
+  MOD_TOKEN:                { type: 'string', default: '' },
   ALERT_MODE:               { type: 'string', default: 'browser_source' },
   OVERLAYS_ENABLED:         { type: 'string', default: '' },
   NOWPLAYING_CONFIG:        { type: 'string', default: '' },
