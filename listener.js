@@ -22,6 +22,7 @@ const PERSIST_KEYS = [
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
+  'RELAY_ENABLED','RELAY_URL','RELAY_DEFER_COMMANDS',
 ];
 
 function persistEnv() {
@@ -116,6 +117,10 @@ const MOD_PORT = process.env.MOD_PORT || 3001;
 
 // modWss is created later — declared here so broadcast() can reach it
 let modWss = null;
+
+// Guard <-> Stream relay client. init() is called near the mod server block once
+// its dependencies exist; every method is a no-op until then / until connected.
+const relayClient = require('./relay-client');
 const OBS_HOST = process.env.OBS_HOST || 'localhost';
 const OBS_PORT = process.env.OBS_PORT || 4455;
 const OBS_PASSWORD = process.env.OBS_PASSWORD;
@@ -271,6 +276,11 @@ function broadcast(data) {
       if (client.readyState === WebSocket.OPEN) client.send(msg);
     });
   });
+  // ponytail: fire on every queue/wishlist mutation, no coalescing - these are
+  // user-paced. Add a debounce if a bulk import ever spams it.
+  if (data && typeof data.event === 'string' && /^(queue|wishlist)_/.test(data.event)) {
+    relayClient.pushSnapshot();
+  }
 }
 
 function addLog(type, command, detail, ok = true) {
@@ -482,6 +492,19 @@ async function approveQueueEntry(id, via) {
     addLog('jellyfin', 'queue', `Approve failed: ${err.message}`, false);
     return { status: 500, body: { error: err.message } };
   }
+}
+
+/**
+ * Remove a pending request from the queue. Shared by the dashboard route, the
+ * mod-queue route, and the relay client, which had drifted (different log lines).
+ */
+function skipQueueEntry(id, via) {
+  const idx = state.queue.findIndex(e => e.id === id);
+  if (idx === -1) return { status: 404, body: { error: 'Not found' } };
+  const [entry] = state.queue.splice(idx, 1);
+  broadcast({ event: 'queue_remove', id: entry.id });
+  addLog('jellyfin', 'queue', `Skipped${via ? ` (${via})` : ''}: ${entry.query}`);
+  return { status: 200, body: { ok: true } };
 }
 
 async function getActiveSession() {
@@ -1109,7 +1132,10 @@ async function handleChatMessage(event) {
     sourceChannel, // null if same channel, login name if shared chat
     ts:        Date.now(),
   });
-  await dispatchCommand(event, 'chat', user, text);
+  // When deferring to Guard, skip the `!` command path here so the two bots
+  // don't both answer. Keyword commands and TTS still run locally.
+  const deferToGuard = process.env.RELAY_DEFER_COMMANDS === 'true' && relayClient.isConnected();
+  await dispatchCommand(event, 'chat', user, text, { keywordOnly: deferToGuard });
 
   // Chat TTS
   if (process.env.TTS_ENABLED === 'true' && process.env.TTS_CHAT_ENABLED === 'true') {
@@ -1136,7 +1162,7 @@ async function handleWhisperMessage(event) {
     event?.whisper?.text || '');
 }
 
-async function dispatchCommand(permEvent, source, user, text) {
+async function dispatchCommand(permEvent, source, user, text, opts = {}) {
   text = (text || '').trim();
 
   // Keyword matching — runs on every message regardless of ! prefix
@@ -1158,7 +1184,9 @@ async function dispatchCommand(permEvent, source, user, text) {
     // Don't return — multiple keyword commands can fire on the same message
   }
 
-  if (!text.startsWith('!')) return;
+  // keywordOnly: relay defer mode still runs keyword/contains matches locally
+  // (Guard has no equivalent), but hands `!` commands to Guard.
+  if (opts.keywordOnly || !text.startsWith('!')) return;
 
   const parts = text.slice(1).split(/\s+/);
   const cmd = parts[0].toLowerCase();
@@ -1226,8 +1254,15 @@ async function dispatchCommand(permEvent, source, user, text) {
 }
 
 // --- Chat response sender ---
+// When set, a command's chat reply is captured here instead of being sent to
+// Twitch: the relay client uses this so Guard can post the reply from its own
+// bot identity. Set/cleared around each relayed command (drained serially).
+let replyInterceptor = null;
+function setReplyInterceptor(fn) { replyInterceptor = fn; }
+
 async function sendChatMessage(text, sender = 'auto') {
   if (!text) return;
+  if (replyInterceptor) { replyInterceptor(String(text)); return; }
   const clientId = getEffectiveClientId();
   const channel = process.env.TWITCH_CHANNEL || '';
   if (!channel) return;
@@ -2136,12 +2171,8 @@ app.post('/api/queue/:id/approve', async (req, res) => {
 });
 
 app.post('/api/queue/:id/skip', (req, res) => {
-  const idx = state.queue.findIndex(e => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  const [entry] = state.queue.splice(idx, 1);
-  broadcast({ event: 'queue_remove', id: entry.id });
-  addLog('jellyfin', 'queue', `Skipped: ${entry.query}`);
-  res.json({ ok: true });
+  const { status, body } = skipQueueEntry(req.params.id, null);
+  res.status(status).json(body);
 });
 
 app.delete('/api/wishlist/:id', (req, res) => {
@@ -2916,6 +2947,7 @@ app.post('/api/commands', (req, res) => {
   process.env.COMMANDS_CONFIG = JSON.stringify(state.commands);
   persistSettings();
   broadcast({ event: 'commands_update', commands: state.commands });
+  relayClient.commandsChanged();
   addLog('system', 'settings', 'Command config updated');
   res.json({ ok: true });
 });
@@ -2942,6 +2974,7 @@ app.post('/api/custom-commands', (req, res) => {
   process.env.CUSTOM_COMMANDS = JSON.stringify(state.customCommands);
   persistSettings();
   broadcast({ event: 'custom_commands_update', commands: state.customCommands });
+  relayClient.commandsChanged();
   addLog('system', 'settings', 'Custom commands updated');
   res.json({ ok: true });
 });
@@ -3037,6 +3070,7 @@ const SETTINGS_KEYS = [
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
+  'RELAY_ENABLED','RELAY_URL','RELAY_DEFER_COMMANDS',
 ];
 
 app.get('/settings', (req, res) => {
@@ -3079,6 +3113,7 @@ app.post('/settings', (req, res) => {
     sevenTvCacheHadBroadcaster = false;
   }
   if (updated.includes('MEDIA_CONTROL_MODE')) nowPlayingStartPolling();
+  if (updated.some(k => k.startsWith('RELAY_'))) relayClient.reload();
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
     const enabled = process.env.MOD_ENABLED !== 'false';
     if (!enabled && modServer.listening) {
@@ -3107,6 +3142,7 @@ wss.on('connection', (ws) => {
     queue: state.queue, wishlist: state.wishlist,
     commands: state.commands,
     customCommands: state.customCommands,
+    relay: relayClient.status(),
     plugins: Array.from(loadedPlugins.values()).map(({ manifest, enabled }) => ({
       id: manifest.id, name: manifest.name, version: manifest.version || '1.0.0',
       description: manifest.description || '', author: manifest.author || '',
@@ -3606,12 +3642,8 @@ modApp.post('/api/queue/:id/approve', async (req, res) => {
 });
 
 modApp.post('/api/queue/:id/skip', (req, res) => {
-  const idx = state.queue.findIndex(e => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  const [entry] = state.queue.splice(idx, 1);
-  broadcast({ event: 'queue_remove', id: entry.id });
-  addLog('jellyfin', 'queue', `Denied (mod): ${entry.query}`);
-  res.json({ ok: true });
+  const { status, body } = skipQueueEntry(req.params.id, 'mod');
+  res.status(status).json(body);
 });
 
 modApp.get('/', (req, res) => {
@@ -3782,6 +3814,16 @@ modApp.get('/', (req, res) => {
 </script>
 </body>
 </html>`);
+});
+
+relayClient.init({
+  state,
+  broadcast,
+  addLog,
+  dispatchCommand,
+  approveQueueEntry,
+  skipQueueEntry,
+  setReplyInterceptor,
 });
 
 if (process.env.MOD_ENABLED !== 'false') {

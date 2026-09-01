@@ -764,6 +764,12 @@
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue Link</div><div class="setting-desc">Share this exact link — it carries the access token. Anyone holding it can approve requests and act in your channel, so treat it like a password.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="mod-queue-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('mod-queue-url')">Copy</button><button class="btn btn-secondary btn-sm" onclick="regenerateModToken()">New link</button></div></div>
             <div class="setting-row" id="mod-port-row"><div class="setting-label"><div class="setting-name">Mod Queue Port</div><div class="setting-desc">Port for the mod queue page</div></div><input class="setting-input" id="cfg-mod-port" type="text" placeholder="3001" /></div>
           </div>
+          <div class="settings-group">
+            <div class="settings-group-title">Guard Relay</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Connect to Guard</div><div class="setting-desc">Dial the Cha0s Stream Relay so Cha0s Guard can forward chat commands to this app. The app connects outward — no inbound port. <span id="relay-status-text" style="color:#aeaeb2;">disabled</span></div></div><label class="toggle"><input type="checkbox" id="cfg-relay-enabled" /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Relay URL</div><div class="setting-desc">Leave blank for the default (wss://stream.chaosinc.xyz/agent).</div></div><input class="setting-input" id="cfg-relay-url" type="text" placeholder="wss://stream.chaosinc.xyz/agent" style="width:280px" /></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Let Guard answer chat commands</div><div class="setting-desc">While connected, this app stops replying to <code>!</code> commands in chat so the two bots don't talk over each other. Keyword commands and TTS still run here.</div></div><label class="toggle"><input type="checkbox" id="cfg-relay-defer" /><span class="toggle-track"></span></label></div>
+          </div>
           <div class="settings-group" id="sounds-group">
             <div class="settings-group-title">TTS</div>
             <div style="padding:0 0 4px;">
@@ -884,6 +890,7 @@
           totalCommands = data.log.length;
           totalErrors = data.log.filter(l => !l.ok).length;
           updateStats();
+          if (data.relay) updateRelayStatus(data.relay);
           if (data.commands) { commandsConfig = data.commands; renderCommandsTable(); }
           if (data.customCommands) { customCommandsConfig = data.customCommands; renderCustomCommandsTable(); }
           loadTriggers();
@@ -912,6 +919,8 @@
             streamTwitchWasConnected = true;
             loadStreamEmotes();
           }
+        } else if (data.event === 'relay_status') {
+          updateRelayStatus(data);
         } else if (data.event === 'seventv_ready') {
           loadStreamEmotes();
         } else if (data.event === 'play_sound') {
@@ -1000,6 +1009,19 @@
           }
         }
       };
+    }
+
+    function updateRelayStatus(relay) {
+      const el = document.getElementById('relay-status-text');
+      if (!el) return;
+      if (!relay || !relay.enabled) { el.textContent = 'disabled'; el.style.color = '#aeaeb2'; return; }
+      if (relay.connected) {
+        el.textContent = relay.deferring ? 'connected — Guard is answering commands' : 'connected to Guard';
+        el.style.color = '#4ade80';
+      } else {
+        el.textContent = 'enabled — trying to reach the relay…';
+        el.style.color = '#fbbf24';
+      }
     }
 
     function updateService(service, connected, paused = false) {
@@ -2242,6 +2264,7 @@
       'cfg-script-allowlist': 'SCRIPT_ALLOWLIST',
       'cfg-listener-port': 'LISTENER_PORT',
       'cfg-mod-port': 'MOD_PORT',
+      'cfg-relay-url': 'RELAY_URL',
       'cfg-sr-redeem-name': 'SONG_REQUEST_REDEEM_NAME',
       'cfg-alert-obs-source': 'ALERT_OBS_SOURCE',
       'cfg-alert-duration': 'ALERT_OBS_DURATION',
@@ -2434,6 +2457,8 @@
         document.getElementById('cfg-tts-redemptions-enabled').checked  = saved.TTS_REDEMPTIONS_ENABLED === 'true';
         document.getElementById('cfg-tts-alerts-enabled').checked       = saved.TTS_ALERTS_ENABLED === 'true';
         updateTTSUI();
+        document.getElementById('cfg-relay-enabled').checked = saved.RELAY_ENABLED === 'true';
+        document.getElementById('cfg-relay-defer').checked   = saved.RELAY_DEFER_COMMANDS === 'true';
         const modEnabled = saved.MOD_ENABLED !== 'false';
         document.getElementById('cfg-mod-enabled').checked = modEnabled;
         modPortRow.style.opacity = modEnabled ? '1' : '0.4';
@@ -2487,6 +2512,8 @@
       settings.OVERLAYS_ENABLED  = JSON.stringify(overlaysEnabled);
       settings.NOWPLAYING_CONFIG = JSON.stringify(nowPlayingCfg);
       settings.MOD_ENABLED = document.getElementById('cfg-mod-enabled').checked ? 'true' : 'false';
+      settings.RELAY_ENABLED = document.getElementById('cfg-relay-enabled').checked ? 'true' : 'false';
+      settings.RELAY_DEFER_COMMANDS = document.getElementById('cfg-relay-defer').checked ? 'true' : 'false';
       settings.TTS_ENABLED             = document.getElementById('cfg-tts-enabled').checked             ? 'true' : 'false';
       settings.TTS_CHAT_ENABLED        = document.getElementById('cfg-tts-chat-enabled').checked        ? 'true' : 'false';
       settings.TTS_CHAT_SAY_NAME       = document.getElementById('cfg-tts-chat-say-name').checked       ? 'true' : 'false';
