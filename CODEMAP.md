@@ -136,7 +136,7 @@ SPA (vanilla JS). `nowplaying/overlay/alerts/chat.html` are browser sources.
 
 ## Guard relay (`relay-client.js`)
 
-Outbound client to the Cha0s Stream Relay (separate repo `cha0s-stream-relay`,
+Outbound client to the Cha0s Stream Relay (separate repo `Cha0s-Stream-Server`,
 deployed beside Cha0s Guard on OCI). Lets Guard be the single chat-command front
 door so Guard and Stream stop double-answering `!` commands.
 

@@ -1,7 +1,7 @@
 // Relay client: the outbound half of the Guard <-> Stream integration.
 //
 // When RELAY_ENABLED is set, this dials the Cha0s Stream Relay (see the
-// cha0s-stream-relay repo), authenticates with the broadcaster's Twitch token,
+// Cha0s-Stream-Server repo), authenticates with the broadcaster's Twitch token,
 // advertises the chat command list, and executes commands the relay forwards
 // from Guard. Guard becomes the single chat-command front door; Stream stops
 // answering `!` commands itself (RELAY_DEFER_COMMANDS) so the two bots no longer
