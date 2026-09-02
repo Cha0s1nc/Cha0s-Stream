@@ -1,6 +1,6 @@
 # CODEMAP
 
-Orientation for the Cha0s Stream codebase. Line numbers are as of `35ab8f4`
+Orientation for the Cha0s Stream codebase. Line numbers are as of `HEAD`
 (branch `dev`). If they've drifted, grep the symbol names.
 
 ## Shape of the thing
@@ -125,13 +125,16 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
 ## electron/main.js map
 - `26-88` - `STORE_SCHEMA`: mirror of `PERSIST_KEYS` with defaults/types. Add
   here too when you add a setting.
-- `90-118` - store construction (schema-validated, cleared on corruption) and
+- `90-119` - store construction (schema-validated, cleared on corruption) and
   `getConfig()`, which derives the listener's env from `STORE_SCHEMA`.
-- `388-454` - `startListener()`: child fork + crash restart, and the
-  `listenerProcess.on('message')` IPC `persist` handler (432-442).
-- `583-721` - Twitch OAuth (token grant, `shell.openExternal`, one-shot
-  callback server on `OAUTH_CALLBACK_PORT`). `TWITCH_SCOPES` at 593.
-- `723-744` - `ipcMain.handle('twitch-auth-start')`.
+- `391-473` - `startListener()`: child fork, the `listenerProcess.on('message')`
+  IPC `persist` handler (434-444), and the crash restart (447-472). The restart
+  fires on any exit we did not ask for, signal deaths included; deliberate kills
+  set `expectedExit` on the child first. `crashStreak` caps a startup crash loop
+  at 5.
+- `602-740` - Twitch OAuth (token grant, `shell.openExternal`, one-shot
+  callback server on `OAUTH_CALLBACK_PORT` 611). `TWITCH_SCOPES` at 612.
+- `742-763` - `ipcMain.handle('twitch-auth-start')`.
 
 ## public/
 Single-file pages, no build. `index.html` (3504 lines) is the whole dashboard

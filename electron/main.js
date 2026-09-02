@@ -100,6 +100,7 @@ try {
 
 let mainWindow;
 let listenerProcess;
+let crashStreak = 0;
 let updaterWindow      = null;
 let pendingDownload    = null; // { version, downloadUrl, assetName, releaseUrl, destPath }
 
@@ -393,6 +394,7 @@ function startListener(config) {
     : path.join(__dirname, '..', 'listener.js');
 
   if (listenerProcess) {
+    listenerProcess.expectedExit = true;
     listenerProcess.kill();
     listenerProcess = null;
   }
@@ -444,12 +446,29 @@ function startListener(config) {
   listenerProcess.stdout?.on('data', d => console.log('[listener]', d.toString().trim()));
   listenerProcess.stderr?.on('data', d => console.error('[listener error]', d.toString().trim()));
   listenerProcess.on('error', err => console.error('[listener fork error]', err.message));
-  listenerProcess.on('exit', (code, signal) => {
+  const child = listenerProcess;
+  const startedAt = Date.now();
+  child.on('exit', (code, signal) => {
     console.log(`Listener exited with code ${code} signal ${signal}`);
-    if (code !== 0 && code !== null) {
-      console.log('Listener crashed — restarting in 3s');
-      setTimeout(() => startListener(getConfig()), 3000);
+    // A signal death reports code null, and this used to skip the restart for
+    // exactly that case: SIGSEGV in a native module, or the OOM killer, left the
+    // window open and looking healthy with the whole backend gone. Nothing
+    // served :3000, no Twitch, no relay, no overlays, and no indication why.
+    // Only an exit we asked for is not a crash, so track that instead of
+    // guessing from the exit code.
+    if (child.expectedExit) return;
+    if (code === 0) return;
+
+    // Widening the restart to signals means a listener that segfaults on startup
+    // would respawn every 3s forever. Count only the fast failures: a crash after
+    // a long healthy run resets the streak.
+    crashStreak = Date.now() - startedAt < 10000 ? crashStreak + 1 : 0;
+    if (crashStreak >= 5) {
+      console.error('Listener crashed 5 times in a row on startup - not restarting again.');
+      return;
     }
+    console.log('Listener crashed - restarting in 3s');
+    setTimeout(() => startListener(getConfig()), 3000);
   });
 }
 
@@ -774,10 +793,10 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (listenerProcess) listenerProcess.kill();
+  if (listenerProcess) { listenerProcess.expectedExit = true; listenerProcess.kill(); }
   app.quit();
 });
 
 app.on('before-quit', () => {
-  if (listenerProcess) listenerProcess.kill();
+  if (listenerProcess) { listenerProcess.expectedExit = true; listenerProcess.kill(); }
 });
