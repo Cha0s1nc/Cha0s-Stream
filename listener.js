@@ -138,7 +138,7 @@ const DEFAULT_COMMANDS = {
   sr:        { enabled: true,  permission: 'everyone',    sources: ['chat','whisper','redemption_input'], response: '@{user} — {result}',                           description: 'Request a song (!sr <query>)' },
   play:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '{result}',                                     description: 'Resume playback' },
   pause:     { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '{result}',                                     description: 'Pause playback' },
-  next:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '⏭ Skipped to next track',                      description: 'Skip to next track' },
+  skip:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '⏭ Skipped to next track',                      description: 'Skip to next track' },
   prev:      { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '⏮ Back to previous track',                     description: 'Go to previous track' },
   scene:     { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '',                                             description: 'Switch OBS scene (!scene <name>)' },
   source:    { enabled: true,  permission: 'moderator',   sources: ['chat','whisper'],                    response: '',                                             description: 'Toggle OBS source (!source <name> on|off)' },
@@ -171,6 +171,10 @@ try {
 try {
   if (process.env.COMMANDS_CONFIG) {
     const saved = JSON.parse(process.env.COMMANDS_CONFIG);
+    // ponytail: one-shot rename carry-over, delete once no install predates the
+    // !next -> !skip change. The loop below drops any key not in DEFAULT_COMMANDS,
+    // so without this an existing user's customised skip command silently reverts.
+    if (saved.next && !saved.skip) { saved.skip = saved.next; delete saved.next; }
     for (const [key, val] of Object.entries(saved)) {
       if (state.commands[key]) {
         if (typeof val.enabled === 'boolean') state.commands[key].enabled = val.enabled;
@@ -1245,7 +1249,7 @@ async function dispatchCommand(permEvent, source, user, text, opts = {}) {
     case 'sr':         await cmdSongRequest(user, args.join(' ')); break;
     case 'play':       await cmdMediaControl(user, 'play'); break;
     case 'pause':      await cmdMediaControl(user, 'pause'); break;
-    case 'next':       await cmdMediaControl(user, 'next'); break;
+    case 'skip':       await cmdMediaControl(user, 'next'); break;
     case 'prev':       await cmdMediaControl(user, 'prev'); break;
     case 'scene':      await cmdScene(user, args.join(' ')); break;
     case 'source':     await cmdSource(user, args[0], args[1]); break;

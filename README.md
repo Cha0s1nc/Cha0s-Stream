@@ -7,9 +7,9 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 ## Features
 
 - **OBS Controls** — scene switching, source toggling, stream and recording control from the dashboard or via chat commands. Full OBS tab with live scene list and source toggles, plus an optional OBS column in the Twitch Stream panel.
-- **Cascade integration** — direct playback control for the [Cascade](https://github.com/Cha0s1nc/Cascade-Project) Jellyfin music client via a local connection. `!play`, `!pause`, `!next`, and `!prev` work reliably without OS key simulation
+- **Cascade integration** — direct playback control for the [Cascade](https://github.com/Cha0s1nc/Cascade-Project) Jellyfin music client via a local connection. `!play`, `!pause`, `!skip`, and `!prev` work reliably without OS key simulation
 - **Jellyfin playback** — play, pause, skip, previous, and now playing via the Jellyfin session API
-- **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!next`, and `!prev` through the Spotify Web API (requires Spotify Premium)
+- **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!skip`, and `!prev` through the Spotify Web API (requires Spotify Premium)
 - **OS media keys** — system-level playback control and now playing detection (Spotify, Apple Music on Mac; Windows media transport on Windows; `playerctl` on Linux)
 - **Twitch chat overlays** — transparent browser source for live chat with 7TV, BTTV, and native Twitch emotes, badge pills, and per-message lifetime
 - **Alert overlays** — browser source or OBS source flash for follows, cheers, subs, resubsubs, and gift subs with per-type colours, messages, and sounds
@@ -67,7 +67,7 @@ If you need a custom client ID (e.g. to change the app name in auth prompts), ex
 
 Click **Connect Spotify** to authorize. You will need to create a free app at [developer.spotify.com](https://developer.spotify.com/dashboard) and add `http://localhost:4455/api/spotify/callback` as a redirect URI. Paste the Client ID into **Settings → Spotify → Advanced**.
 
-> Spotify playback controls (`!play`, `!pause`, `!next`, `!prev`) require Spotify Premium. `!song` works without Premium.
+> Spotify playback controls (`!play`, `!pause`, `!skip`, `!prev`) require Spotify Premium. `!song` works without Premium.
 
 ### OBS WebSocket
 
@@ -126,7 +126,7 @@ All commands are configurable from the **Commands** tab. Each has an enable togg
 | `!sr <query>` | Everyone | Requests a song |
 | `!play` | Moderator | Resumes playback |
 | `!pause` | Moderator | Pauses playback |
-| `!next` | Moderator | Skips to next track |
+| `!skip` | Moderator | Skips to next track |
 | `!prev` | Moderator | Goes to previous track |
 | `!scene [name]` | Moderator | Switches OBS scene — omit name to list available scenes |
 | `!source [name] on\|off` | Moderator | Toggles an OBS source — omit name to list sources in current scene |
