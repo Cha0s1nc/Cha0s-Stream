@@ -113,7 +113,11 @@ const wss = new WebSocketServer({ server });
 wss.on('error', (err) => console.error(`WebSocket server error: ${err.message}`));
 
 const PORT = process.env.LISTENER_PORT || 3000;
-const MOD_PORT = process.env.MOD_PORT || 3001;
+// Not 3001: that is Cha0s Guard's default API port, and anyone developing the Guard
+// relay runs both on one machine. They do not collide in production (Guard lives on a
+// server, this runs on the streamer's PC), but on a dev box whichever binds first wins
+// and the loser fails in a way that looks like anything but a port clash.
+const MOD_PORT = process.env.MOD_PORT || 3030;
 
 // modWss is created later — declared here so broadcast() can reach it
 let modWss = null;

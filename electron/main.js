@@ -53,7 +53,7 @@ const STORE_SCHEMA = {
   SONG_REQUEST_FILTERS:     { type: 'string', default: '' },
   CIDER_STOREFRONT:         { type: 'string', default: 'us' },
   MOD_ENABLED:              { type: 'string', default: 'true' },
-  MOD_PORT:                 { type: 'string', default: '3001' },
+  MOD_PORT:                 { type: 'string', default: '3030' },
   MOD_TOKEN:                { type: 'string', default: '' },
   RELAY_ENABLED:            { type: 'string', default: '' },
   RELAY_URL:                { type: 'string', default: '' },
