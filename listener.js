@@ -1643,7 +1643,12 @@ function cmdFailed(source, cmd, user, reason) {
 
   // Deliberately not a configurable template: this fires when the setup is
   // wrong, which is exactly when a user-edited response is least trustworthy.
-  sendChatMessage(`@${user} — I couldn't run "!${cmd}" (${reason}). Is it set up right?`).catch(() => {});
+  // The reason is whatever the underlying failure said, which for an exec or a
+  // fetch is a multi-line error carrying local paths, hostnames and script
+  // source. The log above keeps all of it; chat is public, so it gets a short
+  // single line.
+  const brief = String(reason).replace(/\s+/g, ' ').trim().slice(0, 100);
+  sendChatMessage(`@${user} — I couldn't run "!${cmd}" (${brief}). Is it set up right?`).catch(() => {});
 }
 
 

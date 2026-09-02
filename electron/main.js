@@ -580,11 +580,13 @@ ipcMain.handle('open-devtools', () => {
 });
 ipcMain.handle('get-dev-mode', () => isDevMode());
 
-// ── Twitch OAuth (PKCE, system browser, main-process owned) ───────────────────
+// ── Twitch OAuth (implicit grant, system browser, main-process owned) ─────────
 // Runs entirely in main.js so it survives listener restarts.
-// Spins up a one-time HTTP server on port 3773 per-auth-attempt, exchanges the
-// code via PKCE, fetches the username, saves to the store, restarts the listener,
-// and sends the result straight to the renderer via webContents.send.
+// Spins up a one-time HTTP server on port 3773 per-auth-attempt, reads the token
+// out of the URL fragment (see the note at response_type below), fetches the
+// username, saves to the store, restarts the listener, and sends the result
+// straight to the renderer via webContents.send.
+// The standalone listener uses PKCE instead; this path does not.
 
 const BUILTIN_CLIENT_ID   = '3u4lr8zav4saitil8q3fhrydcstta6';
 const OAUTH_CALLBACK_PORT = 3773;

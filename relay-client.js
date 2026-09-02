@@ -23,6 +23,7 @@ let connected = false;
 let started = false;
 let attempt = 0;
 let reconnectTimer = null;
+let warnedNoToken = false;
 
 // command.run is processed one at a time: the reply interceptor in
 // sendChatMessage is a single module global, so overlapping runs would cross
@@ -62,6 +63,14 @@ function stop() {
 
 function connect() {
   if (!started) return;
+  // The relay authenticates us with this token, so without one the socket would
+  // just sit unauthenticated until the relay's handshake timeout closed it, and
+  // we would dial straight back. Wait for the streamer to finish Twitch auth.
+  if (!process.env.TWITCH_OAUTH) {
+    if (!warnedNoToken) { log('waiting for Twitch auth before connecting'); warnedNoToken = true; }
+    return scheduleReconnect();
+  }
+  warnedNoToken = false;
   const url = process.env.RELAY_URL || DEFAULT_URL;
   let sock;
   try { sock = new WebSocket(url); }
@@ -177,6 +186,13 @@ async function drainRunQueue() {
   }
 }
 
+// Null-prototype: a plain object literal answers BADGES['constructor'] with a
+// function and BADGES['__proto__'] with an object, so an odd userLevel used to
+// blow up in .map() below instead of falling back to no badges.
+const BADGES = Object.assign(Object.create(null), {
+  moderator: ['moderator'], vip: ['vip'], subscriber: ['subscriber'],
+});
+
 // checkPermission() in listener.js reads badges, and treats chatter == broadcaster
 // as broadcaster level. Build the smallest event that satisfies it.
 function fakeEvent(userLevel) {
@@ -184,7 +200,7 @@ function fakeEvent(userLevel) {
   if (userLevel === 'broadcaster') {
     return { broadcaster_user_id: bid, chatter_user_id: bid, badges: [{ set_id: 'broadcaster' }] };
   }
-  const badges = { moderator: ['moderator'], vip: ['vip'], subscriber: ['subscriber'] }[userLevel] || [];
+  const badges = BADGES[userLevel] || [];
   return {
     broadcaster_user_id: bid,
     chatter_user_id: 'relay-user',
