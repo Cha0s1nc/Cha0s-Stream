@@ -1,6 +1,6 @@
 # CODEMAP
 
-Orientation for the Cha0s Stream codebase. Line numbers are as of `f85a309`
+Orientation for the Cha0s Stream codebase. Line numbers are as of `f2a5aa1`
 (branch `dev`). If they've drifted, grep the symbol names.
 
 ## Shape of the thing
