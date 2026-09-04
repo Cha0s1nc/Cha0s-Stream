@@ -13,7 +13,7 @@ Electron desktop app. Two processes:
   listener as a child and restarts it on non-zero exit. Settings are pushed to
   the child as env vars; the child sends `{type:'persist', patch}` back up when
   it changes one.
-- **`listener.js`** (3849 lines) - everything else. HTTP + WebSocket servers,
+- **`listener.js`** (3889 lines) - everything else. HTTP + WebSocket servers,
   Twitch EventSub client, OBS control, Jellyfin/Cider/Spotify now-playing,
   chat command dispatch, song requests, alerts/overlays, plugin host. This is
   the file you'll spend your time in.
@@ -57,7 +57,7 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   the entry, calls `mediaAdapter().queueNext()`, marks `approved`, logs
   `Approved (via)`. Called by both the dashboard route and the mod-queue route.
 - `730-795` - now-playing polling loop + `nowPlayingPayload()`.
-- `1898-1999` - song request intake, filters (`SONG_REQUEST_FILTERS`),
+- `1938-2039` - song request intake, filters (`SONG_REQUEST_FILTERS`),
   approval mode (`SONG_REQUEST_APPROVAL`: `approve` = queue for review,
   `open` = auto-queue).
 - `mediaAdapter()` / `mediaMode()` - dispatch to jellyfin/cider/spotify/os.
@@ -68,7 +68,7 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   commands. `source` is `chat|whisper|redemption_input`.
 - `1247-1261` - the builtin `switch`. `cmdRun` (1258) and `cmdKillswitch`
   (1259) live here.
-- `1769-1802` - `cmdRun`: fetches a script URL, host must be in
+- `1809-1842` - `cmdRun`: fetches a script URL, host must be in
   `SCRIPT_ALLOWLIST`, then `exec`s it. This is the RCE surface the portal doc
   is scared of.
 - `1271+` - `sendChatMessage(text, sender)`: `broadcaster|bot|auto`.
@@ -77,48 +77,48 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
 - `1045` - `twitchWs = new WebSocket('wss://eventsub.wss.twitch.tv/ws')`.
   Keepalive, reconnect, subscription registration. Chat messages arrive here
   and are handed to `dispatchCommand`.
-- `3245-3256` - `TWITCH_SCOPES` (listener, standalone/PKCE path).
+- `3285-3296` - `TWITCH_SCOPES` (listener, standalone/PKCE path).
   `electron/main.js:593` has its own copy for the Electron token-grant path.
   **Neither includes `moderation:read` / `user:read:moderated_channels`.**
-- `3260-3330` - PKCE OAuth flow, `pendingOAuthFlows` map, `startOAuthFlow()`.
-- `3332-3498` - auth info/start/callback routes + Spotify OAuth.
+- `3300-3370` - PKCE OAuth flow, `pendingOAuthFlows` map, `startOAuthFlow()`.
+- `3372-3538` - auth info/start/callback routes + Spotify OAuth.
 
 ### Main dashboard socket (port 3000, `wss`)
-- `3144-3226` - `wss.on('connection')`. Sends a big `init` payload, then
+- `3184-3266` - `wss.on('connection')`. Sends a big `init` payload, then
   `ws.on('message')` handles inbound **actions** from clients (Macro Deck
   plugin, etc.):
   - `obs_scene`, `obs_stream`, `obs_record`, `obs_source`, `chat_send`
-  - **`command` (3212-3218)** - builds a fake chat event with a
+  - **`command` (3252-3258)** - builds a fake chat event with a
     `broadcaster` badge and calls `dispatchCommand`. Anything that reaches
     this socket runs commands as the broadcaster, `run`/`killswitch`
     included. The socket has **no auth**. This is the "narrow it" prerequisite
     in the portal doc.
 
 ### Mod queue (port 3030, `modApp` / `modServer` / `modWss`)
-- `3589-3648` - the whole mod queue server.
-  - `3604-3618` - `modToken()` (generate-on-first-use, persisted as
+- `3629-3688` - the whole mod queue server.
+  - `3644-3658` - `modToken()` (generate-on-first-use, persisted as
     `MOD_TOKEN`) + `modTokenValid()` (constant-time compare).
-  - `3620-3628` - express middleware: `?token=` or `x-mod-token` header, else
+  - `3660-3668` - express middleware: `?token=` or `x-mod-token` header, else
     401 HTML.
-  - `3631-3638` - `verifyClient` on the upgrade request (middleware doesn't
+  - `3671-3678` - `verifyClient` on the upgrade request (middleware doesn't
     run for WS upgrades).
-  - `3641-3648` - `modWss.on('connection')`: sends `init`, **accepts no
+  - `3681-3688` - `modWss.on('connection')`: sends `init`, **accepts no
     inbound messages**. All mod actions go over HTTP, not the socket.
-- `3650-3660` - mod routes: `GET /api/queue`, `POST /api/queue/:id/approve`
+- `3690-3700` - mod routes: `GET /api/queue`, `POST /api/queue/:id/approve`
   (→ `approveQueueEntry(id, 'mod')`), `POST /api/queue/:id/skip`.
-- `3662-3830` - `GET /` serves the mod queue page as one inline HTML string
+- `3702-3870` - `GET /` serves the mod queue page as one inline HTML string
   (no build step, no framework).
-- `2068-2081` - on the main app: `GET /api/mod/link` (returns URL with token),
+- `2108-2121` - on the main app: `GET /api/mod/link` (returns URL with token),
   `POST /api/mod/link` (rotate token, terminate open sockets).
 
 ### HTTP route groups on the main app (port 3000)
-- `2050-2224` - art, mod link, cider/cascade status, sounds, queue, jellyfin
+- `2090-2264` - art, mod link, cider/cascade status, sounds, queue, jellyfin
   search, browser-source pages (`/alerts`, `/chat`, `/overlay`, `/nowplaying`).
-- `2225-2720` - chat overlay config, badges, emotes (7TV/BTTV/FFZ), alerts.
-- `2723-3070` - triggers, redeems, OBS scenes/sources/status, commands, custom
+- `2265-2760` - chat overlay config, badges, emotes (7TV/BTTV/FFZ), alerts.
+- `2763-3110` - triggers, redeems, OBS scenes/sources/status, commands, custom
   commands, plugins, `/api/state`.
-- `3089-3142` - `GET/POST /settings`: the settings page + save-all handler.
-- `2096-2197` - control endpoints: `/media`, `/sound`, `/scene`, `/source`,
+- `3129-3182` - `GET/POST /settings`: the settings page + save-all handler.
+- `2136-2237` - control endpoints: `/media`, `/sound`, `/scene`, `/source`,
   `/recording`, `/killswitch`, `/run`, `/api/queue/*`. **Also unauthenticated,
   also on 0.0.0.0.**
 

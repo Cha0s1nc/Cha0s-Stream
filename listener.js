@@ -1421,12 +1421,37 @@ async function osNowPlaying() {
 const CIDER_API = 'http://127.0.0.1:10767/api/v1';
 
 /** Cider's config, where the tokens generated in its UI are stored. */
-function ciderConfigPath() {
+/**
+ * Where Cider keeps spa-config.yml, per platform, newest-install-shape first.
+ *
+ * Windows does not use the sh.cider.genten name at all: it is C2Windows there, so
+ * the old single path could never match and auto-detection simply never worked on
+ * Windows. An MSIX or Store install adds a second layer, because a packaged app's
+ * writes to %APPDATA% are redirected into its own LocalCache sandbox.
+ *
+ * Deliberately exact paths, never a scan of %LOCALAPPDATA%\Packages. Walking other
+ * applications' directories looking for credential-shaped files is the literal
+ * behaviour of info-stealer malware, and endpoint protection flags the shape rather
+ * than the intent. If Cider ever changes its package identity this stops resolving
+ * and the user sets CIDER_TOKEN by hand, which is a better failure than shipping
+ * something that reads like a credential harvester.
+ */
+function ciderConfigPaths() {
   const os = require('os'), path = require('path');
-  const dir = 'sh.cider.genten';
-  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', dir, 'spa-config.yml');
-  if (process.platform === 'win32')  return path.join(process.env.APPDATA || '', dir, 'spa-config.yml');
-  return path.join(os.homedir(), '.config', dir, 'spa-config.yml');
+  const file = 'spa-config.yml';
+  if (process.platform === 'darwin') {
+    return [path.join(os.homedir(), 'Library', 'Application Support', 'sh.cider.genten', file)];
+  }
+  if (process.platform === 'win32') {
+    const roaming = process.env.APPDATA || '';
+    const local   = process.env.LOCALAPPDATA || '';
+    const msixPkg = '27554FireDevElijahKlauman.CiderEA_270bejk4xgzqp';
+    return [
+      roaming && path.join(roaming, 'C2Windows', file),
+      local   && path.join(local, 'Packages', msixPkg, 'LocalCache', 'Roaming', 'C2Windows', file),
+    ].filter(Boolean);
+  }
+  return [path.join(os.homedir(), '.config', 'sh.cider.genten', file)];
 }
 
 /**
@@ -1436,13 +1461,28 @@ function ciderConfigPath() {
  * in a YAML parser for one field. Re-read each call so generating a token in
  * Cider does not need a Stream restart.
  */
+let ciderTokenCache = { path: '', mtimeMs: 0, token: '' };
+
 function ciderToken() {
   if (process.env.CIDER_TOKEN) return process.env.CIDER_TOKEN;
-  try {
-    const raw = fs.readFileSync(ciderConfigPath(), 'utf8');
-    const block = raw.slice(raw.indexOf('apiTokens:'));
-    return block.match(/token:\s*(\S+)/)?.[1] || '';
-  } catch { return ''; }
+  for (const file of ciderConfigPaths()) {
+    try {
+      // Keyed on mtime so a token generated in Cider is picked up without a Stream
+      // restart, the original reason this was re-read every call, without actually
+      // re-reading another application's config on every now-playing poll.
+      const { mtimeMs } = fs.statSync(file);
+      if (ciderTokenCache.path === file && ciderTokenCache.mtimeMs === mtimeMs) {
+        if (ciderTokenCache.token) return ciderTokenCache.token;
+        continue;
+      }
+      const raw = fs.readFileSync(file, 'utf8');
+      const block = raw.slice(raw.indexOf('apiTokens:'));
+      const token = block.match(/token:\s*(\S+)/)?.[1] || '';
+      ciderTokenCache = { path: file, mtimeMs, token };
+      if (token) return token;
+    } catch { /* not this one, try the next */ }
+  }
+  return '';
 }
 
 function ciderIsConfigured() { return !!ciderToken(); }
