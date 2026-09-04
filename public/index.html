@@ -171,6 +171,19 @@
     .settings-view { flex: 1; overflow-y: auto; padding: 20px; }
     .settings-view::-webkit-scrollbar { width: 4px; }
     .settings-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    /* Settings categories. The 14 groups are all still in the DOM; the grid just
+       decides which ones are visible, so nothing had to be physically reordered. */
+    .settings-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .settings-cat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 14px; cursor: pointer; text-align: left; transition: border-color 0.12s ease, background 0.12s ease; }
+    .settings-cat:hover { border-color: var(--accent); background: var(--surface2); }
+    .settings-cat-icon { font-size: 20px; line-height: 1; margin-bottom: 8px; }
+    .settings-cat-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+    .settings-cat-desc { font-size: 11px; color: var(--text3); line-height: 1.4; }
+    .settings-catbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    /* An author display value beats the browser default for [hidden], so both the
+       grid and this bar need it restated or they never actually hide. */
+    .settings-catbar[hidden], .settings-cats[hidden] { display: none; }
+    .settings-catbar-title { font-size: 13px; font-weight: 600; color: var(--text); }
     .settings-group { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
     .settings-group-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
     .settings-group-title:hover { color: var(--text2); }
@@ -568,7 +581,24 @@
       </div>
       <div class="panel-view" id="tab-settings">
         <div class="settings-view">
-          <div class="settings-group">
+          <div class="settings-cats" id="settings-cats">
+            <button class="settings-cat" data-gocat="commands"><div class="settings-cat-icon">⌨</div><div class="settings-cat-name">Commands</div><div class="settings-cat-desc">Chat commands, custom commands and channel point redeems</div></button>
+            <button class="settings-cat" data-gocat="media"><div class="settings-cat-icon">♪</div><div class="settings-cat-name">Media</div><div class="settings-cat-desc">Which player to control, and how to reach it</div></button>
+            <button class="settings-cat" data-gocat="requests"><div class="settings-cat-icon">☰</div><div class="settings-cat-name">Song Requests</div><div class="settings-cat-desc">How viewers request tracks and how they get approved</div></button>
+            <button class="settings-cat" data-gocat="connections"><div class="settings-cat-icon">⇄</div><div class="settings-cat-name">Connections</div><div class="settings-cat-desc">Twitch, OBS and the Cha0s Guard relay</div></button>
+            <button class="settings-cat" data-gocat="overlays"><div class="settings-cat-icon">▣</div><div class="settings-cat-name">Overlays</div><div class="settings-cat-desc">Browser sources for your streaming software</div></button>
+            <button class="settings-cat" data-gocat="audio"><div class="settings-cat-icon">🔊</div><div class="settings-cat-name">Audio</div><div class="settings-cat-desc">Text to speech and sound effects</div></button>
+            <button class="settings-cat" data-gocat="advanced"><div class="settings-cat-icon">⚙</div><div class="settings-cat-name">Advanced</div><div class="settings-cat-desc">Ports, script allowlist and other rarely-touched settings</div></button>
+          </div>
+          <div class="settings-catbar" id="settings-catbar" hidden>
+            <button class="btn btn-secondary btn-sm" id="settings-back">← All settings</button>
+            <span class="settings-catbar-title" id="settings-cat-name"></span>
+          </div>
+          <div class="settings-group" data-cat="media" id="media-mode-group">
+            <div class="settings-group-title">Media Control Mode</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Cascade: direct control via Cascade app. Cider: Cider's local API. Jellyfin: API session control. OS: system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn" data-mode="cascade" id="mode-cascade" style="display:none">Cascade</button><button class="seg-btn" data-mode="cider" id="mode-cider" style="display:none">Cider</button><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
+          </div>
+          <div class="settings-group" data-cat="commands">
             <div class="settings-group-title">Commands</div>
             <div class="commands-view">
               <div class="commands-table">
@@ -604,16 +634,15 @@
               </div>
             </div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="media" data-mode="jellyfin">
             <div class="settings-group-title">Jellyfin</div>
             <div class="setting-row jellyfin-only" id="jf-row-url"><div class="setting-label"><div class="setting-name">Server URL</div><div class="setting-desc">e.g. http://[LOCAL IP]:8096</div></div><input class="setting-input" id="cfg-jellyfin-url" type="text" placeholder="http://..." /></div>
             <div class="setting-row jellyfin-only" id="jf-row-key"><div class="setting-label"><div class="setting-name">API Key</div><div class="setting-desc">Dashboard → API Keys</div></div><div class="input-wrap"><input class="setting-input" id="cfg-jellyfin-key" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-jellyfin-key">👁</button></div></div>
             <div class="setting-row jellyfin-only" id="jf-row-password"><div class="setting-label"><div class="setting-name">Password</div><div class="setting-desc">Used instead of API key if set</div></div><div class="input-wrap"><input class="setting-input" id="cfg-jellyfin-password" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-jellyfin-password">👁</button></div></div>
             <div class="setting-row jellyfin-only" id="jf-row-username"><div class="setting-label"><div class="setting-name">Username</div><div class="setting-desc">Your Jellyfin username</div></div><input class="setting-input" id="cfg-jellyfin-username" type="text" placeholder="Username" /></div>
             <div class="setting-row jellyfin-only" id="jf-row-device"><div class="setting-label"><div class="setting-name">Device ID</div><div class="setting-desc">Leave blank for auto</div></div><input class="setting-input" id="cfg-jellyfin-device" type="text" placeholder="Optional" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Media Control Mode</div><div class="setting-desc">Cascade: direct control via Cascade app. Cider: Cider's local API. Jellyfin: API session control. OS: system media keys. Spotify: Spotify Web API.</div></div><div class="seg-control"><button class="seg-btn" data-mode="cascade" id="mode-cascade" style="display:none">Cascade</button><button class="seg-btn" data-mode="cider" id="mode-cider" style="display:none">Cider</button><button class="seg-btn active" data-mode="jellyfin" id="mode-jellyfin">Jellyfin</button><button class="seg-btn" data-mode="os" id="mode-os">OS Keys</button><button class="seg-btn" data-mode="spotify" id="mode-spotify">Spotify</button></div></div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="requests">
             <div class="settings-group-title">Song Requests</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Enable Song Requests</div><div class="setting-desc">Allow viewers to request songs.</div></div><label class="toggle"><input type="checkbox" id="cfg-sr-enabled" /><span class="toggle-track"></span></label></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Request Handling</div><div class="setting-desc">Approve: a mod or you must approve each request before it queues. Open: requests queue immediately.</div></div><div class="seg-control"><button class="seg-btn active" data-srapproval="approve">Approve first</button><button class="seg-btn" data-srapproval="open">Open</button></div></div>
@@ -625,26 +654,26 @@
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Request Mode</div><div class="setting-desc">Chat: !sr [song]. Channel Points: requires affiliate.</div></div><div class="seg-control"><button class="seg-btn active" data-srmode="chat" id="srmode-chat">Chat (!sr)</button><button class="seg-btn" data-srmode="channel_points" id="srmode-redeem">Channel Points</button></div></div>
             <div class="setting-row" id="sr-redeem-name-row"><div class="setting-label"><div class="setting-name">Redeem Name</div><div class="setting-desc">Exact name of the channel point reward</div></div><input class="setting-input" id="cfg-sr-redeem-name" type="text" placeholder="Song Request" /></div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="media" data-mode="cider">
             <div class="settings-group-title">Cider</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">App Token</div><div class="setting-desc" id="cider-status-text">Read automatically from Cider's settings. Cider → Settings → Connectivity → Manage External Application Access.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button class="btn btn-secondary btn-sm" id="btn-cider-disconnect" style="display:none;" onclick="ciderDisconnect()">Clear</button></div></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Override Token</div><div class="setting-desc">Only needed if the automatic read fails.</div></div><div class="input-wrap"><input class="setting-input" id="cfg-cider-token" type="password" placeholder="read from Cider" /><button class="eye-btn" data-target="cfg-cider-token">👁</button></div></div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="media" data-mode="spotify">
             <div class="settings-group-title">Spotify</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Account</div><div class="setting-desc" id="spotify-status-text">Not connected — requires Spotify Premium.</div></div><div style="display:flex;gap:6px;"><button class="btn btn-secondary btn-sm" id="btn-spotify-disconnect" style="display:none;" onclick="spotifyDisconnect()">Disconnect</button><button class="btn btn-primary btn-sm" id="btn-spotify-connect" onclick="spotifyConnect()">Connect Spotify</button></div></div>
             <details style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span style="font-size:9px;">▶</span> Advanced — Client ID</summary><div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Client ID</div><div class="setting-desc">From <a href="https://developer.spotify.com/dashboard" target="_blank" style="color:var(--accent)">developer.spotify.com</a>. Redirect URI: <code style="font-size:10px;">http://localhost:4455/api/spotify/callback</code></div></div><input class="setting-input" id="cfg-spotify-client-id" type="text" placeholder="Built-in (if available)" /></div>
             </div></details>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="connections">
             <div class="settings-group-title">OBS WebSocket</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Host</div><div class="setting-desc">Usually localhost</div></div><input class="setting-input" id="cfg-obs-host" type="text" placeholder="localhost" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Port</div><div class="setting-desc">Default is 4455</div></div><input class="setting-input" id="cfg-obs-port" type="text" placeholder="4455" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Password</div><div class="setting-desc">Tools → WebSocket Server Settings</div></div><div class="input-wrap"><input class="setting-input" id="cfg-obs-password" type="password" placeholder="••••••••" /><button class="eye-btn" data-target="cfg-obs-password">👁</button></div></div>
           </div>
           <!-- ── Overlays (Alerts + Chat combined) ── -->
-          <div class="settings-group">
+          <div class="settings-group" data-cat="overlays">
             <div class="settings-group-title">Overlays</div>
             <div style="padding:8px 14px 4px;font-size:11px;color:var(--text3);">
               Each overlay is its own browser source. Switch on the ones you want, then copy their URLs into OBS.
@@ -733,7 +762,7 @@
             </div>
           </div>
 
-          <div class="settings-group">
+          <div class="settings-group" data-cat="connections">
             <div class="settings-group-title">Twitch</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Broadcaster Account</div><div class="setting-desc" id="oauth-status-text">Not connected — click to authorize.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button id="btn-twitch-disconnect" class="btn btn-secondary btn-sm" style="display:none;" onclick="twitchDisconnect('broadcaster')">Disconnect</button><button id="btn-get-token" class="btn btn-primary btn-sm" onclick="startOAuth()">Connect Twitch</button></div></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Account <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional)</span></div><div class="setting-desc" id="oauth-bot-status-text">A separate account for chat responses.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button id="btn-bot-disconnect" class="btn btn-secondary btn-sm" style="display:none;" onclick="twitchDisconnect('bot')">Disconnect</button><button id="btn-get-bot-token" class="btn btn-secondary btn-sm" onclick="startBotOAuth()">Connect Bot</button></div></div>
@@ -749,29 +778,29 @@
               <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--border);"><span style="font-size:10px;color:var(--text3);white-space:nowrap;">Redirect URI:</span><code id="redirect-uri-display" style="font-size:10px;color:var(--accent);background:var(--surface2);padding:3px 7px;border-radius:4px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">loading...</code><button class="btn btn-secondary btn-sm" onclick="copyRedirectUri()">Copy</button></div>
             </div></details>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="commands">
             <div class="settings-group-title">Channel Point Redeems</div>
             <div class="redeem-list" id="redeem-list"></div>
             <div class="redeem-add-row"><input class="setting-input" id="new-redeem-name" type="text" placeholder="Exact redeem name..." style="flex:1;min-width:140px;" /><select class="setting-input" id="new-redeem-type" style="width:120px;"><option value="script">Run Script</option><option value="sound">Play Sound</option><option value="scene">OBS Scene</option><option value="source">OBS Source</option></select><div class="redeem-detail-fields" id="redeem-detail-fields"><input class="setting-input" id="new-redeem-detail" type="text" placeholder="Script URL / sound name / scene name..." style="flex:1;" /></div><button class="btn btn-primary btn-sm" id="btn-add-redeem">Add</button></div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="advanced">
             <div class="settings-group-title">Script Allowlist</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Allowed Domains</div><div class="setting-desc">Comma-separated trusted domains for !run.</div></div><input class="setting-input" id="cfg-script-allowlist" type="text" placeholder="pub-xxx.r2.dev, pastebin.com" style="width:280px" /></div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="advanced">
             <div class="settings-group-title">Listener</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Port</div><div class="setting-desc">Port the listener runs on</div></div><input class="setting-input" id="cfg-listener-port" type="text" placeholder="3000" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue</div><div class="setting-desc">Enable the mod queue page on a separate port</div></div><label class="toggle"><input type="checkbox" id="cfg-mod-enabled" checked /><span class="toggle-track"></span></label></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue Link</div><div class="setting-desc">Share this exact link — it carries the access token. Anyone holding it can approve requests and act in your channel, so treat it like a password.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="mod-queue-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('mod-queue-url')">Copy</button><button class="btn btn-secondary btn-sm" onclick="regenerateModToken()">New link</button></div></div>
             <div class="setting-row" id="mod-port-row"><div class="setting-label"><div class="setting-name">Mod Queue Port</div><div class="setting-desc">Port for the mod queue page</div></div><input class="setting-input" id="cfg-mod-port" type="text" placeholder="3030" /></div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="connections">
             <div class="settings-group-title">Guard Relay</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Connect to Guard</div><div class="setting-desc">Dial the Cha0s Stream Relay so Cha0s Guard can forward chat commands to this app. The app connects outward — no inbound port. <span id="relay-status-text" style="color:#aeaeb2;">disabled</span></div></div><label class="toggle"><input type="checkbox" id="cfg-relay-enabled" /><span class="toggle-track"></span></label></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Relay URL</div><div class="setting-desc">Leave blank for the default (wss://stream.chaosinc.xyz/agent).</div></div><input class="setting-input" id="cfg-relay-url" type="text" placeholder="wss://stream.chaosinc.xyz/agent" style="width:280px" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Let Guard answer chat commands</div><div class="setting-desc">While connected, this app stops replying to <code>!</code> commands in chat so the two bots don't talk over each other. Keyword commands, chat overlay and TTS still run here. Guard needs its own switch on too (Dashboard → Twitch → Cha0s Stream), or nothing will answer <code>!</code> commands. If the relay drops, this app takes them back automatically.</div></div><label class="toggle"><input type="checkbox" id="cfg-relay-defer" /><span class="toggle-track"></span></label></div>
           </div>
-          <div class="settings-group" id="sounds-group">
+          <div class="settings-group" id="sounds-group" data-cat="audio">
             <div class="settings-group-title">TTS</div>
             <div style="padding:0 0 4px;">
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Enable TTS</div><div class="setting-desc">Master switch — disabling this silences all TTS regardless of other settings.</div></div><div style="display:flex;align-items:center;gap:10px;"><button class="btn btn-secondary" id="btn-tts-test" onclick="testTTS()" style="font-size:11px;padding:3px 10px;">Test</button><label class="toggle"><input type="checkbox" id="cfg-tts-enabled" onchange="updateTTSUI()" /><span class="toggle-track"></span></label></div></div>
@@ -794,7 +823,7 @@
               </div>
             </div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" data-cat="audio">
             <div class="settings-group-title">Sounds</div>
             <div style="padding:10px 14px;display:flex;flex-direction:column;gap:10px;">
               <div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:12px;color:var(--text3);">Folder: <code id="sounds-dir-label" style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--text2);">sounds/</code></div><label class="btn btn-secondary" style="cursor:pointer;font-size:12px;padding:5px 12px;">⬆ Upload<input type="file" id="sounds-upload-input" accept=".mp3,.wav,.ogg,.flac" multiple style="display:none;" onchange="handleSoundsUpload(this)"></label></div>
@@ -1637,8 +1666,49 @@
     setInterval(checkLocalPlayers, 15000);
 
     // --- Media mode UI ---
+    // --- Settings categories -------------------------------------------------
+    // Every group stays in the DOM; this only decides what is on screen. Landing on
+    // a grid instead of a 14-section wall is the whole point, so null means "grid".
+    let settingsCat = null;
+
+    const SETTINGS_CAT_NAMES = {
+      commands: 'Commands', media: 'Media', requests: 'Song Requests',
+      connections: 'Connections', overlays: 'Overlays', audio: 'Audio', advanced: 'Advanced',
+    };
+
+    function applySettingsCat() {
+      const grid = document.getElementById('settings-cats');
+      const bar  = document.getElementById('settings-catbar');
+      if (!grid || !bar) return;
+      grid.hidden = settingsCat !== null;
+      bar.hidden  = settingsCat === null;
+      const label = document.getElementById('settings-cat-name');
+      if (label) label.textContent = settingsCat ? SETTINGS_CAT_NAMES[settingsCat] || '' : '';
+
+      document.querySelectorAll('#tab-settings .settings-group[data-cat]').forEach(g => {
+        const inCat = g.dataset.cat === settingsCat;
+        // A media backend's group only applies to the mode actually selected, so
+        // Cider's fields do not sit there confusing someone running Jellyfin.
+        const modeOk = !g.dataset.mode || g.dataset.mode === mediaMode;
+        g.hidden = !(inCat && modeOk);
+      });
+    }
+
+    function showSettingsCat(cat) { settingsCat = cat; applySettingsCat(); }
+
+    document.querySelectorAll('.settings-cat[data-gocat]').forEach(btn => {
+      btn.addEventListener('click', () => showSettingsCat(btn.dataset.gocat));
+    });
+    document.getElementById('settings-back')?.addEventListener('click', () => showSettingsCat(null));
+    // Without this the groups have no hidden attribute yet and every one of them
+    // paints on first load, which is exactly the wall this replaces.
+    applySettingsCat();
+
     function setMediaModeUI(mode) {
       mediaMode = mode;
+      // Switching backends while sitting in Media has to repaint, or the fields on
+      // screen keep belonging to the player you just switched away from.
+      applySettingsCat();
       document.querySelectorAll('.seg-btn[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
       const modeVal = document.getElementById('mode-val');
       const MODE_LABELS = { cascade: 'Cascade', cider: 'Cider', os: 'OS Media Keys', spotify: 'Spotify', jellyfin: 'Jellyfin' };
