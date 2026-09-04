@@ -66,8 +66,19 @@
     .backdrop { position: absolute; left: 48px; top: 0; right: 0; bottom: 0; background: transparent; pointer-events: none; transition: background var(--dur-slow); z-index: 15; }
     .backdrop.dim { background: rgba(0,0,0,0.52); pointer-events: all; }
     .main { margin-left: 48px; flex: 1; display: flex; flex-direction: column; overflow: hidden; z-index: 1; }
-    .panel-view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
-    .panel-view.active { display: flex; }
+    /* display cannot be transitioned, which is why every panel change used to be a
+       hard cut. allow-discrete plus @starting-style makes the fade possible in CSS
+       alone. Progressive enhancement: this page is also served over HTTP to
+       anything on the network, and a browser without @starting-style just shows
+       the panel instantly, which is exactly the old behaviour. */
+    .panel-view {
+      display: none; flex: 1; overflow: hidden; flex-direction: column;
+      opacity: 0;
+      transition: opacity var(--dur-base) var(--ease-out),
+                  display var(--dur-base) allow-discrete;
+    }
+    .panel-view.active { display: flex; opacity: 1; }
+    @starting-style { .panel-view.active { opacity: 0; } }
     .dash-tabs { display: none; align-items: center; gap: 2px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); height: 36px; flex-shrink: 0; }
     .dash-tabs.visible { display: flex; }
     .dtab { position: relative; font-family: var(--font); font-size: 12px; font-weight: 500; color: var(--text2); background: none; border: none; padding: 0 12px; height: 36px; cursor: pointer; transition: color var(--dur-base); }
