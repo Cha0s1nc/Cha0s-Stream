@@ -267,6 +267,22 @@
     .search-result-info { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow: hidden; }
     .search-result-name { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .search-result-meta { font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Leaving a request list. transform and opacity composite; height and padding
+       do not, but this runs once per human action on a single row, which is what
+       the compositor rule is meant to allow. The row's height has to collapse or
+       the rows below snap up the instant the node goes, because the list is a
+       flex column and gap is not transitionable. */
+    .queue-item.leaving, .wishlist-item.leaving {
+      transform: translateX(-24px);
+      opacity: 0;
+      pointer-events: none;
+      overflow: hidden;
+      transition: transform var(--dur-slow) var(--ease-in),
+                  opacity var(--dur-base) var(--ease-in),
+                  height var(--dur-slow) var(--ease-in),
+                  margin var(--dur-slow) var(--ease-in),
+                  padding var(--dur-slow) var(--ease-in);
+    }
     .queue-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; display: flex; align-items: center; gap: 8px; animation: fadeIn 0.15s ease; }
     .queue-item-info { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
     .queue-item-title { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
@@ -993,14 +1009,12 @@
         } else if (data.event === 'queue_update') {
           markQueueItemApproved(data.entry);
         } else if (data.event === 'queue_remove') {
-          document.getElementById(`qi-${data.id}`)?.remove();
-          updateSidebarCounts();
+          removeRowAnimated(document.getElementById(`qi-${data.id}`));
         } else if (data.event === 'wishlist_add') {
           addWishlistItem(data.entry);
           updateSidebarCounts();
         } else if (data.event === 'wishlist_remove') {
-          document.getElementById(`wi-${data.id}`)?.remove();
-          updateSidebarCounts();
+          removeRowAnimated(document.getElementById(`wi-${data.id}`));
         } else if (data.event === 'commands_update') {
           commandsConfig = data.commands;
           renderCommandsTable();
@@ -2869,6 +2883,28 @@
       actions.replaceWith(badge);
     }
 
+    // Slide a request row out instead of having it blink out of existence. The
+    // height is pinned first so the collapse has something to animate from; the
+    // flex gap is eaten with a negative margin because gap itself cannot animate.
+    function removeRowAnimated(el) {
+      if (!el || el.classList.contains('leaving')) return;
+      el.style.height = el.offsetHeight + 'px';   // one forced reflow, deliberately
+      el.classList.add('leaving');
+      requestAnimationFrame(() => {
+        el.style.height = '0px';
+        el.style.marginBottom = '-4px';           // cancels .requests-list gap
+        el.style.paddingTop = '0';
+        el.style.paddingBottom = '0';
+      });
+      // transitionend does not fire if a property never actually changes, and the
+      // prefers-reduced-motion block forces durations to 0.01ms, so without this
+      // fallback the node can be orphaned in the DOM forever.
+      let done = false;
+      const finish = () => { if (done) return; done = true; el.remove(); updateSidebarCounts(); };
+      el.addEventListener('transitionend', finish, { once: true });
+      setTimeout(finish, 400);
+    }
+
     async function approveRequest(id) {
       const btn = document.querySelector(`#qi-${id} .btn-approve`);
       if (btn) { btn.disabled = true; btn.textContent = 'Queuing\u2026'; }
@@ -2880,8 +2916,7 @@
 
     async function skipRequest(id) {
       await fetch(`/api/queue/${id}/skip`, { method: 'POST' });
-      document.getElementById(`qi-${id}`)?.remove();
-      updateSidebarCounts();
+      removeRowAnimated(document.getElementById(`qi-${id}`));
     }
 
     document.getElementById('btn-clear-queue').addEventListener('click', async () => {
@@ -2917,8 +2952,7 @@
 
     async function removeWishlist(id) {
       await fetch(`/api/wishlist/${id}`, { method: 'DELETE' });
-      document.getElementById(`wi-${id}`)?.remove();
-      updateSidebarCounts();
+      removeRowAnimated(document.getElementById(`wi-${id}`));
     }
 
     document.getElementById('btn-clear-wishlist').addEventListener('click', async () => {
