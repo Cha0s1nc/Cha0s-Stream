@@ -199,6 +199,7 @@
     .btn-danger:hover { background: rgba(255,69,58,0.25); }
     .btn-sm { font-size: 11px; padding: 3px 10px; border-radius: 5px; }
     .btn-approve { background: rgba(50,215,75,0.15); color: var(--green); border: 1px solid rgba(50,215,75,0.3); }
+    .queue-approved { font-size: 11px; font-weight: 600; color: var(--green); white-space: nowrap; padding: 0 4px; }
     .btn-approve:hover { background: rgba(50,215,75,0.25); }
     .save-status { font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.3s; }
     .save-status.visible { opacity: 1; }
@@ -934,7 +935,7 @@
           addQueueItem(data.entry);
           updateSidebarCounts();
         } else if (data.event === 'queue_update') {
-          // update status badge if needed
+          markQueueItemApproved(data.entry);
         } else if (data.event === 'queue_remove') {
           document.getElementById(`qi-${data.id}`)?.remove();
           updateSidebarCounts();
@@ -2701,15 +2702,34 @@
           <div class="queue-item-meta">${meta}</div>
         </div>
         <div class="queue-item-actions">
-          ${entry.resolvedItem ? `<button class="btn btn-approve btn-sm" onclick="approveRequest('${entry.id}')">▶ Play</button>` : ''}
+          ${entry.resolvedItem && entry.status !== 'approved'
+            ? `<button class="btn btn-approve btn-sm" onclick="approveRequest('${entry.id}')">Approve</button>`
+            : entry.status === 'approved' ? '<span class="queue-approved">✓ Queued</span>' : ''}
           <button class="btn btn-danger btn-sm" onclick="skipRequest('${entry.id}')">✕</button>
         </div>`;
       list.appendChild(el);
       updateSidebarCounts();
     }
 
+    // Swap the button for a "queued" marker. Without this an approved request kept
+    // offering the button, so a second click sent the same track to the player again.
+    function markQueueItemApproved(entry) {
+      if (!entry || entry.status !== 'approved') return;
+      const actions = document.querySelector(`#qi-${entry.id} .queue-item-actions .btn-approve`);
+      if (!actions) return;
+      const badge = document.createElement('span');
+      badge.className = 'queue-approved';
+      badge.textContent = '\u2713 Queued';
+      actions.replaceWith(badge);
+    }
+
     async function approveRequest(id) {
-      await fetch(`/api/queue/${id}/approve`, { method: 'POST' });
+      const btn = document.querySelector(`#qi-${id} .btn-approve`);
+      if (btn) { btn.disabled = true; btn.textContent = 'Queuing\u2026'; }
+      const res = await fetch(`/api/queue/${id}/approve`, { method: 'POST' }).catch(() => null);
+      // The broadcast normally repaints this; on failure put the button back so the
+      // request is not stranded looking half-done.
+      if ((!res || !res.ok) && btn) { btn.disabled = false; btn.textContent = 'Approve'; }
     }
 
     async function skipRequest(id) {
