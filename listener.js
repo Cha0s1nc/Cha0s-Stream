@@ -19,6 +19,7 @@ const PERSIST_KEYS = [
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
+  'TTS_IGNORE_USERS','TTS_NAME_ALIASES',
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
@@ -1067,6 +1068,65 @@ function sanitizeTTS(text, maxLen) {
     .slice(0, max);
 }
 
+// --- TTS speaker filtering and name pronunciation ---
+
+// Bots announce timers, command output and now Guard's own relayed replies. Reading
+// those aloud is noise at best and an echo of ourselves at worst, since Guard posts
+// the result of a command this app just ran.
+const DEFAULT_TTS_IGNORED = [
+  'nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot',
+  'wizebot', 'botrixoficial', 'sery_bot', 'own3d',
+];
+
+function ttsIgnoredSpeakers() {
+  const extra = (process.env.TTS_IGNORE_USERS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  // This app's own bot identity, so a reply it posts is never read back.
+  const own = (process.env.TWITCH_BOT_USERNAME || '').trim().toLowerCase();
+  return new Set([...DEFAULT_TTS_IGNORED, ...extra, ...(own ? [own] : [])]);
+}
+
+function ttsShouldSpeak(login) {
+  return !ttsIgnoredSpeakers().has(String(login || '').toLowerCase());
+}
+
+// Digits that stand in for letters in a display name. Deliberately partial: 2, 6, 8
+// and 9 are far more often literal ("user2") than leet, so they are left alone.
+const TTS_LEET = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't' };
+
+/**
+ * A display name as a person would say it. "Cha0s_1nc" -> "Chaos Inc".
+ *
+ * An explicit alias always wins. Failing that, separators become spaces and a
+ * lone digit sitting in a word of letters is read as the letter it imitates. Only
+ * a run of exactly one digit, so "Player123" keeps its number instead of turning
+ * into nonsense.
+ *
+ * ponytail: substitution table, not a pronunciation model. It will not fix
+ * "xXsn1p3rXx" into anything dignified; TTS_NAME_ALIASES is the escape hatch for
+ * names worth getting right.
+ */
+function ttsSpeakableName(login) {
+  const raw = String(login || '');
+  const aliases = Object.create(null);
+  for (const pair of (process.env.TTS_NAME_ALIASES || '').split(',')) {
+    const i = pair.indexOf('=');
+    if (i <= 0) continue;
+    aliases[pair.slice(0, i).trim().toLowerCase()] = pair.slice(i + 1).trim();
+  }
+  const alias = aliases[raw.toLowerCase()];
+  if (alias) return alias;
+
+  return raw
+    .replace(/[_.-]+/g, ' ')
+    .split(' ')
+    .map(word => (/[a-z]/i.test(word)
+      ? word.replace(/(?<!\d)\d(?!\d)/g, d => TTS_LEET[d] ?? d)
+      : word))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim() || raw;
+}
+
 function enqueueTTS(text) {
   // Directly enqueue — no enabled check. Use speakTTS for normal guarded calls.
   const cleaned = sanitizeTTS(text, process.env.TTS_CHAT_MAX_LENGTH);
@@ -1148,9 +1208,9 @@ async function handleChatMessage(event) {
   // Chat TTS
   if (process.env.TTS_ENABLED === 'true' && process.env.TTS_CHAT_ENABLED === 'true') {
     const minPerm = process.env.TTS_CHAT_PERMISSION || 'everyone';
-    if (checkPermission(event, minPerm)) {
+    if (checkPermission(event, minPerm) && ttsShouldSpeak(event.chatter_user_login || user)) {
       const sayName = process.env.TTS_CHAT_SAY_NAME !== 'false';
-      speakTTS(sayName ? `${user} says: ${text}` : text);
+      speakTTS(sayName ? `${ttsSpeakableName(user)} says: ${text}` : text);
     }
   }
 }
@@ -3120,6 +3180,7 @@ const SETTINGS_KEYS = [
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
+  'TTS_IGNORE_USERS','TTS_NAME_ALIASES',
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',

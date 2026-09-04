@@ -80,6 +80,8 @@ const STORE_SCHEMA = {
   TTS_CHAT_PERMISSION:      { type: 'string', default: '' },
   TTS_CHAT_SAY_NAME:        { type: 'string', default: '' },
   TTS_CHAT_MAX_LENGTH:      { type: 'string', default: '' },
+  TTS_IGNORE_USERS:         { type: 'string', default: '' },
+  TTS_NAME_ALIASES:         { type: 'string', default: '' },
   TTS_BITS_THRESHOLD:       { type: 'string', default: '' },
   TTS_REDEMPTIONS_ENABLED:  { type: 'string', default: '' },
   TTS_REDEMPTION_NAMES:     { type: 'string', default: '' },

@@ -799,6 +799,8 @@
               <div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:12px;color:var(--text3);">Folder: <code id="sounds-dir-label" style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--text2);">sounds/</code></div><label class="btn btn-secondary" style="cursor:pointer;font-size:12px;padding:5px 12px;">⬆ Upload<input type="file" id="sounds-upload-input" accept=".mp3,.wav,.ogg,.flac" multiple style="display:none;" onchange="handleSoundsUpload(this)"></label></div>
               <div class="sounds-drop-zone" id="sounds-drop-zone" onclick="document.getElementById('sounds-upload-input').click()">Drop .mp3 / .wav / .ogg / .flac files here, or click to browse</div>
               <div id="sounds-list" style="display:flex;flex-direction:column;gap:4px;"><div class="empty-state" style="padding:12px 0;font-size:12px;">No sounds yet</div></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Never read these users</div><div class="setting-desc">Comma-separated logins TTS skips entirely. Common bots (Nightbot, StreamElements, Moobot, Fossabot and friends) and this app's own bot account are always skipped. <strong>Add Cha0s Guard's bot account here</strong>, or it reads back replies to commands this app just ran.</div></div><input class="setting-input" id="cfg-tts-ignore-users" type="text" placeholder="somebot, anotherbot" style="width:280px" /></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Name pronunciations</div><div class="setting-desc">Comma-separated <code>login=spoken name</code> pairs, e.g. <code>cha0s_1nc=Chaos Inc</code>. Without one, underscores become spaces and a lone digit standing in for a letter is read as that letter, so <code>H3ll0</code> is read "Hello". Runs of digits are left alone, so <code>Player123</code> keeps its number.</div></div><input class="setting-input" id="cfg-tts-name-aliases" type="text" placeholder="cha0s_1nc=Chaos Inc" style="width:280px" /></div>
             </div>
           </div>
           <div class="settings-actions"><span class="save-status" id="save-status">✓ Saved</span><button class="btn btn-secondary" id="btn-check-updates" style="margin-right:auto">Check for Updates</button><button class="btn btn-secondary" id="btn-reset">Reset</button><button class="btn btn-primary" id="btn-save">Save All Settings</button></div>
@@ -2271,6 +2273,8 @@
       'cfg-tts-voice': 'TTS_VOICE',
       'cfg-tts-rate': 'TTS_RATE',
       'cfg-tts-chat-max-length': 'TTS_CHAT_MAX_LENGTH',
+      'cfg-tts-ignore-users': 'TTS_IGNORE_USERS',
+      'cfg-tts-name-aliases': 'TTS_NAME_ALIASES',
       'cfg-tts-bits-threshold': 'TTS_BITS_THRESHOLD',
       'cfg-tts-redemption-names': 'TTS_REDEMPTION_NAMES',
       'cfg-tts-alert-types': 'TTS_ALERT_TYPES',
