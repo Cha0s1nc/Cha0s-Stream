@@ -110,6 +110,11 @@ function handshake(sock) {
     role: 'agent',
     token,
     commands: buildCommandList(),
+    // Whether this app will stay quiet on "!" commands. Only this side knows, and
+    // without telling the relay both bots answer: Guard forwards, and the local
+    // chat handler runs the same command again from its own subscription. Two
+    // replies, and the command executes twice.
+    deferring: isDeferring(),
   });
 }
 
@@ -244,7 +249,9 @@ function handleQueueSkip(msg) {
 
 // listener.js calls this after a command config edit.
 function commandsChanged() {
-  if (ws && connected) send(ws, { type: 'commands.update', commands: buildCommandList() });
+  if (ws && connected) {
+    send(ws, { type: 'commands.update', commands: buildCommandList(), deferring: isDeferring() });
+  }
 }
 
 // listener.js calls this from broadcast() on queue/wishlist mutations.
@@ -256,12 +263,17 @@ function pushSnapshot() {
 
 function isConnected() { return connected; }
 
+// The handshake reports this before `connected` is set, so it cannot depend on it.
+function isDeferring() {
+  return process.env.RELAY_DEFER_COMMANDS === 'true';
+}
+
 function status() {
   return {
     enabled: process.env.RELAY_ENABLED === 'true',
     connected,
     url: process.env.RELAY_URL || DEFAULT_URL,
-    deferring: process.env.RELAY_DEFER_COMMANDS === 'true' && connected,
+    deferring: isDeferring() && connected,
   };
 }
 
