@@ -1272,7 +1272,12 @@
     }
 
     function escHtml(s) {
-      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      // Quotes matter: this is used inside attributes (title="...", data-scene="...")
+      // as well as in text, and without them a value containing a quote escapes the
+      // attribute and can add its own.
+      return String(s ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     // ── OBS Controls ─────────────────────────────────────────────────────
@@ -1573,7 +1578,7 @@
       const el = document.createElement('div');
       el.className = `log-entry ${entry.ok ? 'ok' : 'err'}`;
       el.dataset.type = entry.type; el.dataset.ok = entry.ok;
-      el.innerHTML = `<span class="log-time">${time}</span><span class="log-type ${entry.type}">${entry.type.toUpperCase()}</span><span class="log-command">${entry.command}</span><span class="log-detail" title="${entry.detail}">${entry.detail}</span><span class="log-ok ${entry.ok ? 'ok' : 'err'}">${entry.ok ? '✓' : '✗'}</span>`;
+      el.innerHTML = `<span class="log-time">${time}</span><span class="log-type ${entry.type}">${entry.type.toUpperCase()}</span><span class="log-command">${escHtml(entry.command)}</span><span class="log-detail" title="${escHtml(entry.detail)}">${escHtml(entry.detail)}</span><span class="log-ok ${entry.ok ? 'ok' : 'err'}">${entry.ok ? '✓' : '✗'}</span>`;
       applyFilter(el);
       prepend ? container.prepend(el) : container.append(el);
     }
@@ -2764,8 +2769,10 @@
       const el = document.createElement('div');
       el.className = 'queue-item';
       el.id = `qi-${entry.id}`;
-      const title = entry.resolvedItem ? `${entry.resolvedItem.artist} — ${entry.resolvedItem.name}` : entry.query;
-      const meta = `requested by ${entry.user}${entry.source ? ' · ' + entry.source : ''}`;
+      const title = entry.resolvedItem
+        ? `${escHtml(entry.resolvedItem.artist)} — ${escHtml(entry.resolvedItem.name)}`
+        : escHtml(entry.query);
+      const meta = `requested by ${escHtml(entry.user)}${entry.source ? ' · ' + escHtml(entry.source) : ''}`;
       el.innerHTML = `
         <div class="queue-item-info">
           <div class="queue-item-title">${title}</div>
@@ -2829,8 +2836,8 @@
       el.id = `wi-${entry.id}`;
       el.innerHTML = `
         <div class="queue-item-info">
-          <div class="queue-item-title">${entry.query}</div>
-          <div class="queue-item-meta">requested by ${entry.user} · not in library</div>
+          <div class="queue-item-title">${escHtml(entry.query)}</div>
+          <div class="queue-item-meta">requested by ${escHtml(entry.user)} · not in library</div>
         </div>
         <div class="queue-item-actions">
           <button class="btn btn-danger btn-sm" onclick="removeWishlist('${entry.id}')">✕</button>
