@@ -718,6 +718,10 @@ async function cascadeGetNowPlaying() {
       ? `${base}/Items/${data.artItemId}/Images/Primary?maxHeight=600${data.artImageTag ? `&tag=${data.artImageTag}` : ''}`
       : null;
     return {
+      // Cascade 2.0.2 and later. Absent on older builds, and an exact id is the
+      // only honest way to say "this playing track is that request": artist and
+      // title strings differ per backend and collide across releases.
+      id: data.trackId || null,
       title: data.title,
       artist: data.artist || '',
       album: data.album || '',
