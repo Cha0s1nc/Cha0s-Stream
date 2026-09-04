@@ -20,6 +20,7 @@ const PERSIST_KEYS = [
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
   'TTS_IGNORE_USERS','TTS_NAME_ALIASES',
+  'COMMANDS_ENABLED','MEDIA_ENABLED','AUDIO_ENABLED',
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
@@ -741,6 +742,7 @@ const NOW_PLAYING_POLL_MS = { cascade: 4000, cider: 4000, spotify: 8000, jellyfi
 
 function nowPlayingStartPolling() {
   nowPlayingStopPolling();
+  if (!featureOn('MEDIA_ENABLED')) return;
   const mode = mediaMode();
   const adapter = MEDIA_MODES[mode];
   // Spotify without credentials would poll forever and always answer null.
@@ -1136,6 +1138,7 @@ function enqueueTTS(text) {
 }
 
 function speakTTS(text) {
+  if (!featureOn('AUDIO_ENABLED')) return;
   if (process.env.TTS_ENABLED !== 'true') return;
   enqueueTTS(text);
 }
@@ -1230,7 +1233,17 @@ async function handleWhisperMessage(event) {
     event?.whisper?.text || '');
 }
 
+// Category master switches. Absent means on, so an existing install that has never
+// seen these keys keeps working exactly as before rather than going silent.
+function featureOn(key) {
+  return process.env[key] !== 'false';
+}
+
 async function dispatchCommand(permEvent, source, user, text, opts = {}) {
+  // Master switch for the whole Commands category. Gated here rather than at each
+  // caller because chat, whispers, redemptions, the dashboard socket and the Guard
+  // relay all funnel through this one function.
+  if (!featureOn('COMMANDS_ENABLED')) return;
   text = (text || '').trim();
 
   // Keyword matching — runs on every message regardless of ! prefix
@@ -1836,6 +1849,7 @@ async function cmdSource(user, source, onoff) {
 }
 
 async function cmdSound(user, sound) {
+  if (!featureOn('AUDIO_ENABLED')) return;
   if (!sound) return;
   const fs = require('fs'), path = require('path');
   if (sound.startsWith('http://') || sound.startsWith('https://')) {
@@ -3181,6 +3195,7 @@ const SETTINGS_KEYS = [
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
   'TTS_IGNORE_USERS','TTS_NAME_ALIASES',
+  'COMMANDS_ENABLED','MEDIA_ENABLED','AUDIO_ENABLED',
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
@@ -3228,6 +3243,10 @@ app.post('/settings', (req, res) => {
   }
   if (updated.includes('MEDIA_CONTROL_MODE')) nowPlayingStartPolling();
   if (updated.some(k => k.startsWith('RELAY_'))) relayClient.reload();
+  // Turning the Commands category off changes what this app can run, so the relay
+  // has to hear about it. Without this Guard keeps forwarding triggers and gets
+  // ok with no reply, which reads as a working command that answered nothing.
+  if (updated.includes('COMMANDS_ENABLED')) relayClient.commandsChanged();
   if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
     const enabled = process.env.MOD_ENABLED !== 'false';
     if (!enabled && modServer.listening) {

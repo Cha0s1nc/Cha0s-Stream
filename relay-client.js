@@ -124,6 +124,10 @@ function send(sock, obj) {
 
 // Built-ins + custom `!` commands, minus the ones the relay refuses anyway.
 function buildCommandList() {
+  // With the Commands category switched off, dispatchCommand drops everything. Say
+  // so by advertising nothing, otherwise Guard keeps forwarding triggers into
+  // silence and chat looks broken rather than switched off.
+  if (process.env.COMMANDS_ENABLED === 'false') return [];
   const out = [{ trigger: 'info', level: 'everyone' }]; // always-on watermark
   for (const [name, c] of Object.entries(deps.state.commands)) {
     if (!c.enabled || name === 'run' || name === 'killswitch') continue;

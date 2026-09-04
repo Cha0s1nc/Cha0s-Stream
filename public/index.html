@@ -183,6 +183,9 @@
     /* An author display value beats the browser default for [hidden], so both the
        grid and this bar need it restated or they never actually hide. */
     .settings-catbar[hidden], .settings-cats[hidden] { display: none; }
+    #settings-cat-toggle-wrap[hidden] { display: none; }
+    .settings-cat.is-off { opacity: 0.55; }
+    .settings-cat-off { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
     .settings-catbar-title { font-size: 13px; font-weight: 600; color: var(--text); }
     .settings-group { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
     .settings-group-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px 8px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
@@ -593,6 +596,9 @@
           <div class="settings-catbar" id="settings-catbar" hidden>
             <button class="btn btn-secondary btn-sm" id="settings-back">← All settings</button>
             <span class="settings-catbar-title" id="settings-cat-name"></span>
+            <label class="toggle" id="settings-cat-toggle-wrap" hidden style="margin-left:auto;">
+              <input type="checkbox" id="settings-cat-toggle" /><span class="toggle-track"></span>
+            </label>
           </div>
           <div class="settings-group" data-cat="media" id="media-mode-group">
             <div class="settings-group-title">Media Control Mode</div>
@@ -1675,6 +1681,9 @@
     // Every group stays in the DOM; this only decides what is on screen. Landing on
     // a grid instead of a 14-section wall is the whole point, so null means "grid".
     let settingsCat = null;
+    // Last loaded settings, so the category switches can read their own key
+    // without refetching every time a category is opened.
+    let settingsSaved = {};
 
     const SETTINGS_CAT_NAMES = {
       commands: 'Commands', media: 'Media', requests: 'Song Requests',
@@ -1699,7 +1708,43 @@
       });
     }
 
-    function showSettingsCat(cat) { settingsCat = cat; applySettingsCat(); }
+    // Only categories where "off" means something get a switch. Connections has one
+    // per service already, and Advanced is ports and allowlists, not a feature.
+    const SETTINGS_CAT_TOGGLE = {
+      commands: 'COMMANDS_ENABLED', media: 'MEDIA_ENABLED', audio: 'AUDIO_ENABLED',
+      requests: 'SONG_REQUEST_ENABLED', overlays: 'OVERLAYS_ENABLED',
+    };
+    // Absent means on, matching the backend: an install that has never seen these
+    // keys must not read as switched off.
+    const catFeatureOn = key => (settingsSaved?.[key] ?? 'true') !== 'false';
+
+    function applyCatToggle() {
+      const wrap = document.getElementById('settings-cat-toggle-wrap');
+      const box  = document.getElementById('settings-cat-toggle');
+      const key  = settingsCat && SETTINGS_CAT_TOGGLE[settingsCat];
+      if (!wrap || !box) return;
+      wrap.hidden = !key;
+      if (key) box.checked = catFeatureOn(key);
+      document.querySelectorAll('.settings-cat[data-gocat]').forEach(card => {
+        const k = SETTINGS_CAT_TOGGLE[card.dataset.gocat];
+        card.classList.toggle('is-off', !!k && !catFeatureOn(k));
+      });
+    }
+
+    document.getElementById('settings-cat-toggle')?.addEventListener('change', async (e) => {
+      const key = SETTINGS_CAT_TOGGLE[settingsCat];
+      if (!key) return;
+      const value = e.target.checked ? 'true' : 'false';
+      settingsSaved = settingsSaved || {};
+      settingsSaved[key] = value;
+      await fetch('/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      }).catch(() => {});
+      applyCatToggle();
+    });
+
+    function showSettingsCat(cat) { settingsCat = cat; applySettingsCat(); applyCatToggle(); }
 
     document.querySelectorAll('.settings-cat[data-gocat]').forEach(btn => {
       btn.addEventListener('click', () => showSettingsCat(btn.dataset.gocat));
@@ -1708,6 +1753,7 @@
     // Without this the groups have no hidden attribute yet and every one of them
     // paints on first load, which is exactly the wall this replaces.
     applySettingsCat();
+    applyCatToggle();
 
     function setMediaModeUI(mode) {
       mediaMode = mode;
@@ -2506,6 +2552,8 @@
           const el = document.getElementById(id);
           if (el && saved[key]) el.value = saved[key];
         });
+        settingsSaved = saved;
+        applyCatToggle();
         if (saved.MEDIA_CONTROL_MODE) setMediaModeUI(saved.MEDIA_CONTROL_MODE);
         updateSpotifyUI(!!saved.SPOTIFY_ACCESS_TOKEN);
         if (saved.SONG_REQUEST_MODE) setSrModeUI(saved.SONG_REQUEST_MODE);
