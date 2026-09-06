@@ -87,6 +87,9 @@ const STORE_SCHEMA = {
   COMMANDS_ENABLED:         { type: 'string', default: 'true' },
   MEDIA_ENABLED:            { type: 'string', default: 'true' },
   AUDIO_ENABLED:            { type: 'string', default: 'true' },
+  // Its own key rather than OVERLAYS_ENABLED, which holds the JSON object of
+  // per-overlay switches; writing 'false' over that wiped all three.
+  OVERLAYS_MASTER_ENABLED:  { type: 'string', default: 'true' },
   TTS_BITS_THRESHOLD:       { type: 'string', default: '' },
   TTS_REDEMPTIONS_ENABLED:  { type: 'string', default: '' },
   TTS_REDEMPTION_NAMES:     { type: 'string', default: '' },

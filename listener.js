@@ -20,7 +20,7 @@ const PERSIST_KEYS = [
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
   'TTS_IGNORE_USERS','TTS_NAME_ALIASES',
-  'COMMANDS_ENABLED','MEDIA_ENABLED','AUDIO_ENABLED',
+  'COMMANDS_ENABLED','MEDIA_ENABLED','AUDIO_ENABLED','OVERLAYS_MASTER_ENABLED',
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',
@@ -2368,14 +2368,32 @@ app.get('/api/jellyfin/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// A switched-off overlay has to actually go blank at its address. Hiding it from
+// the settings page is not enough: OBS still holds a browser source pointing
+// here, and an "off" that keeps rendering is not off.
+const OVERLAY_BLANK = '<!doctype html><meta charset="utf-8"><title>Overlay off</title><body style="margin:0;background:transparent"></body>';
+function overlayRoute(file, isOn) {
+  return (req, res) => {
+    // The dashboard's own preview asks with ?preview=1, so an overlay can still
+    // be styled before it is switched on. OBS never sends it.
+    const off = !featureOn('OVERLAYS_MASTER_ENABLED') || !isOn(getOverlaysEnabled());
+    if (off && req.query.preview !== '1') {
+      return res.type('html').send(OVERLAY_BLANK);
+    }
+    res.sendFile(require('path').join(__dirname, 'public', file));
+  };
+}
+
 // --- Alerts route (Browser Source overlay) ---
-app.get('/alerts',  (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'alerts.html')));
-app.get('/chat',    (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'chat.html')));
-app.get('/overlay', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'overlay.html')));
+app.get('/alerts',  overlayRoute('alerts.html', e => e.events));
+app.get('/chat',    overlayRoute('chat.html', e => e.chat));
+// The combined page renders whichever of the two are on, so it only goes dark
+// when both are off.
+app.get('/overlay', overlayRoute('overlay.html', e => e.events || e.chat));
 // Its own page rather than a layer in /overlay, matching /alerts and /chat: it
 // is a small card you position and size as its own OBS source. Configured by
 // query string (align, art, bar, hide) - see the top of nowplaying.html.
-app.get('/nowplaying', (req, res) => res.sendFile(require('path').join(__dirname, 'public', 'nowplaying.html')));
+app.get('/nowplaying', overlayRoute('nowplaying.html', e => e.nowplaying));
 // ── Chat overlay config ──────────────────────────────────────────
 const CHAT_OVERLAY_DEFAULTS = {
   maxMessages: 8, lifetime: 30000,
@@ -2419,7 +2437,12 @@ const OVERLAYS_ENABLED_DEFAULTS = { events: true, chat: false, nowplaying: false
 function getOverlaysEnabled() {
   try {
     const raw = process.env.OVERLAYS_ENABLED;
-    if (raw) return { ...OVERLAYS_ENABLED_DEFAULTS, ...JSON.parse(raw) };
+    // An older build's Overlays master switch wrote "true"/"false" into this
+    // same key, so anyone who touched it has a bare boolean stored here. Falling
+    // back to the defaults is the only sane reading of that.
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object') return { ...OVERLAYS_ENABLED_DEFAULTS, ...parsed };
+    if (parsed !== null) return { ...OVERLAYS_ENABLED_DEFAULTS };
   } catch {}
   // First run after an upgrade: derive from whatever OVERLAY_MODE said, so an
   // existing setup keeps working without being reconfigured.
@@ -3235,7 +3258,7 @@ const SETTINGS_KEYS = [
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
   'TTS_IGNORE_USERS','TTS_NAME_ALIASES',
-  'COMMANDS_ENABLED','MEDIA_ENABLED','AUDIO_ENABLED',
+  'COMMANDS_ENABLED','MEDIA_ENABLED','AUDIO_ENABLED','OVERLAYS_MASTER_ENABLED',
   'TTS_BITS_THRESHOLD',
   'TTS_REDEMPTIONS_ENABLED','TTS_REDEMPTION_NAMES',
   'TTS_ALERTS_ENABLED','TTS_ALERT_TYPES',

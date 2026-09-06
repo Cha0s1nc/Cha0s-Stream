@@ -214,6 +214,14 @@
     .settings-cat-icon { font-size: 20px; line-height: 1; margin-bottom: 8px; }
     .settings-cat-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
     .settings-cat-desc { font-size: 11px; color: var(--text3); line-height: 1.4; }
+    /* Same card as the top-level grid, but the body is only part of it: the
+       switch and the URL button live in the card and must not open it. */
+    .ov-card { padding: 0; cursor: default; display: flex; flex-direction: column; }
+    .ov-card:has(.ov-card-body:hover) { border-color: var(--accent); background: var(--surface2); }
+    .ov-card-body { flex: 1; width: 100%; text-align: left; padding: 16px 14px 6px; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+    .ov-card-body:active { transform: scale(0.97); }
+    .ov-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+    .ov-url-src { display: none; }
     .settings-catbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
     /* An author display value beats the browser default for [hidden], so both the
        grid and this bar need it restated or they never actually hide. */
@@ -244,7 +252,7 @@
     /* Press feedback. Transform only, so it composites and never triggers layout. */
     .btn:active:not(:disabled),
     .dev-btn:active, .scene-btn:active, .obs-ctrl-btn:active,
-    .filter-btn:active, .settings-cat:active { transform: scale(0.97); }
+    .filter-btn:active, .settings-cat:not(.ov-card):active { transform: scale(0.97); }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: #7c5ff7; }
@@ -750,13 +758,32 @@
           <!-- ── Overlays (Alerts + Chat combined) ── -->
           <div class="settings-group" data-cat="overlays">
             <div class="settings-group-title">Overlays</div>
-            <div style="padding:8px 14px 4px;font-size:11px;color:var(--text3);">
-              Each overlay is its own browser source. Switch on the ones you want, then copy their URLs into OBS.
+            <div id="overlay-intro" style="padding:8px 14px 4px;font-size:11px;color:var(--text3);">
+              Each overlay is its own browser source. Switch on the ones you want, copy the URL into OBS, and open one to style it.
             </div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Events</div><div class="setting-desc">Follows, subs, cheers and raids.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-alerts-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-alerts-url')">Copy</button><label class="toggle"><input type="checkbox" id="ov-on-events" onchange="setOverlayEnabled('events', this.checked)" /><span class="toggle-track"></span></label></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Chat</div><div class="setting-desc">Chat messages on stream.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-chat-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-chat-url')">Copy</button><label class="toggle"><input type="checkbox" id="ov-on-chat" onchange="setOverlayEnabled('chat', this.checked)" /><span class="toggle-track"></span></label></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Now Playing</div><div class="setting-desc">The current track, from whichever media mode is active.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-np-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-np-url')">Copy</button><label class="toggle"><input type="checkbox" id="ov-on-nowplaying" onchange="setOverlayEnabled('nowplaying', this.checked)" /><span class="toggle-track"></span></label></div></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Combined Source</div><div class="setting-desc">Events and chat in one browser source, if you would rather not add two.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="overlay-browser-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()">Copy</button></div></div>
+            <!-- The URLs stay in the DOM but out of sight: setOverlayUrls writes
+                 them here and the URL buttons copy them, so both keep working
+                 without a second place that knows how an overlay URL is built. -->
+            <div class="settings-cats" id="overlay-cats" style="padding:12px 14px 14px;margin-bottom:0;">
+              <div class="settings-cat ov-card" id="ov-card-events">
+                <button class="ov-card-body" data-goov="events"><div class="settings-cat-icon">⚡</div><div class="settings-cat-name">Events</div><div class="settings-cat-desc">Follows, subs, cheers and raids</div></button>
+                <div class="ov-card-foot"><code id="overlay-alerts-url" class="overlay-url ov-url-src">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-alerts-url')" data-tip="Copy this overlay's browser source URL">URL</button><label class="toggle" data-tip="Serve this overlay. Off means its address renders nothing."><input type="checkbox" id="ov-on-events" onchange="setOverlayEnabled('events', this.checked)" /><span class="toggle-track"></span></label></div>
+              </div>
+              <div class="settings-cat ov-card" id="ov-card-chat">
+                <button class="ov-card-body" data-goov="chat"><div class="settings-cat-icon">💬</div><div class="settings-cat-name">Chat</div><div class="settings-cat-desc">Chat messages on stream</div></button>
+                <div class="ov-card-foot"><code id="overlay-chat-url" class="overlay-url ov-url-src">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-chat-url')" data-tip="Copy this overlay's browser source URL">URL</button><label class="toggle" data-tip="Serve this overlay. Off means its address renders nothing."><input type="checkbox" id="ov-on-chat" onchange="setOverlayEnabled('chat', this.checked)" /><span class="toggle-track"></span></label></div>
+              </div>
+              <div class="settings-cat ov-card" id="ov-card-nowplaying">
+                <button class="ov-card-body" data-goov="nowplaying"><div class="settings-cat-icon">♪</div><div class="settings-cat-name">Now Playing</div><div class="settings-cat-desc">The current track, from whichever media mode is active</div></button>
+                <div class="ov-card-foot"><code id="overlay-np-url" class="overlay-url ov-url-src">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('overlay-np-url')" data-tip="Copy this overlay's browser source URL">URL</button><label class="toggle" data-tip="Serve this overlay. Off means its address renders nothing."><input type="checkbox" id="ov-on-nowplaying" onchange="setOverlayEnabled('nowplaying', this.checked)" /><span class="toggle-track"></span></label></div>
+              </div>
+              <!-- No switch of its own: it renders whatever Events and Chat are
+                   set to, so a third switch would only contradict them. -->
+              <div class="settings-cat ov-card" id="ov-card-combined">
+                <div class="ov-card-body" style="cursor:default;"><div class="settings-cat-icon">▣</div><div class="settings-cat-name">Combined Source</div><div class="settings-cat-desc">Events and chat in one browser source, if you would rather not add two</div></div>
+                <div class="ov-card-foot"><code id="overlay-browser-url" class="overlay-url ov-url-src">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyOverlayUrl()" data-tip="Copy this overlay's browser source URL">URL</button></div>
+              </div>
+            </div>
 
             <!-- ── Alerts settings ── -->
             <div id="overlay-alerts-settings">
@@ -1796,6 +1823,8 @@
     // Every group stays in the DOM; this only decides what is on screen. Landing on
     // a grid instead of a 14-section wall is the whole point, so null means "grid".
     let settingsCat = null;
+    // One level below a category: which overlay's own settings are open.
+    let overlayCat = null;
     // Last loaded settings, so the category switches can read their own key
     // without refetching every time a category is opened.
     let settingsSaved = {};
@@ -1805,6 +1834,11 @@
       connections: 'Connections', overlays: 'Overlays', audio: 'Audio', advanced: 'Advanced',
     };
 
+    const OVERLAY_CAT_NAMES = { events: 'Events', chat: 'Chat', nowplaying: 'Now Playing' };
+    const OVERLAY_PANELS = {
+      events: 'overlay-alerts-settings', chat: 'overlay-chat-settings', nowplaying: 'overlay-np-settings',
+    };
+
     function applySettingsCat() {
       const grid = document.getElementById('settings-cats');
       const bar  = document.getElementById('settings-catbar');
@@ -1812,7 +1846,21 @@
       grid.hidden = settingsCat !== null;
       bar.hidden  = settingsCat === null;
       const label = document.getElementById('settings-cat-name');
-      if (label) label.textContent = settingsCat ? SETTINGS_CAT_NAMES[settingsCat] || '' : '';
+      if (label) {
+        const cat = settingsCat ? SETTINGS_CAT_NAMES[settingsCat] || '' : '';
+        label.textContent = overlayCat ? `${cat} \u203a ${OVERLAY_CAT_NAMES[overlayCat]}` : cat;
+      }
+
+      // Overlays go one level deeper: the card grid, then one overlay's own
+      // settings. Every panel stays in the DOM either way.
+      const ovGrid = document.getElementById('overlay-cats');
+      if (ovGrid) ovGrid.hidden = overlayCat !== null;
+      const ovIntro = document.getElementById('overlay-intro');
+      if (ovIntro) ovIntro.style.display = overlayCat ? 'none' : '';
+      for (const [key, id] of Object.entries(OVERLAY_PANELS)) {
+        const panel = document.getElementById(id);
+        if (panel) panel.style.display = overlayCat === key ? '' : 'none';
+      }
 
       document.querySelectorAll('#tab-settings .settings-group[data-cat]').forEach(g => {
         const inCat = g.dataset.cat === settingsCat;
@@ -1827,7 +1875,11 @@
     // per service already, and Advanced is ports and allowlists, not a feature.
     const SETTINGS_CAT_TOGGLE = {
       commands: 'COMMANDS_ENABLED', media: 'MEDIA_ENABLED', audio: 'AUDIO_ENABLED',
-      requests: 'SONG_REQUEST_ENABLED', overlays: 'OVERLAYS_ENABLED',
+      requests: 'SONG_REQUEST_ENABLED',
+      // Not OVERLAYS_ENABLED: that key already holds the JSON object of
+      // per-overlay switches, so writing "false" over it wiped every one of
+      // them back to defaults and turned nothing off.
+      overlays: 'OVERLAYS_MASTER_ENABLED',
     };
     // Absent means on, matching the backend: an install that has never seen these
     // keys must not read as switched off.
@@ -1871,8 +1923,9 @@
       applyCatToggle();
     });
 
-    function showSettingsCat(cat) {
+    function showSettingsCat(cat, overlay = null) {
       settingsCat = cat;
+      overlayCat = cat === 'overlays' ? overlay : null;
       applySettingsCat();
       applyCatToggle();
       // Restarting the animation needs the class gone for a frame, or a second
@@ -1887,7 +1940,14 @@
     document.querySelectorAll('.settings-cat[data-gocat]').forEach(btn => {
       btn.addEventListener('click', () => showSettingsCat(btn.dataset.gocat));
     });
-    document.getElementById('settings-back')?.addEventListener('click', () => showSettingsCat(null));
+    document.querySelectorAll('.ov-card-body[data-goov]').forEach(btn => {
+      btn.addEventListener('click', () => showSettingsCat('overlays', btn.dataset.goov));
+    });
+    // One level at a time, so Back out of an overlay lands on the overlay grid
+    // rather than jumping all the way to the top.
+    document.getElementById('settings-back')?.addEventListener('click', () => {
+      overlayCat ? showSettingsCat('overlays') : showSettingsCat(null);
+    });
     // Without this the groups have no hidden attribute yet and every one of them
     // paints on first load, which is exactly the wall this replaces.
     applySettingsCat();
@@ -1985,11 +2045,11 @@
       for (const [key, id] of [['events', 'ov-on-events'], ['chat', 'ov-on-chat'], ['nowplaying', 'ov-on-nowplaying']]) {
         const box = document.getElementById(id);
         if (box) box.checked = !!overlaysEnabled[key];
+        // Dimmed rather than closed: styling an overlay before switching it on
+        // is a reasonable order to do things in.
+        document.getElementById(`ov-card-${key}`)?.classList.toggle('is-off', !overlaysEnabled[key]);
       }
-      // A section with its switch off is noise, so it collapses away entirely.
-      document.getElementById('overlay-alerts-settings').style.display = overlaysEnabled.events     ? '' : 'none';
-      document.getElementById('overlay-chat-settings').style.display   = overlaysEnabled.chat       ? '' : 'none';
-      document.getElementById('overlay-np-settings').style.display     = overlaysEnabled.nowplaying ? '' : 'none';
+      // Which panel is on screen is now the sub-grid's business, not this one's.
     }
 
     /** Read the Now Playing form back into the config object. */
@@ -2048,7 +2108,7 @@
       // OBS will render - no second implementation to drift.
       const frame = document.getElementById('np-preview');
       if (frame) {
-        const previewUrl = url + (url.includes('?') ? '&' : '?') + 'align=center&hide=0';
+        const previewUrl = url + (url.includes('?') ? '&' : '?') + 'align=center&hide=0&preview=1';
         if (frame.src !== previewUrl) frame.src = previewUrl;
       }
       return url;
@@ -2090,13 +2150,15 @@
 
     function copyUrl(elId) {
       const url = document.getElementById(elId)?.textContent;
-      if (url && url !== 'loading…') {
-        navigator.clipboard.writeText(url).then(() => {
-          const btn = event.target;
-          btn.textContent = '✓ Copied';
-          setTimeout(() => btn.textContent = 'Copy', 2000);
-        });
-      }
+      if (!url || url === 'loading…') return;
+      // Restore whatever the button said rather than assuming "Copy": the
+      // overlay cards label theirs "URL".
+      const btn = event.target;
+      const label = btn.textContent;
+      navigator.clipboard.writeText(url).then(() => {
+        btn.textContent = '✓ Copied';
+        setTimeout(() => btn.textContent = label, 2000);
+      });
     }
 
     function copyOverlayUrl() { copyUrl('overlay-browser-url'); }
