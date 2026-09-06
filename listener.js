@@ -158,6 +158,7 @@ const state = {
   twitch: { connected: false, failCount: 0, paused: false },
   log: [],
   queue: [],
+  history: [],
   wishlist: [],
   redeemActions: {},
   commands: { ...DEFAULT_COMMANDS },
@@ -761,6 +762,9 @@ function nowPlayingStartPolling() {
     const playing = track?.isPlaying ?? false;
     const changed = now !== formatTrack(nowPlayingCurrent) || playing !== (nowPlayingCurrent?.isPlaying ?? false);
     nowPlayingCurrent = track;
+    // Before the broadcast, so the payload below carries this track's requester
+    // rather than the previous one's.
+    reconcileQueueWithTrack(track);
     if (changed) broadcast(nowPlayingPayload(track));
   };
   // Once straight away, then on the interval. Waiting a full period first left
@@ -768,6 +772,34 @@ function nowPlayingStartPolling() {
   // OBS source starting with the app - was told nothing was playing.
   poll();
   nowPlayingTimer = setInterval(poll, NOW_PLAYING_POLL_MS[mode] || 8000);
+}
+
+// --- Request lifecycle ---------------------------------------------------
+// The matching rules live in queue-lifecycle.js so they can be tested; this
+// half is the bit with the side effects.
+const { reconcile: reconcileQueue } = require('./queue-lifecycle');
+
+let queuePlayingId = null;
+const HISTORY_MAX = 50;
+
+function reconcileQueueWithTrack(track) {
+  const { playingId, retiredId } = reconcileQueue(state.queue, track, queuePlayingId);
+  queuePlayingId = playingId;
+  if (!retiredId) return;
+  const idx = state.queue.findIndex(e => e.id === retiredId);
+  if (idx === -1) return;
+  const [entry] = state.queue.splice(idx, 1);
+  entry.playedAt = new Date().toISOString();
+  state.history.unshift(entry);
+  state.history.length = Math.min(state.history.length, HISTORY_MAX);
+  broadcast({ event: 'queue_remove', id: entry.id });
+  broadcast({ event: 'history_add', entry });
+  addLog('jellyfin', 'queue', `Played: ${entry.resolvedItem.artist} \u2014 ${entry.resolvedItem.name}`);
+}
+
+/** Who asked for the track on screen right now, for the overlay's credit line. */
+function nowPlayingRequester() {
+  return state.queue.find(e => e.id === queuePlayingId)?.user || null;
 }
 
 /**
@@ -787,6 +819,9 @@ function nowPlayingPayload(track) {
     title:  track?.title  || null,
     artist: track?.artist || null,
     album:  track?.album  || null,
+    // Null unless this exact track came in through song requests, which is what
+    // lets the overlay hide its credit line instead of printing an empty one.
+    requestedBy: nowPlayingRequester(),
     // Proxied so the overlay's canvas can read it - see /api/art.
     art: track?.art ? `/api/art?u=${encodeURIComponent(track.art)}` : null,
     durationMs: track?.durationMs ?? null,
@@ -1466,6 +1501,7 @@ async function jellyfinNowPlaying() {
   const artId = item.AlbumId || item.Id;
   const artTag = item.AlbumPrimaryImageTag || item.ImageTags?.Primary;
   return {
+    id:     item.Id || null,
     title:  item.Name || '',
     artist: item.Artists?.[0] || item.AlbumArtist || 'Unknown Artist',
     album:  item.Album || '',
@@ -2285,7 +2321,7 @@ app.post('/run', async (req, res) => {
 });
 
 // --- Queue API ---
-app.get('/api/queue', (req, res) => res.json({ queue: state.queue, wishlist: state.wishlist }));
+app.get('/api/queue', (req, res) => res.json({ queue: state.queue, history: state.history, wishlist: state.wishlist }));
 
 app.post('/api/queue/add', async (req, res) => {
   const { user, query, itemId, itemName, itemArtist, itemAlbum } = req.body;
@@ -3276,7 +3312,7 @@ wss.on('connection', (ws) => {
     srMode: process.env.SONG_REQUEST_MODE || 'chat',
     srRedeemName: process.env.SONG_REQUEST_REDEEM_NAME || '',
     srEnabled: process.env.SONG_REQUEST_ENABLED !== 'false',
-    queue: state.queue, wishlist: state.wishlist,
+    queue: state.queue, history: state.history, wishlist: state.wishlist,
     commands: state.commands,
     customCommands: state.customCommands,
     relay: relayClient.status(),
