@@ -215,14 +215,12 @@ function pickAsset(assets = []) {
 
   if (process.platform === 'win32') return byExt(/\.exe$/i)[0];
 
+  // Apple Silicon only. An Intel Mac gets undefined and is sent to the release
+  // page rather than handed a build it cannot run. The arm64 build carries its
+  // arch in the filename, so the match stays explicit even though it is now the
+  // only dmg published; older releases still have an unsuffixed x64 one.
   if (process.platform === 'darwin') {
-    // Only the arm64 build carries its arch in the filename; the unsuffixed
-    // .dmg is the x64 one. Matching on process.arch alone silently handed
-    // Intel Macs the arm64 build.
-    const dmgs = byExt(/\.dmg$/i);
-    return process.arch === 'arm64'
-      ? dmgs.find(a => /arm64/i.test(a.name))
-      : dmgs.find(a => !/arm64/i.test(a.name));
+    return process.arch === 'arm64' ? byExt(/\.dmg$/i).find(a => /arm64/i.test(a.name)) : undefined;
   }
 
   if (process.platform === 'linux') {
