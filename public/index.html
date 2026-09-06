@@ -74,11 +74,24 @@
     .panel-view {
       display: none; flex: 1; overflow: hidden; flex-direction: column;
       opacity: 0;
+      transform: translateX(var(--panel-exit-x, 0px));
       transition: opacity var(--dur-base) var(--ease-out),
+                  transform var(--dur-base) var(--ease-out),
                   display var(--dur-base) allow-discrete;
     }
-    .panel-view.active { display: flex; opacity: 1; }
-    @starting-style { .panel-view.active { opacity: 0; } }
+    .panel-view.active { display: flex; opacity: 1; transform: none; }
+    /* The two custom properties are set per switch in JS, from the nav order, so
+       moving down the sidebar sends the old panel left and brings the new one in
+       from the right. Both default to 0, which is the old straight cross-fade. */
+    @starting-style {
+      .panel-view.active { opacity: 0; transform: translateX(var(--panel-enter-x, 0px)); }
+    }
+
+    /* Opening a settings category. Deliberately an animation and not a
+       transition: the groups go from hidden to shown, so there is no pair of
+       states to interpolate between. */
+    @keyframes catZoomIn { from { opacity: 0; transform: scale(0.965); } to { opacity: 1; transform: none; } }
+    .settings-cat-opening { animation: catZoomIn var(--dur-slow) var(--ease-out); }
     .dash-tabs { display: none; align-items: center; gap: 2px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); height: 36px; flex-shrink: 0; }
     .dash-tabs.visible { display: flex; }
     .dtab { position: relative; font-family: var(--font); font-size: 12px; font-weight: 500; color: var(--text2); background: none; border: none; padding: 0 12px; height: 36px; cursor: pointer; transition: color var(--dur-base); }
@@ -262,7 +275,7 @@
     .search-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: var(--font); font-size: 12px; padding: 6px 10px 6px 30px; outline: none; transition: border-color var(--dur-base); }
     .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .search-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text3); font-size: 13px; pointer-events: none; }
-    .requests-body { flex: 1; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
+    .requests-body { flex: 1; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr 1fr; }
     .requests-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
     .requests-panel:last-child { border-right: none; }
     .requests-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
@@ -284,7 +297,7 @@
        the rows below snap up the instant the node goes, because the list is a
        flex column and gap is not transitionable. */
     .queue-item.leaving, .wishlist-item.leaving {
-      transform: translateX(-24px);
+      transform: translateX(var(--row-exit-x, -24px));
       opacity: 0;
       pointer-events: none;
       overflow: hidden;
@@ -299,6 +312,7 @@
     .queue-item-title { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
     .queue-item-meta { font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .queue-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .queue-item.played { opacity: 0.6; }
     .wishlist-item { background: var(--surface); border: 1px solid rgba(255,69,58,0.2); border-radius: 8px; padding: 9px 11px; display: flex; align-items: center; gap: 8px; animation: fadeIn 0.15s ease; }
     .sr-mode-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 8px; background: rgba(110,79,246,0.15); color: #a78bfa; }
     .redeem-list { padding: 0; }
@@ -447,7 +461,9 @@
       position: fixed; z-index: 10000; pointer-events: none;
       background: var(--surface2); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500;
-      white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      /* Was nowrap, which was fine for four-word hints and turned a whole
+         setting description into a tooltip wider than the window. */
+      max-width: 260px; line-height: 1.4; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
       opacity: 0; transition: opacity var(--dur-fast);
       left: 0; top: 0;
     }
@@ -561,8 +577,9 @@
             <div class="filter-group">
               <button class="filter-btn active" data-filter="all">All</button>
               <button class="filter-btn" data-filter="obs">OBS</button>
-              <button class="filter-btn" data-filter="jellyfin">Jellyfin</button>
+              <button class="filter-btn" data-filter="jellyfin">Media</button>
               <button class="filter-btn" data-filter="sound">Sound</button>
+              <button class="filter-btn" data-filter="system">System</button>
               <button class="filter-btn" data-filter="err">Errors</button>
             </div>
           </div>
@@ -614,6 +631,10 @@
             <div class="requests-panel">
               <div class="requests-panel-header"><span class="requests-panel-title">Queue</span><button class="btn btn-secondary btn-sm" id="btn-clear-queue">Clear</button></div>
               <div class="requests-list" id="queue-list"><div class="empty-state" style="padding:20px 0">No requests yet</div></div>
+            </div>
+            <div class="requests-panel">
+              <div class="requests-panel-header"><span class="requests-panel-title">History</span><button class="btn btn-secondary btn-sm" id="btn-clear-history">Clear</button></div>
+              <div class="requests-list" id="history-list"><div class="empty-state" style="padding:20px 0">Nothing played yet</div></div>
             </div>
             <div class="requests-panel">
               <div class="requests-panel-header"><span class="requests-panel-title">Download Wishlist</span><button class="btn btn-secondary btn-sm" id="btn-clear-wishlist">Clear</button></div>
@@ -838,6 +859,10 @@
             <div class="redeem-add-row"><input class="setting-input" id="new-redeem-name" type="text" placeholder="Exact redeem name..." style="flex:1;min-width:140px;" /><select class="setting-input" id="new-redeem-type" style="width:120px;"><option value="script">Run Script</option><option value="sound">Play Sound</option><option value="scene">OBS Scene</option><option value="source">OBS Source</option></select><div class="redeem-detail-fields" id="redeem-detail-fields"><input class="setting-input" id="new-redeem-detail" type="text" placeholder="Script URL / sound name / scene name..." style="flex:1;" /></div><button class="btn btn-primary btn-sm" id="btn-add-redeem">Add</button></div>
           </div>
           <div class="settings-group" data-cat="advanced">
+            <div class="settings-group-title">Updates</div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Beta Updates</div><div class="setting-desc">Offer pre-release builds as well as stable ones. Already on if this build is itself a beta.</div></div><label class="toggle"><input type="checkbox" id="cfg-beta-updates" /><span class="toggle-track"></span></label></div>
+          </div>
+          <div class="settings-group" data-cat="advanced">
             <div class="settings-group-title">Script Allowlist</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Allowed Domains</div><div class="setting-desc">Comma-separated trusted domains for !run.</div></div><input class="setting-input" id="cfg-script-allowlist" type="text" placeholder="pub-xxx.r2.dev, pastebin.com" style="width:280px" /></div>
           </div>
@@ -932,13 +957,23 @@
     backdrop.addEventListener('click', () => { sidenav.classList.remove('expanded'); backdrop.classList.remove('dim'); });
 
     // --- Nav item switching ---
+    // Sidebar order, so a switch knows which way the new panel should come from.
+    const PANEL_ORDER = [...document.querySelectorAll('.nav-item[data-panel]')].map(i => i.dataset.panel);
+    const PANEL_SLIDE_PX = 28;
+
     document.querySelectorAll('.nav-item[data-panel]').forEach(item => {
       item.addEventListener('click', () => {
         const panel = item.dataset.panel;
+        const from  = document.querySelector('.panel-view.active');
+        const to    = document.getElementById(`tab-${panel}`);
+        if (to === from) return;
+        const dir = Math.sign(PANEL_ORDER.indexOf(panel) - PANEL_ORDER.indexOf(from?.id.replace('tab-', '')));
+        if (from) from.style.setProperty('--panel-exit-x', `${-dir * PANEL_SLIDE_PX}px`);
+        if (to)   to.style.setProperty('--panel-enter-x', `${dir * PANEL_SLIDE_PX}px`);
         document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
         document.querySelectorAll('.panel-view').forEach(v => v.classList.remove('active'));
         item.classList.add('active');
-        document.getElementById(`tab-${panel}`)?.classList.add('active');
+        to?.classList.add('active');
         const dashTabs = document.getElementById('dash-tabs');
         if (dashTabs) dashTabs.classList.toggle('visible', panel === 'dashboard');
         if (panel === 'settings') { loadSettings(); loadRedeems(); loadRedirectUris(); loadAlertConfig(); loadChatConfig(); loadSounds(); renderCommandsTable(); renderCustomCommandsTable(); loadTriggers(); }
@@ -988,6 +1023,8 @@
           document.getElementById('cfg-sr-enabled').checked = srEnabled;
           // Load queue/wishlist
           if (data.queue) data.queue.forEach(e => addQueueItem(e));
+          // Server sends newest first, so append to keep that order on screen.
+          if (data.history) data.history.forEach(e => addHistoryItem(e, false));
           if (data.wishlist) data.wishlist.forEach(e => addWishlistItem(e));
           updateSidebarCounts();
           // Dev mode: show the hidden dev nav item if .debug file is present
@@ -1021,6 +1058,8 @@
           markQueueItemApproved(data.entry);
         } else if (data.event === 'queue_remove') {
           removeRowAnimated(document.getElementById(`qi-${data.id}`));
+        } else if (data.event === 'history_add') {
+          addHistoryItem(data.entry);
         } else if (data.event === 'wishlist_add') {
           addWishlistItem(data.entry);
           updateSidebarCounts();
@@ -1624,13 +1663,18 @@
       updateStats(); renderLog(entry, true);
     }
 
+    // Display only. The type stays "jellyfin" everywhere else because that is what
+    // the media adapters tag their entries with, and every mode routes through them,
+    // so the label was lying to anyone running Cider or Spotify.
+    const LOG_TYPE_LABELS = { jellyfin: 'MEDIA' };
+
     function renderLog(entry, prepend) {
       const container = document.getElementById('log-container');
       const time = new Date(entry.time).toLocaleTimeString('en-US', { hour12: false });
       const el = document.createElement('div');
       el.className = `log-entry ${entry.ok ? 'ok' : 'err'}`;
       el.dataset.type = entry.type; el.dataset.ok = entry.ok;
-      el.innerHTML = `<span class="log-time">${time}</span><span class="log-type ${entry.type}">${entry.type.toUpperCase()}</span><span class="log-command">${escHtml(entry.command)}</span><span class="log-detail" title="${escHtml(entry.detail)}">${escHtml(entry.detail)}</span><span class="log-ok ${entry.ok ? 'ok' : 'err'}">${entry.ok ? '✓' : '✗'}</span>`;
+      el.innerHTML = `<span class="log-time">${time}</span><span class="log-type ${entry.type}">${LOG_TYPE_LABELS[entry.type] || entry.type.toUpperCase()}</span><span class="log-command">${escHtml(entry.command)}</span><span class="log-detail" title="${escHtml(entry.detail)}">${escHtml(entry.detail)}</span><span class="log-ok ${entry.ok ? 'ok' : 'err'}">${entry.ok ? '✓' : '✗'}</span>`;
       applyFilter(el);
       prepend ? container.prepend(el) : container.append(el);
     }
@@ -1655,6 +1699,10 @@
     // Delegated rather than bound per element, so markup added later (plugin
     // panels, generated rows) is covered without a registration step.
     const TOOLTIP_GAP = 6;
+    // Long enough that tips do not flash at you while you sweep across a panel,
+    // short enough to still feel like an answer to hovering on purpose.
+    const TOOLTIP_DELAY_MS = 700;
+    let tooltipTimer = null;
     function positionTooltip(host) {
       const tip = document.getElementById('tooltip');
       const text = host.getAttribute('data-tip');
@@ -1672,7 +1720,12 @@
       const left = Math.max(4, Math.min(window.innerWidth - t.width - 4, h.left + h.width / 2 - t.width / 2));
       tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
     }
+    function showTooltipSoon(host) {
+      clearTimeout(tooltipTimer);
+      tooltipTimer = setTimeout(() => positionTooltip(host), TOOLTIP_DELAY_MS);
+    }
     function hideTooltip() {
+      clearTimeout(tooltipTimer);
       const tip = document.getElementById('tooltip');
       if (!tip) return;
       tip.classList.remove('show');
@@ -1680,7 +1733,7 @@
     }
     document.addEventListener('mouseover', (e) => {
       const host = e.target.closest?.('[data-tip]');
-      if (host) positionTooltip(host);
+      if (host) showTooltipSoon(host);
     });
     document.addEventListener('mouseout', (e) => {
       if (e.target.closest?.('[data-tip]')) hideTooltip();
@@ -1688,9 +1741,24 @@
     // Keyboard parity: a tip you can only get with a mouse is not much of a hint.
     document.addEventListener('focusin', (e) => {
       const host = e.target.closest?.('[data-tip]');
-      if (host && host.matches(':focus-visible')) positionTooltip(host);
+      if (host && host.matches(':focus-visible')) showTooltipSoon(host);
     });
     document.addEventListener('focusout', hideTooltip);
+
+    // Every toggle already sits next to a sentence explaining it; copying that
+    // onto the control means the answer follows the switch when the row scrolls
+    // its description off, without hand-writing sixty more strings.
+    for (const row of document.querySelectorAll('.setting-row')) {
+      const toggle = row.querySelector('label.toggle');
+      const src = row.querySelector('.setting-desc');
+      if (!toggle || toggle.hasAttribute('data-tip') || !src) continue;
+      // Some descriptions carry a live status span. Snapshotting it here would
+      // freeze whatever it said at load, so drop those and keep the prose.
+      const copy = src.cloneNode(true);
+      copy.querySelectorAll('[id]').forEach(n => n.remove());
+      const desc = copy.textContent.replace(/\s+/g, ' ').trim();
+      if (desc) toggle.setAttribute('data-tip', desc);
+    }
 
     // --- Local player detection (Cascade, Cider) ---
     // Each mode button stays hidden until its app has been seen running once,
@@ -1764,13 +1832,25 @@
     // keys must not read as switched off.
     const catFeatureOn = key => (settingsSaved?.[key] ?? 'true') !== 'false';
 
+    // The one switch nobody can guess the scope of from looking at it.
+    const SETTINGS_CAT_TIPS = {
+      commands: 'Stop answering chat commands entirely. Custom commands and redeems included.',
+      media:    'Stop controlling the player. Now Playing and every media command go quiet.',
+      audio:    'Stop text to speech and sound effects playing on this machine.',
+      requests: 'Stop taking song requests. The queue stays as it is.',
+      overlays: 'Stop serving every overlay. Browser sources go blank until this is back on.',
+    };
+
     function applyCatToggle() {
       const wrap = document.getElementById('settings-cat-toggle-wrap');
       const box  = document.getElementById('settings-cat-toggle');
       const key  = settingsCat && SETTINGS_CAT_TOGGLE[settingsCat];
       if (!wrap || !box) return;
       wrap.hidden = !key;
-      if (key) box.checked = catFeatureOn(key);
+      if (key) {
+        box.checked = catFeatureOn(key);
+        wrap.setAttribute('data-tip', SETTINGS_CAT_TIPS[settingsCat] || '');
+      }
       document.querySelectorAll('.settings-cat[data-gocat]').forEach(card => {
         const k = SETTINGS_CAT_TOGGLE[card.dataset.gocat];
         card.classList.toggle('is-off', !!k && !catFeatureOn(k));
@@ -1790,7 +1870,18 @@
       applyCatToggle();
     });
 
-    function showSettingsCat(cat) { settingsCat = cat; applySettingsCat(); applyCatToggle(); }
+    function showSettingsCat(cat) {
+      settingsCat = cat;
+      applySettingsCat();
+      applyCatToggle();
+      // Restarting the animation needs the class gone for a frame, or a second
+      // click on another category just leaves the finished animation in place.
+      const view = document.querySelector('#tab-settings .settings-view');
+      if (!view) return;
+      view.classList.remove('settings-cat-opening');
+      void view.offsetWidth;                       // one forced reflow, deliberately
+      view.classList.add('settings-cat-opening');
+    }
 
     document.querySelectorAll('.settings-cat[data-gocat]').forEach(btn => {
       btn.addEventListener('click', () => showSettingsCat(btn.dataset.gocat));
@@ -2897,8 +2988,15 @@
     // Slide a request row out instead of having it blink out of existence. The
     // height is pinned first so the collapse has something to animate from; the
     // flex gap is eaten with a negative margin because gap itself cannot animate.
-    function removeRowAnimated(el) {
+    // A row that leaves because it played drifts off politely; one a human threw
+    // away gets flung, and picking the side at random keeps it from reading as a
+    // layout twitch. Coin flip is deliberate, per request.
+    const EXIT_FLING_PX = 160;
+    const flingX = () => (Math.random() < 0.5 ? -EXIT_FLING_PX : EXIT_FLING_PX) + 'px';
+
+    function removeRowAnimated(el, exitX) {
       if (!el || el.classList.contains('leaving')) return;
+      if (exitX) el.style.setProperty('--row-exit-x', exitX);
       el.style.height = el.offsetHeight + 'px';   // one forced reflow, deliberately
       el.classList.add('leaving');
       requestAnimationFrame(() => {
@@ -2911,7 +3009,9 @@
       // prefers-reduced-motion block forces durations to 0.01ms, so without this
       // fallback the node can be orphaned in the DOM forever.
       let done = false;
-      const finish = () => { if (done) return; done = true; el.remove(); updateSidebarCounts(); };
+      // Restamping the placeholder here rather than at the call sites: skipping
+      // the last request used to leave the panel blank with no empty state.
+      const finish = () => { if (done) return; done = true; el.remove(); refreshRequestEmptyStates(); };
       el.addEventListener('transitionend', finish, { once: true });
       setTimeout(finish, 400);
     }
@@ -2927,18 +3027,63 @@
 
     async function skipRequest(id) {
       await fetch(`/api/queue/${id}/skip`, { method: 'POST' });
-      removeRowAnimated(document.getElementById(`qi-${id}`));
+      removeRowAnimated(document.getElementById(`qi-${id}`), flingX());
     }
 
     document.getElementById('btn-clear-queue').addEventListener('click', async () => {
-      const items = document.querySelectorAll('[id^="qi-"]');
-      for (const el of items) {
+      for (const el of document.querySelectorAll('[id^="qi-"]')) {
         const id = el.id.replace('qi-', '');
         await fetch(`/api/queue/${id}/skip`, { method: 'POST' });
-        el.remove();
+        removeRowAnimated(el, flingX());
       }
-      document.getElementById('queue-list').innerHTML = '<div class="empty-state" style="padding:20px 0">No requests yet</div>';
+      // Deliberately not stamping the empty state in here: the rows are still on
+      // their way out, and overwriting the list would delete them mid-flight.
+      setTimeout(refreshRequestEmptyStates, 450);
+    });
+
+    // Each list keeps its own placeholder, which only belongs there once the list
+    // is genuinely empty - hence checking rather than assuming after a clear.
+    const REQUEST_EMPTY = {
+      'queue-list':    'No requests yet',
+      'wishlist-list': 'No wishlist items',
+      'history-list':  'Nothing played yet',
+    };
+    function refreshRequestEmptyStates() {
+      for (const [id, text] of Object.entries(REQUEST_EMPTY)) {
+        const list = document.getElementById(id);
+        if (!list || list.children.length) continue;
+        list.innerHTML = `<div class="empty-state" style="padding:20px 0">${text}</div>`;
+      }
       updateSidebarCounts();
+    }
+
+    // --- History rendering ---
+    // Requests retire here when the player moves off them, so the panel is the
+    // only remaining record of who asked for what.
+    function addHistoryItem(entry, prepend = true) {
+      const list = document.getElementById('history-list');
+      const empty = list.querySelector('.empty-state');
+      if (empty) empty.remove();
+      const el = document.createElement('div');
+      el.className = 'queue-item played';
+      el.id = `hi-${entry.id}`;
+      const title = entry.resolvedItem
+        ? `${escHtml(entry.resolvedItem.artist)} \u2014 ${escHtml(entry.resolvedItem.name)}`
+        : escHtml(entry.query);
+      const when = entry.playedAt
+        ? new Date(entry.playedAt).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+        : '';
+      el.innerHTML = `
+        <div class="queue-item-info">
+          <div class="queue-item-title">${title}</div>
+          <div class="queue-item-meta">${escHtml(entry.user)}${when ? ' \u00b7 ' + when : ''}</div>
+        </div>`;
+      prepend ? list.prepend(el) : list.appendChild(el);
+    }
+
+    document.getElementById('btn-clear-history').addEventListener('click', () => {
+      for (const el of document.querySelectorAll('[id^="hi-"]')) removeRowAnimated(el, flingX());
+      setTimeout(refreshRequestEmptyStates, 450);
     });
 
     // --- Wishlist rendering ---
@@ -2963,18 +3108,16 @@
 
     async function removeWishlist(id) {
       await fetch(`/api/wishlist/${id}`, { method: 'DELETE' });
-      removeRowAnimated(document.getElementById(`wi-${id}`));
+      removeRowAnimated(document.getElementById(`wi-${id}`), flingX());
     }
 
     document.getElementById('btn-clear-wishlist').addEventListener('click', async () => {
-      const items = document.querySelectorAll('[id^="wi-"]');
-      for (const el of items) {
+      for (const el of document.querySelectorAll('[id^="wi-"]')) {
         const id = el.id.replace('wi-', '');
         await fetch(`/api/wishlist/${id}`, { method: 'DELETE' });
-        el.remove();
+        removeRowAnimated(el, flingX());
       }
-      document.getElementById('wishlist-list').innerHTML = '<div class="empty-state" style="padding:20px 0">No wishlist items</div>';
-      updateSidebarCounts();
+      setTimeout(refreshRequestEmptyStates, 450);
     });
 
     // --- Auto updater ---
@@ -2991,13 +3134,27 @@
     }
 
     document.getElementById('btn-check-updates')?.addEventListener('click', async () => {
-      if (window.electronAPI) {
-        await window.electronAPI.checkForUpdates();
-        const btn = document.getElementById('btn-check-updates');
-        btn.textContent = 'Checking...';
-        setTimeout(() => btn.textContent = 'Check for Updates', 3000);
-      }
+      const btn = document.getElementById('btn-check-updates');
+      if (!window.electronAPI || !btn) return;
+      btn.disabled = true;
+      btn.textContent = 'Checking\u2026';
+      // The popup only opens when there is something to install, so without a
+      // word here a click on an up-to-date build looked like a dead button.
+      const res = await window.electronAPI.checkForUpdates().catch(err => ({ error: err.message }));
+      btn.textContent = res?.hasUpdate ? 'Update found'
+        : res?.error ? 'Check failed'
+        : 'Up to date';
+      setTimeout(() => { btn.textContent = 'Check for Updates'; btn.disabled = false; }, 3000);
     });
+
+    // Lives in the app's own store rather than the settings the listener sees,
+    // so it is read and written on its own rather than through /settings.
+    (async () => {
+      const box = document.getElementById('cfg-beta-updates');
+      if (!box || !window.electronAPI?.getBetaUpdates) return;
+      box.checked = !!await window.electronAPI.getBetaUpdates().catch(() => false);
+      box.addEventListener('change', () => window.electronAPI.setBetaUpdates(box.checked));
+    })();
 
     // --- Alert appearance config ---
     const ALERT_APPEARANCE_DEFAULTS = {
