@@ -59,7 +59,8 @@ jobs:
             echo "should_release=true"  >> $GITHUB_OUTPUT
 
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag push - use the tag
+            # Tag push - use the tag. Unreachable while the trigger above only
+            # lists branches; kept so re-enabling 'tags' still resolves sanely.
             REF="${{ github.ref_name }}"
             VERSION="${REF#v}"
             TAG="$REF"
@@ -160,7 +161,7 @@ jobs:
           path: dist/*.dmg
           retention-days: 7
 
-  # ── Linux (AppImage + deb) ─────────────────────────────────────────────────
+  # ── Linux (AppImage + rpm + deb) ───────────────────────────────────────────
   build-linux:
     needs: setup
     runs-on: ubuntu-latest
@@ -171,6 +172,14 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      # rpm is not on the runner image. fakeroot, dpkg and bsdtar are, but they
+      # are listed because a runner image that quietly drops one fails the build
+      # in electron-builder's output rather than here.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools fakeroot dpkg
 
       - name: Set version
         run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
@@ -188,7 +197,14 @@ jobs:
           path: dist/*.AppImage
           retention-days: 7
 
-      - name: Upload deb
+      - name: Upload rpm (Fedora)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-rpm
+          path: dist/*.rpm
+          retention-days: 7
+
+      - name: Upload deb (Debian/Ubuntu)
         uses: actions/upload-artifact@v4
         with:
           name: dist-linux-deb
@@ -211,6 +227,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.setup.outputs.tag }}
+          # Without this the draft carries no commitish, so publishing it creates
+          # the tag on the DEFAULT branch rather than the commit that was built.
+          # Cascade shipped a beta this way: the tag landed on a three-week-old
+          # stable commit and the binaries came from code that had none of the
+          # work they were supposed to contain.
+          target_commitish: ${{ github.sha }}
           files: artifacts/**
           generate_release_notes: true
           draft: true
