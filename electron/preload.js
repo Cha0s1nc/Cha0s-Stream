@@ -4,6 +4,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings:      () => ipcRenderer.invoke('get-settings'),
   saveSettings:     (settings) => ipcRenderer.invoke('save-settings', settings),
   checkForUpdates:  () => ipcRenderer.invoke('check-for-updates'),
+  // Kept out of the settings store on purpose: everything in there is forwarded
+  // to the listener as an env var, and the listener has no business knowing.
+  getBetaUpdates:   () => ipcRenderer.invoke('updater:get-beta'),
+  setBetaUpdates:   (on) => ipcRenderer.invoke('updater:set-beta', !!on),
   onUpdateStatus:   (callback) => ipcRenderer.on('update-status', (_, data) => callback(data)),
   // Twitch OAuth — handled entirely in main.js; no listener dependency
   startTwitchAuth:    () => ipcRenderer.invoke('twitch-auth-start', { flowType: 'broadcaster' }),

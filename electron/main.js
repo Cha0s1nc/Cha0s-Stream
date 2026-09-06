@@ -4,6 +4,7 @@ const fs     = require('fs');
 const https  = require('https');
 const http   = require('http');
 const os     = require('os');
+const crypto = require('crypto');
 const { fork } = require('child_process');
 const Store  = require('electron-store');
 
@@ -108,7 +109,7 @@ let mainWindow;
 let listenerProcess;
 let crashStreak = 0;
 let updaterWindow      = null;
-let pendingDownload    = null; // { version, downloadUrl, assetName, releaseUrl, destPath }
+let pendingDownload    = null; // { version, downloadUrl, assetName, releaseUrl, digest, destPath }
 
 /**
  * The settings handed to the listener on start.
@@ -147,6 +148,7 @@ function openUpdaterWindow(updateInfo) {
     downloadUrl: updateInfo.downloadUrl || null,
     assetName:   updateInfo.assetName   || null,
     releaseUrl:  updateInfo.releaseUrl  || '',
+    digest:      updateInfo.digest      || null,
     destPath:    null,
   };
 
@@ -190,6 +192,46 @@ function openUpdaterWindow(updateInfo) {
 
 // ── GitHub release check ───────────────────────────────────────────────────────
 
+// Which Linux package this install came from, so we hand back an update in the
+// same format. AppImage announces itself through the environment; past that the
+// distro's release file is the best available signal for deb vs rpm.
+function linuxPackageKind() {
+  if (process.env.APPIMAGE) return 'AppImage';
+  // ponytail: a deb installed on an rpm distro (or vice versa) guesses wrong.
+  // Read the app's owning package manager if that ever actually happens.
+  if (fs.existsSync('/etc/debian_version')) return 'deb';
+  if (fs.existsSync('/etc/redhat-release') || fs.existsSync('/etc/fedora-release')) return 'rpm';
+  return null;
+}
+
+// Returns the asset matching this exact platform/arch/format, or undefined.
+// Deliberately no "close enough" fallback: handing someone an installer that
+// cannot run on their machine is worse than sending them to the releases page.
+function pickAsset(assets = []) {
+  const byExt = re => assets.filter(a => re.test(a.name));
+
+  if (process.platform === 'win32') return byExt(/\.exe$/i)[0];
+
+  if (process.platform === 'darwin') {
+    // Only the arm64 build carries its arch in the filename; the unsuffixed
+    // .dmg is the x64 one. Matching on process.arch alone silently handed
+    // Intel Macs the arm64 build.
+    const dmgs = byExt(/\.dmg$/i);
+    return process.arch === 'arm64'
+      ? dmgs.find(a => /arm64/i.test(a.name))
+      : dmgs.find(a => !/arm64/i.test(a.name));
+  }
+
+  if (process.platform === 'linux') {
+    const kind = linuxPackageKind();
+    if (kind === 'AppImage') return byExt(/\.AppImage$/i)[0];
+    if (kind === 'deb')      return byExt(/\.deb$/i)[0];
+    if (kind === 'rpm')      return byExt(/\.rpm$/i)[0];
+  }
+
+  return undefined;
+}
+
 async function checkForUpdates() {
   console.log('[updater] Checking for update...');
   if (updaterWindow && !updaterWindow.isDestroyed()) {
@@ -197,11 +239,28 @@ async function checkForUpdates() {
   }
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'cha0s-stream-updater' }
-    });
-    if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-    const release = await res.json();
+    // Defaults on for a beta build itself (so it keeps finding newer betas), unless
+    // the user has explicitly chosen otherwise, that choice always wins.
+    const isBetaBuild = /-b\d*$/.test(app.getVersion());
+    const betaUpdates = store.get('betaUpdates', isBetaBuild);
+
+    let release;
+    if (betaUpdates) {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
+        headers: { 'User-Agent': 'cha0s-stream-updater' }
+      });
+      if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+      const releases = await res.json();
+      release = releases.find(r => !r.draft);
+    } else {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: { 'User-Agent': 'cha0s-stream-updater' }
+      });
+      if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+      release = await res.json();
+    }
+
+    if (!release) return { hasUpdate: false };
 
     const latestVersion  = release.tag_name.replace(/^v/, '');
     const currentVersion = app.getVersion();
@@ -211,26 +270,12 @@ async function checkForUpdates() {
       if (updaterWindow && !updaterWindow.isDestroyed()) {
         updaterWindow.webContents.send('updater:log', `Already on the latest version (v${currentVersion}).`);
       }
-      return;
+      return { hasUpdate: false };
     }
 
     console.log(`[updater] Update available: v${latestVersion}`);
 
-    // Find the right asset for this platform
-    const platform = process.platform;
-    const arch     = process.arch; // 'x64' or 'arm64'
-    let asset;
-
-    if (platform === 'win32') {
-      asset = release.assets.find(a => /\.exe$/i.test(a.name));
-    } else if (platform === 'darwin') {
-      // Prefer architecture-matched DMG (arm64 for Apple Silicon, x64 for Intel)
-      asset = release.assets.find(a => /\.dmg$/i.test(a.name) && a.name.includes(arch))
-           || release.assets.find(a => /\.dmg$/i.test(a.name));
-    } else {
-      // Linux — no direct download, fall back to release page
-      asset = null;
-    }
+    const asset = pickAsset(release.assets);
 
     openUpdaterWindow({
       version:      latestVersion,
@@ -239,13 +284,16 @@ async function checkForUpdates() {
       releaseUrl:   release.html_url     || '',
       downloadUrl:  asset?.browser_download_url || null,
       assetName:    asset?.name          || null,
+      digest:       asset?.digest        || null,
     });
+    return { hasUpdate: true };
 
   } catch (err) {
     console.error('[updater] Check failed:', err.message);
     if (updaterWindow && !updaterWindow.isDestroyed()) {
       updaterWindow.webContents.send('updater:error', { message: `Update check failed: ${err.message}` });
     }
+    return { hasUpdate: false, error: err.message };
   }
 }
 
@@ -300,11 +348,26 @@ function downloadFile(url, destPath, onProgress) {
   });
 }
 
+// GitHub populates a "sha256:<hex>" digest on release assets - verifying against
+// it catches transit corruption/tampering. It does NOT prove the release itself
+// wasn't malicious (the digest is computed from the same upload), so this is
+// defense-in-depth, not a substitute for code signing.
+function verifyDigest(filePath, digest) {
+  return new Promise((resolve, reject) => {
+    const [algo, expected] = digest.split(':');
+    const hash = crypto.createHash(algo);
+    fs.createReadStream(filePath)
+      .on('data', chunk => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex') === expected))
+      .on('error', reject);
+  });
+}
+
 // ── IPC — update check ─────────────────────────────────────────────────────────
 
-ipcMain.handle('check-for-updates', () => {
+ipcMain.handle('check-for-updates', async () => {
   if (app.isPackaged) {
-    checkForUpdates();
+    return await checkForUpdates();
   } else {
     // Dev mode: open popup with fake data so the UI can be tested
     openUpdaterWindow({
@@ -315,8 +378,8 @@ ipcMain.handle('check-for-updates', () => {
       downloadUrl:  null,
       assetName:    null,
     });
+    return { hasUpdate: true };
   }
-  return { ok: true };
 });
 
 // IPC — user clicked "Download Update"
@@ -350,6 +413,14 @@ ipcMain.handle('updater:download', async () => {
         logLine:        `${percent}% — ${transferred} / ${total} MB  (${mbps} MB/s)`
       });
     });
+
+    if (pendingDownload.digest) {
+      const verified = await verifyDigest(destPath, pendingDownload.digest);
+      if (!verified) {
+        try { fs.unlinkSync(destPath); } catch {}
+        throw new Error('Downloaded file failed integrity verification - it may have been corrupted or tampered with in transit');
+      }
+    }
 
     pendingDownload.destPath = destPath;
     console.log(`[updater] Download complete: ${destPath}`);
@@ -386,6 +457,11 @@ ipcMain.handle('updater:install', () => {
     shell.openExternal(pendingDownload.releaseUrl);
   }
 });
+
+// IPC — beta channel opt-in. Defaults to on for a build that is itself a beta,
+// so a beta never strands its user on a channel it cannot see updates for.
+ipcMain.handle('updater:get-beta', () => store.get('betaUpdates', /-b\d*$/.test(app.getVersion())));
+ipcMain.handle('updater:set-beta', (_e, on) => { store.set('betaUpdates', !!on); return { ok: true }; });
 
 // IPC — user dismissed the updater window
 ipcMain.handle('updater:dismiss', () => {
