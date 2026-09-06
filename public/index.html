@@ -827,6 +827,7 @@
               <div class="settings-group-subtitle">Show</div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Album Art</div></div><label class="toggle"><input type="checkbox" id="np-art" checked /><span class="toggle-track"></span></label></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Album Name</div></div><label class="toggle"><input type="checkbox" id="np-album" checked /><span class="toggle-track"></span></label></div>
+              <div class="setting-row"><div class="setting-label"><div class="setting-name">Requested By</div><div class="setting-desc">Credits the viewer whose request this track was. Hidden on anything nobody requested.</div></div><label class="toggle"><input type="checkbox" id="np-req" checked /><span class="toggle-track"></span></label></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Progress Bar</div><div class="setting-desc">Needs a track length, so OS media keys never show one.</div></div><label class="toggle"><input type="checkbox" id="np-bar" checked /><span class="toggle-track"></span></label></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Times</div><div class="setting-desc">Elapsed and remaining either side of the bar.</div></div><label class="toggle"><input type="checkbox" id="np-times" checked /><span class="toggle-track"></span></label></div>
 
@@ -1971,7 +1972,7 @@
     // and a separate-sources toggle existed to work around it.
     let overlaysEnabled = { events: true, chat: false, nowplaying: false };
     let nowPlayingCfg = { theme: 'card', accent: 'auto', width: 440, size: 15, radius: 14,
-                          align: 'bottom-left', art: true, album: true, bar: true, times: true };
+                          align: 'bottom-left', art: true, album: true, req: true, bar: true, times: true };
     const NP_DEFAULTS = { ...nowPlayingCfg };
 
     function setOverlayEnabled(which, on) {
@@ -2004,6 +2005,7 @@
         radius: v('np-radius').value === '' ? NP_DEFAULTS.radius : Math.max(0, parseInt(v('np-radius').value, 10) || 0),
         align:  v('np-align').value,
         art:    v('np-art').checked, album: v('np-album').checked,
+        req:    v('np-req').checked,
         bar:    v('np-bar').checked, times: v('np-times').checked,
       };
     }
@@ -2017,6 +2019,7 @@
       if (!auto) v('np-accent').value = cfg.accent;
       v('np-accent').style.opacity = auto ? '0.35' : '';
       v('np-art').checked = cfg.art; v('np-album').checked = cfg.album;
+      v('np-req').checked = cfg.req !== false;
       v('np-bar').checked = cfg.bar; v('np-times').checked = cfg.times;
     }
 
@@ -2031,7 +2034,7 @@
       if (+cfg.size   !== NP_DEFAULTS.size)   q.set('size', cfg.size);
       if (+cfg.radius !== NP_DEFAULTS.radius) q.set('radius', cfg.radius);
       if (cfg.align  !== NP_DEFAULTS.align)  q.set('align', cfg.align);
-      for (const k of ['art', 'album', 'bar', 'times']) if (!cfg[k]) q.set(k, '0');
+      for (const k of ['art', 'album', 'req', 'bar', 'times']) if (!cfg[k]) q.set(k, '0');
       const qs = q.toString();
       return `http://${location.host}/nowplaying${qs ? '?' + qs : ''}`;
     }
@@ -2051,7 +2054,7 @@
       return url;
     }
 
-    ['np-theme','np-align','np-width','np-size','np-radius','np-accent','np-accent-auto','np-art','np-album','np-bar','np-times']
+    ['np-theme','np-align','np-width','np-size','np-radius','np-accent','np-accent-auto','np-art','np-album','np-req','np-bar','np-times']
       .forEach(id => document.getElementById(id)?.addEventListener('input', refreshNowPlayingUrl));
 
     function saveNowPlayingConfig() {

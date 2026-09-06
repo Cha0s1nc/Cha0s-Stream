@@ -81,13 +81,22 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
+  /* Smaller and dimmer than the album line: it is a credit, not part of the
+     track. Row is hidden outright when nothing requested this one, rather than
+     printing "Requested by" with a blank after it. */
+  .req {
+    font-size: calc(var(--size) * 0.7); color: var(--accent); opacity: 0.9; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: calc(var(--size) * 0.12);
+  }
+
   .prog { display: flex; align-items: center; gap: 8px; margin-top: calc(var(--size) * 0.42); }
   .bar { position: relative; flex: 1; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.2); overflow: hidden; }
   .bar-fill { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width 0.25s linear; }
   .time { font-size: calc(var(--size) * 0.66); color: var(--text2); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
   .off { display: none !important; }
-  .np.paused .title, .np.paused .artist, .np.paused .album { opacity: 0.55; }
+  .np.paused .title, .np.paused .artist, .np.paused .album, .np.paused .req { opacity: 0.55; }
 
   /* ── Themes ─────────────────────────────────────────────────────────────
      Deliberately not skins of one layout: each moves the pieces, because a
@@ -170,6 +179,7 @@
       <div class="title"  id="title"></div>
       <div class="artist" id="artist"></div>
       <div class="album"  id="album"></div>
+      <div class="req"    id="req"></div>
       <div class="prog" id="prog">
         <span class="time" id="elapsed">0:00</span>
         <div class="bar"><div class="bar-fill" id="fill"></div></div>
@@ -188,7 +198,7 @@
   //   ?size=15               base type size; everything scales off it
   //   ?radius=14             corner rounding
   //   ?align=left|right|bottom-left|bottom-right|center
-  //   ?art=0 ?album=0 ?bar=0 ?times=0     hide individual pieces
+  //   ?art=0 ?album=0 ?bar=0 ?times=0 ?req=0   hide individual pieces
   //   ?hide=0                stay on screen when playback stops
   const q = new URLSearchParams(location.search);
   const num = (k, fallback) => { const v = parseFloat(q.get(k)); return v > 0 ? v : fallback; };
@@ -200,6 +210,7 @@
   const SHOW = {
     art:   q.get('art')   !== '0',
     album: q.get('album') !== '0',
+    req:   q.get('req')   !== '0',
     bar:   q.get('bar')   !== '0',
     times: q.get('times') !== '0',
   };
@@ -218,11 +229,13 @@
     bg: document.getElementById('bg'), art: document.getElementById('art'),
     artWrap: document.getElementById('art-wrap'), title: document.getElementById('title'),
     artist: document.getElementById('artist'), album: document.getElementById('album'),
+    req: document.getElementById('req'),
     prog: document.getElementById('prog'), fill: document.getElementById('fill'),
     elapsed: document.getElementById('elapsed'), remain: document.getElementById('remain'),
   };
   el.artWrap.classList.toggle('off', !SHOW.art);
   el.album.classList.toggle('off', !SHOW.album);
+  el.req.classList.add('off');   // until a track actually says who asked for it
   el.prog.classList.toggle('off', !SHOW.bar);
   el.elapsed.classList.toggle('off', !SHOW.times);
   el.remain.classList.toggle('off', !SHOW.times);
@@ -315,6 +328,10 @@
     el.title.textContent = track.title || '';
     el.artist.textContent = track.artist || '';
     el.album.textContent = track.album || '';
+    // Only set by the listener when this exact track came in through song
+    // requests, so an ordinary track leaves the row out entirely.
+    el.req.textContent = track.requestedBy ? `Requested by ${track.requestedBy}` : '';
+    el.req.classList.toggle('off', !SHOW.req || !track.requestedBy);
     // Nothing to say and nothing to measure against.
     el.prog.classList.toggle('off', !SHOW.bar || !track.durationMs);
 

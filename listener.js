@@ -2431,7 +2431,7 @@ function getOverlaysEnabled() {
 
 const NOWPLAYING_DEFAULTS = {
   theme: 'card', accent: 'auto', width: 440, size: 15, radius: 14,
-  align: 'bottom-left', art: true, album: true, bar: true, times: true,
+  align: 'bottom-left', art: true, album: true, req: true, bar: true, times: true,
 };
 function getNowPlayingConfig() {
   try {
@@ -2451,7 +2451,7 @@ function nowPlayingUrl(cfg = getNowPlayingConfig(), host = `localhost:${PORT}`) 
   if (+cfg.size   !== NOWPLAYING_DEFAULTS.size)   q.set('size', cfg.size);
   if (+cfg.radius !== NOWPLAYING_DEFAULTS.radius) q.set('radius', cfg.radius);
   if (cfg.align  !== NOWPLAYING_DEFAULTS.align)  q.set('align', cfg.align);
-  for (const k of ['art', 'album', 'bar', 'times']) if (!cfg[k]) q.set(k, '0');
+  for (const k of ['art', 'album', 'req', 'bar', 'times']) if (!cfg[k]) q.set(k, '0');
   const qs = q.toString();
   return `http://${host}/nowplaying${qs ? '?' + qs : ''}`;
 }
