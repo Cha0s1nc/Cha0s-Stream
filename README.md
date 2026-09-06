@@ -19,7 +19,6 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 - **Custom commands** — add your own trigger words with response templates and `{user}` variables
 - **Event triggers** — auto-fire chat messages, sounds, or scripts on follows, cheers, subs, resubsubs, and gift subs
 - **Plugin system** — drop a `.js` file into `plugins/` to add commands, react to events, and render a live panel in the dashboard
-- **Macro Deck integration** — a native C# plugin that connects directly over WebSocket to trigger any command without going through Twitch chat
 - **Sender toggle** — switch between sending chat as your bot account or as the broadcaster on the fly
 - **Mod queue** — a lightweight page for mods to approve or deny song requests in real time
 - **Sound playback** — local files, absolute paths, or remote URLs via `!sound` or channel point redeems
