@@ -11,20 +11,25 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 - **Jellyfin playback** — play, pause, skip, previous, and now playing via the Jellyfin session API
 - **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!skip`, and `!prev` through the Spotify Web API (requires Spotify Premium)
 - **OS media keys** — system-level playback control and now playing detection (Spotify, Apple Music on Mac; Windows media transport on Windows; `playerctl` on Linux)
+- **Cider integration** — playback control and now playing for [Cider](https://cider.sh), talked to directly over its local API
 - **Twitch chat overlays** — transparent browser source for live chat with 7TV, BTTV, and native Twitch emotes, badge pills, and per-message lifetime
-- **Alert overlays** — browser source or OBS source flash for follows, cheers, subs, resubsubs, and gift subs with per-type colours, messages, and sounds
+- **Alert overlays** — browser source or OBS source flash for follows, cheers, subs, resubs, and gift subs with per-type colours, messages, and sounds
+- **Now Playing overlay** — its own browser source with seven layouts, accent colour pulled from the album art, and an optional "requested by" credit
+- **Per-overlay switches** — each overlay has its own URL and its own switch. Switching one off serves a blank page at its address, so the browser source already in OBS goes dark
 - **Combined overlay mode** — a single `/overlay` browser source that layers chat and alerts together, or use separate sources for each
-- **Song request queue** — viewer `!sr` requests or channel point redemptions, with a live queue in the dashboard and mod queue page
+- **Song request queue** — viewer `!sr` requests or channel point redemptions, with a live queue in the dashboard and mod queue page. Approved requests retire into a history panel once the player moves past them
 - **Chat commands** — built-in commands with per-command permission levels and source settings (chat, whisper, redemption input)
 - **Custom commands** — add your own trigger words with response templates and `{user}` variables
-- **Event triggers** — auto-fire chat messages, sounds, or scripts on follows, cheers, subs, resubsubs, and gift subs
+- **Event triggers** — auto-fire chat messages, sounds, or scripts on follows, cheers, subs, resubs, and gift subs
+- **Text to speech** — reads chat, cheers above a threshold, named channel point redeems, or alerts. Ignores bots by default, and maps awkward usernames to how they should be pronounced
+- **Cha0s Guard relay** — let [Cha0s Guard](https://github.com/Cha0s1nc/ModBot) forward Twitch chat commands to this app. The app dials out, so there is no inbound port to open
 - **Plugin system** — drop a `.js` file into `plugins/` to add commands, react to events, and render a live panel in the dashboard
 - **Sender toggle** — switch between sending chat as your bot account or as the broadcaster on the fly
 - **Mod queue** — a lightweight page for mods to approve or deny song requests in real time
 - **Sound playback** — local files, absolute paths, or remote URLs via `!sound` or channel point redeems
-- **Verbose log** — filterable activity log with OBS, Jellyfin, Sound, and Error categories
-- **Auto-updater** — checks for new releases on startup and installs in place (Mac)
-- **Cross-platform** — Mac (`.dmg`), Windows (`.exe`), Linux (`.AppImage` / `.deb`)
+- **Verbose log** — filterable activity log with OBS, Media, Sound, System, and Error categories
+- **Auto-updater** — checks GitHub releases on startup, verifies the download against its published SHA-256, and offers an opt-in beta channel. Windows installs and relaunches on its own; macOS opens the disk image for the drag to Applications, because Squirrel refuses to update an app without a Developer ID signature
+- **Cross-platform** — Mac (`.dmg`, Apple Silicon), Windows (`.exe`), Linux (`.AppImage`, `.deb`, `.rpm`)
 
 ---
 
@@ -32,9 +37,9 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 
 Download the latest release for your platform from the [Releases](https://github.com/Cha0s1nc/cha0s-stream/releases) page.
 
-- **Mac** — open the `.dmg` and drag the app to your Applications folder
+- **Mac** — open the `.dmg` and drag the app to your Applications folder. Apple Silicon only. The app is ad-hoc signed rather than notarised, so the first launch needs right-click then Open
 - **Windows** — run the `.exe` installer
-- **Linux** — run the `.AppImage` directly, or install the `.deb` on Debian/Ubuntu
+- **Linux** — run the `.AppImage` directly, or install the `.deb` on Debian/Ubuntu or the `.rpm` on Fedora
 
 On first launch, open the **Settings** tab and connect your services. The app connects automatically on startup and checks for updates.
 
@@ -131,8 +136,14 @@ All commands are configurable from the **Commands** tab. Each has an enable togg
 | `!source [name] on\|off` | Moderator | Toggles an OBS source — omit name to list sources in current scene |
 | `!sound <name>` | Moderator | Plays a sound file |
 | `!record start\|stop` | Moderator | Starts or stops OBS recording |
-| `!run <url>` | Broadcaster | Runs a script from an allowlisted URL |
-| `!killswitch` | Broadcaster | Stops stream and recording immediately |
+| `!run <url>` | Broadcaster | Runs a script from an allowlisted URL. Off by default |
+| `!killswitch` | Broadcaster | Stops stream and recording immediately. Off by default |
+
+`!run` downloads a URL and executes it, so it is gated by **Settings → Advanced →
+Script Allowlist**: a comma-separated list of domains, which also covers their
+subdomains. The same list gates the directories event trigger scripts may run
+from. An empty allowlist blocks everything, so filling it in is a deliberate step
+rather than something to skip.
 
 ### Custom Commands
 
@@ -147,7 +158,7 @@ Add custom commands from the **Commands** tab with a trigger word, permission le
 
 ## Alerts
 
-The alert system fires on follows, cheers, subs, resubsubs, and gift subs. Configure delivery under **Settings → Overlays → Alert Delivery**:
+The alert system fires on follows, cheers, subs, resubs, and gift subs. Configure delivery under **Settings → Overlays → Alert Delivery**:
 
 - **Browser Source** — add the browser source URL as a Browser Source in OBS
 - **OBS Source** — flashes a named OBS source for a configurable duration
@@ -167,7 +178,7 @@ Appearance is configured under **Settings → Overlays → Chat** or via the vis
 
 ### Alert overlay
 
-Add the alerts browser source URL as a Browser Source in OBS. Fires animated alerts for follows, cheers, subs, resubsubs, and gift subs.
+Add the alerts browser source URL as a Browser Source in OBS. Fires animated alerts for follows, cheers, subs, resubs, and gift subs.
 
 ### Combined overlay
 
@@ -249,7 +260,7 @@ npm run check          # syntax-check listener.js and electron/main.js
 ```bash
 npm run build:mac      # Mac .dmg
 npm run build:win      # Windows .exe installer
-npm run build:linux    # Linux .AppImage and .deb
+npm run build:linux    # Linux .AppImage, .deb and .rpm
 npm run build:all      # All platforms
 ```
 
