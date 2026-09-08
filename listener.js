@@ -778,6 +778,7 @@ function nowPlayingStartPolling() {
 // The matching rules live in queue-lifecycle.js so they can be tested; this
 // half is the bit with the side effects.
 const { reconcile: reconcileQueue } = require('./queue-lifecycle');
+const { parseAllowlist, hostAllowed, pathAllowed } = require('./script-allowlist');
 
 let queuePlayingId = null;
 const HISTORY_MAX = 50;
@@ -1925,12 +1926,15 @@ async function cmdRun(user, scriptUrl) {
   if (!scriptUrl.startsWith('http://') && !scriptUrl.startsWith('https://')) {
     addLog('system', '!run', `${user} — invalid URL`, false); return;
   }
-  const allowlist = (process.env.SCRIPT_ALLOWLIST || '').split(',').map(d => d.trim()).filter(Boolean);
-  if (allowlist.length > 0) {
-    const host = new URL(scriptUrl).hostname;
-    if (!allowlist.some(d => host === d || host.endsWith(`.${d}`))) {
-      addLog('system', '!run', `${user} — blocked domain: ${host}`, false); return;
-    }
+  // Was: skip the check entirely when the allowlist is empty. That made an
+  // unconfigured !run fetch and execute any URL a broadcaster pasted. Empty now
+  // means nothing is allowed, which is what the event-trigger path always did.
+  const allowlist = parseAllowlist(process.env.SCRIPT_ALLOWLIST);
+  if (!allowlist.length) {
+    addLog('system', '!run', `${user} — blocked: no domains in the script allowlist`, false); return;
+  }
+  if (!hostAllowed(scriptUrl, allowlist)) {
+    addLog('system', '!run', `${user} — blocked domain: ${scriptUrl}`, false); return;
   }
   try {
     const fetchRes = await fetch(scriptUrl);
@@ -2959,12 +2963,12 @@ async function fireTrigger(type, vars) {
   }
   if (t.script && t.script.trim()) {
     try {
-      const allowlist = (process.env.SCRIPT_ALLOWLIST || '').split(',').map(s => s.trim()).filter(Boolean);
+      const allowlist = parseAllowlist(process.env.SCRIPT_ALLOWLIST);
       const { execFile } = require('child_process');
       const path = require('path');
       const scriptPath = path.resolve(t.script.trim());
       const scriptDir  = path.dirname(scriptPath);
-      if (!allowlist.some(a => scriptPath.startsWith(path.resolve(a)))) {
+      if (!pathAllowed(scriptPath, allowlist)) {
         addLog('system', 'trigger', `Script blocked (not allowlisted): ${scriptPath}`, false);
         return;
       }
