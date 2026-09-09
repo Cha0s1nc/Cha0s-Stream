@@ -6,7 +6,9 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 
 ## Features
 
-- **OBS Controls** — scene switching, source toggling, stream and recording control from the dashboard or via chat commands. Full OBS tab with live scene list and source toggles, plus an optional OBS column in the Twitch Stream panel.
+- **Multi-channel chat** — the Twitch Stream panel reads and sends in any channel, not just your own. Tabs hold independent layouts, each tab splits into resizable panes, and any pane can be popped out into its own window like an OBS dock
+- **Chat filters** — hide or highlight messages by author, text, or channel, with presets for bots, `!` commands, and mentions of you
+- **OBS Controls** — scene switching, source toggling, stream and recording control from the dashboard or via chat commands. Full OBS tab with live scene list and source toggles, plus an OBS pane in the Twitch Stream panel.
 - **Cascade integration** — direct playback control for the [Cascade](https://github.com/Cha0s1nc/Cascade-Project) Jellyfin music client via a local connection. `!play`, `!pause`, `!skip`, and `!prev` work reliably without OS key simulation
 - **Jellyfin playback** — play, pause, skip, previous, and now playing via the Jellyfin session API
 - **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!skip`, and `!prev` through the Spotify Web API (requires Spotify Premium)
@@ -106,6 +108,36 @@ Under **Settings → Overlays**, choose a browser source mode:
 Third-party emotes render as images in chat and in the overlays. **7TV**, **BTTV** and **FFZ** are all on by default; turn any of them off under **Settings → Twitch**. Each has a **Refresh** button that re-fetches that provider immediately rather than waiting for the 30 minute cache to expire.
 
 Emotes are cached per channel, so a pane showing someone else's chat renders their emotes, not yours.
+
+### Twitch Stream panel
+
+The panel is a tab strip over a row of resizable panes. Each pane is one of:
+
+- **a channel** — live chat for any Twitch channel, with its own send box
+- **Events** — follows, cheers, subs, resubs and gift subs
+- **OBS** — a compact scene switcher with stream and record buttons
+
+Add panes with the **＋ Channel / Events / OBS** buttons, drag the dividers to
+resize, and drag-free with the **＋** in the tab strip to make another tab.
+Double-click a tab to rename it. The layout is saved as you change it.
+
+Only your own channel runs commands. Chat from any other channel is display
+only, so nobody in someone else's room can drive your queue or your bot.
+
+**Detaching.** The ⧉ button in a pane header opens it as a separate window that
+remembers its size, position and always-on-top state. Closing the window docks
+it again.
+
+**Filters.** The **⚗ Filters** button opens a rule list. Each rule hides or
+highlights messages matching an author, message body, or channel. Plain text
+matches anywhere and ignores case; wrap a pattern in slashes for a regex, and an
+invalid one is flagged inline rather than silently ignored. The presets
+(hide bots, hide `!` commands, highlight mentions of you) are ordinary rules, so
+you can see what they do and edit them.
+
+**History.** Opening a channel pane backfills recent messages from
+[recent-messages.robotty.de](https://recent-messages.robotty.de), shown dimmed
+above live chat. Set `CHAT_HISTORY_ENABLED=false` to turn that off.
 
 ### Mod Queue
 
