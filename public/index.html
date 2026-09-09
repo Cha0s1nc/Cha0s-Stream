@@ -114,6 +114,13 @@
     .mode-val:hover { opacity: 0.75; }
     #np-track { font-size: 11px; color: var(--text2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .statusbar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+    /* Any class that sets a display value beats the browser's own
+       [hidden] { display: none }, which silently makes an element un-hideable.
+       That has bitten the settings bar, the filter panel and the modal backdrop
+       here, the last leaving an invisible full-screen layer eating every click.
+       One global rule so it cannot happen again. */
+    [hidden] { display: none !important; }
+
     .stream-wrap { flex: 1; overflow: hidden; display: flex; }
     .stream-col { display: flex; flex-direction: column; overflow: hidden; flex: 1 1 0; min-width: 180px; position: relative; }
     .stream-col:last-child { border-right: none; }
@@ -294,10 +301,6 @@
     .ov-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
     .ov-url-src { display: none; }
     .settings-catbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-    /* An author display value beats the browser default for [hidden], so both the
-       grid and this bar need it restated or they never actually hide. */
-    .settings-catbar[hidden], .settings-cats[hidden] { display: none; }
-    #settings-cat-toggle-wrap[hidden] { display: none; }
     .settings-cat.is-off { opacity: 0.55; }
     .settings-cat-off { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
     .settings-catbar-title { font-size: 13px; font-weight: 600; color: var(--text); }
