@@ -146,6 +146,18 @@
     .chat-source-tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.08); color: var(--text3); vertical-align: middle; margin-right: 4px; text-transform: lowercase; }
     .chat-emote { height: 1.4em; width: auto; vertical-align: middle; display: inline-block; margin: 0 1px; }
     /* Panes are sized in flex-grow, not pixels, so a window resize needs no recalculation. */
+    .chat-tabs { display: flex; align-items: center; gap: 4px; padding: 6px 10px 0; background: var(--surface); flex-shrink: 0; overflow-x: auto; }
+    .ctab { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font); font-size: 12px; font-weight: 600; padding: 5px 12px; border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; background: var(--surface2); color: var(--text3); cursor: pointer; white-space: nowrap; transition: color var(--dur-base), background var(--dur-base); }
+    .ctab:hover { color: var(--text2); }
+    .ctab.active { background: var(--bg); color: var(--text); border-color: var(--accent); }
+    .ctab-close { opacity: 0.5; font-size: 13px; line-height: 1; }
+    .ctab-close:hover { opacity: 1; color: var(--red); }
+    .ctab-add { font-family: var(--font); font-size: 14px; line-height: 1; padding: 4px 10px; border: 1px dashed var(--border); border-radius: 8px; background: none; color: var(--text3); cursor: pointer; }
+    .ctab-add:hover { border-color: var(--accent); color: var(--text); }
+    /* One group per tab; only the active one is laid out. Keeping the rest in the
+       DOM is what preserves their scrollback across a switch. */
+    .cpane-group { display: none; flex: 1; overflow: hidden; }
+    .cpane-group.active { display: flex; }
     .pane-resize { flex: 0 0 6px; cursor: col-resize; background: var(--border); opacity: 0.5; transition: opacity var(--dur-base), background var(--dur-base); touch-action: none; }
     .pane-resize:hover, .pane-resize.dragging { opacity: 1; background: var(--accent); }
     .stream-col-header { display: flex; align-items: center; gap: 8px; }
@@ -629,6 +641,7 @@
           </div>
         </div>
                 <div class="sub-panel" id="sub-stream">
+          <div class="chat-tabs" id="chat-tabs"></div>
           <div class="pane-toolbar">
             <button class="pane-add" id="pane-add-chat" title="Add a channel pane">＋ Channel</button>
             <button class="pane-add" id="pane-add-events" title="Add the events feed">＋ Events</button>

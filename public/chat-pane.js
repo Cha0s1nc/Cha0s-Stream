@@ -193,22 +193,83 @@ function renderPanes() {
   const wrap = document.getElementById('stream-wrap');
   if (!wrap) return;
   wrap.innerHTML = '';
-  const panes = paneCurrent().panes;
 
-  panes.forEach((pane, i) => {
-    if (i > 0) {
-      const handle = document.createElement('div');
-      handle.className = 'pane-resize';
-      handle.dataset.left = String(i - 1);
-      wrap.appendChild(handle);
-    }
-    wrap.appendChild(buildPane(pane, i));
-    if (pane.kind === 'chat') loadChannelAssets(pane.channel);
+  // Every tab keeps its DOM. Hiding instead of rebuilding means switching tabs
+  // preserves each pane's scrollback, and costs less code than buffering
+  // messages for tabs that are not on screen.
+  paneTabs.forEach((tab, ti) => {
+    const group = document.createElement('div');
+    group.className = 'cpane-group' + (ti === paneActiveTab ? ' active' : '');
+    group.dataset.tab = String(ti);
+
+    tab.panes.forEach((pane, i) => {
+      if (i > 0) {
+        const handle = document.createElement('div');
+        handle.className = 'pane-resize';
+        handle.dataset.left = String(i - 1);
+        group.appendChild(handle);
+      }
+      group.appendChild(buildPane(pane, i));
+      if (pane.kind === 'chat') loadChannelAssets(pane.channel);
+    });
+    wrap.appendChild(group);
   });
 
+  renderTabStrip();
   // OBS panes reuse the existing dashboard renderer.
-  if (panes.some(p => p.kind === 'obs') && typeof syncObsSplitCol === 'function') syncObsSplitCol();
+  if (paneTabs.some(t => t.panes.some(p => p.kind === 'obs')) && typeof syncObsSplitCol === 'function') syncObsSplitCol();
   refreshSenderButtons();
+}
+
+function renderTabStrip() {
+  const strip = document.getElementById('chat-tabs');
+  if (!strip) return;
+  // Own classes, never .dtab/.sub-panel: those selectors are unscoped, so the two
+  // tab systems would clear each other's active state.
+  strip.innerHTML = paneTabs.map((t, i) =>
+    `<button class="ctab${i === paneActiveTab ? ' active' : ''}" data-tab="${i}">` +
+    `${esc(t.name)}${paneTabs.length > 1 ? '<span class="ctab-close" title="Close tab">\u00d7</span>' : ''}</button>`
+  ).join('') + `<button class="ctab-add" id="ctab-add" title="New tab">+</button>`;
+}
+
+function switchTab(index) {
+  if (index < 0 || index >= paneTabs.length || index === paneActiveTab) return;
+  paneActiveTab = index;
+  document.querySelectorAll('#stream-wrap .cpane-group').forEach(g => {
+    g.classList.toggle('active', Number(g.dataset.tab) === index);
+  });
+  renderTabStrip();
+  // Panes that were hidden could not track scroll position, so pin them.
+  document.querySelectorAll('#stream-wrap .cpane-group.active [data-role="messages"]').forEach(box => {
+    box.scrollTop = box.scrollHeight;
+  });
+}
+
+function addTab() {
+  const name = prompt('Name for the new tab:', `Tab ${paneTabs.length + 1}`);
+  if (!name) return;
+  paneTabs.push({ name: String(name).slice(0, 40), panes: [{ kind: 'events', grow: 1 }] });
+  paneActiveTab = paneTabs.length - 1;
+  renderPanes();
+  savePaneLayout();
+}
+
+function closeTab(index) {
+  if (paneTabs.length <= 1) return;   // never leave the panel with no tabs
+  paneTabs.splice(index, 1);
+  if (paneActiveTab >= paneTabs.length) paneActiveTab = paneTabs.length - 1;
+  renderPanes();
+  savePaneLayout();
+}
+
+function renameTab(index) {
+  const tab = paneTabs[index];
+  if (!tab) return;
+  const name = prompt('Rename tab:', tab.name);
+  if (!name) return;
+  tab.name = String(name).slice(0, 40);
+  renderTabStrip();
+  savePaneLayout();
 }
 
 // True when the user is reading the bottom of the log. Anything else means they
@@ -232,14 +293,20 @@ function paneAppend(box, el) {
 function routeChatToPanes(data) {
   const wrap = document.getElementById('stream-wrap');
   if (!wrap) return;
-  for (const idx of panesForMessage(paneCurrent().panes, data.channel)) {
-    const col = wrap.querySelector(`.stream-col[data-index="${idx}"]`);
-    const box = col?.querySelector('[data-role="messages"]');
-    if (!box) continue;
-    box.querySelector('.empty-state')?.remove();
-    const login = col.dataset.channel;
-    paneAppend(box, buildChatRow(data, paneEmotes[login] || {}, paneBadges[login] || {}));
-  }
+  // Background tabs receive messages too, so switching to one shows history
+  // rather than an empty pane that fills from scratch.
+  paneTabs.forEach((tab, ti) => {
+    const group = wrap.querySelector(`.cpane-group[data-tab="${ti}"]`);
+    if (!group) return;
+    for (const idx of panesForMessage(tab.panes, data.channel)) {
+      const col = group.querySelector(`.stream-col[data-index="${idx}"]`);
+      const box = col?.querySelector('[data-role="messages"]');
+      if (!box) continue;
+      box.querySelector('.empty-state')?.remove();
+      const login = col.dataset.channel;
+      paneAppend(box, buildChatRow(data, paneEmotes[login] || {}, paneBadges[login] || {}));
+    }
+  });
 }
 
 function routeEventToPanes(html) {
@@ -274,10 +341,10 @@ function buildChatRow(data, emotes, badges) {
 // releases it for us, so there is no listener left behind if the drag ends off
 // the window or the element is re-rendered mid-drag.
 function startPaneDrag(handle, ev) {
-  const wrap = handle.parentElement;
+  const group = handle.parentElement;
   const li = Number(handle.dataset.left);
-  const a = wrap.querySelector(`.stream-col[data-index="${li}"]`);
-  const b = wrap.querySelector(`.stream-col[data-index="${li + 1}"]`);
+  const a = group.querySelector(`.stream-col[data-index="${li}"]`);
+  const b = group.querySelector(`.stream-col[data-index="${li + 1}"]`);
   if (!a || !b) return;
 
   const startX = ev.clientX;
@@ -297,7 +364,7 @@ function startPaneDrag(handle, ev) {
   const done = () => {
     handle.removeEventListener('pointermove', move);
     handle.classList.remove('dragging');
-    const panes = paneCurrent().panes;
+    const panes = paneTabs[Number(group.dataset.tab)]?.panes || [];
     if (panes[li]) panes[li].grow = parseFloat(a.style.flexGrow) || 1;
     if (panes[li + 1]) panes[li + 1].grow = parseFloat(b.style.flexGrow) || 1;
     savePaneLayout();
@@ -308,10 +375,10 @@ function startPaneDrag(handle, ev) {
   ev.preventDefault();
 }
 
-function closePane(index) {
-  const panes = paneCurrent().panes;
-  if (panes.length <= 1) return;  // never leave a tab with nothing in it
-  panes.splice(index, 1);
+function closePane(tabIndex, paneIndex) {
+  const panes = paneTabs[tabIndex]?.panes;
+  if (!panes || panes.length <= 1) return;  // never leave a tab with nothing in it
+  panes.splice(paneIndex, 1);
   renderPanes();
   savePaneLayout();
 }
@@ -419,9 +486,10 @@ function wirePaneEvents() {
   wrap.addEventListener('click', e => {
     const col = e.target.closest('.stream-col');
     if (!col) return;
-    if (e.target.closest('.pane-close')) return closePane(Number(col.dataset.index));
+    const ti = Number(col.closest('.cpane-group')?.dataset.tab ?? paneActiveTab);
+    if (e.target.closest('.pane-close')) return closePane(ti, Number(col.dataset.index));
     if (e.target.closest('.pane-detach')) {
-      const pane = paneCurrent().panes[Number(col.dataset.index)];
+      const pane = paneTabs[ti]?.panes[Number(col.dataset.index)];
       window.electronAPI?.detachPane?.(pane);
       return;
     }
@@ -455,8 +523,27 @@ function wirePaneEvents() {
   }, true);
 }
 
+function wireTabStrip() {
+  const strip = document.getElementById('chat-tabs');
+  if (!strip || strip.dataset.wired) return;
+  strip.dataset.wired = '1';
+  strip.addEventListener('click', e => {
+    if (e.target.closest('#ctab-add')) return addTab();
+    const tab = e.target.closest('.ctab');
+    if (!tab) return;
+    const i = Number(tab.dataset.tab);
+    if (e.target.closest('.ctab-close')) return closeTab(i);
+    switchTab(i);
+  });
+  strip.addEventListener('dblclick', e => {
+    const tab = e.target.closest('.ctab');
+    if (tab) renameTab(Number(tab.dataset.tab));
+  });
+}
+
 async function initPanes() {
   wirePaneEvents();
+  wireTabStrip();
   try {
     const r = await fetch('/api/chat/tabs');
     const { tabs, home } = await r.json();
