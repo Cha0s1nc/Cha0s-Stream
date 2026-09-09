@@ -360,9 +360,15 @@ function buildChatRow(data, emotes, badges) {
   return el;
 }
 
-// Pointer capture rather than document-level mousemove/mouseup: the browser
-// releases it for us, so there is no listener left behind if the drag ends off
-// the window or the element is re-rendered mid-drag.
+// Listeners go on window, not on the handle.
+//
+// The obvious version calls handle.setPointerCapture() and listens on the
+// handle. That reads well but is wrong here: the handle physically moves as the
+// panes resize, so any pointermove the capture does not deliver lands on a pane
+// instead and is lost. Measured with real mouse input, a 100px drag moved the
+// pane 42px and never committed, because pointerup missed the handle too.
+// window-level listeners cannot miss, and removing them on pointerup/cancel is
+// the whole of the cleanup.
 function startPaneDrag(handle, ev) {
   const group = handle.parentElement;
   const li = Number(handle.dataset.left);
@@ -376,25 +382,31 @@ function startPaneDrag(handle, ev) {
   const growA = parseFloat(a.style.flexGrow) || 1;
   const growB = parseFloat(b.style.flexGrow) || 1;
 
-  handle.setPointerCapture(ev.pointerId);
   handle.classList.add('dragging');
+  // Stops the drag selecting text across the panes it passes over.
+  document.body.classList.add('pane-dragging');
 
   const move = e => {
     const [ga, gb] = resizePanes(growA, growB, pxA, pxB, e.clientX - startX);
     a.style.flexGrow = String(ga);
     b.style.flexGrow = String(gb);
   };
+
   const done = () => {
-    handle.removeEventListener('pointermove', move);
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', done);
+    window.removeEventListener('pointercancel', done);
     handle.classList.remove('dragging');
+    document.body.classList.remove('pane-dragging');
     const panes = paneTabs[Number(group.dataset.tab)]?.panes || [];
     if (panes[li]) panes[li].grow = parseFloat(a.style.flexGrow) || 1;
     if (panes[li + 1]) panes[li + 1].grow = parseFloat(b.style.flexGrow) || 1;
     savePaneLayout();
   };
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', done, { once: true });
-  handle.addEventListener('pointercancel', done, { once: true });
+
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', done);
+  window.addEventListener('pointercancel', done);
   ev.preventDefault();
 }
 

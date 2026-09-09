@@ -158,8 +158,17 @@
        DOM is what preserves their scrollback across a switch. */
     .cpane-group { display: none; flex: 1; overflow: hidden; }
     .cpane-group.active { display: flex; }
-    .pane-resize { flex: 0 0 6px; cursor: col-resize; background: var(--border); opacity: 0.5; transition: opacity var(--dur-base), background var(--dur-base); touch-action: none; }
-    .pane-resize:hover, .pane-resize.dragging { opacity: 1; background: var(--accent); }
+    /* 8px so it is actually grabbable, with a centre grip line so it reads as a
+       handle rather than a border. */
+    .pane-resize { flex: 0 0 8px; cursor: col-resize; background: var(--surface2); position: relative; touch-action: none; transition: background var(--dur-base); }
+    .pane-resize::before { content: ''; position: absolute; inset: 50% 50% auto auto; transform: translate(50%, -50%); width: 2px; height: 26px; border-radius: 2px; background: var(--border); transition: background var(--dur-base), height var(--dur-base); }
+    .pane-resize:hover { background: var(--surface); }
+    .pane-resize:hover::before { background: var(--accent); height: 40px; }
+    .pane-resize.dragging { background: var(--accent-glow); }
+    .pane-resize.dragging::before { background: var(--accent); height: 100%; border-radius: 0; }
+    /* While dragging, nothing else should take the pointer or select text. */
+    body.pane-dragging { user-select: none; cursor: col-resize; }
+    body.pane-dragging iframe, body.pane-dragging .stream-messages { pointer-events: none; }
     .stream-col-header { display: flex; align-items: center; gap: 8px; }
     .pane-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pane-actions { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
