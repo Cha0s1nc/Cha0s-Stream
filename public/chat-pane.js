@@ -302,9 +302,13 @@ function routeChatToPanes(data) {
       const col = group.querySelector(`.stream-col[data-index="${idx}"]`);
       const box = col?.querySelector('[data-role="messages"]');
       if (!box) continue;
+      const verdict = applyRules(paneCompiled, data);
+      if (verdict.hide) continue;   // never built, so it costs nothing to skip
       box.querySelector('.empty-state')?.remove();
       const login = col.dataset.channel;
-      paneAppend(box, buildChatRow(data, paneEmotes[login] || {}, paneBadges[login] || {}));
+      const row = buildChatRow(data, paneEmotes[login] || {}, paneBadges[login] || {});
+      if (verdict.highlight) row.classList.add('chat-hl');
+      paneAppend(box, row);
     }
   });
 }
@@ -544,6 +548,8 @@ function wireTabStrip() {
 async function initPanes() {
   wirePaneEvents();
   wireTabStrip();
+  wireFilterPanel();
+  await loadFilters();
   try {
     const r = await fetch('/api/chat/tabs');
     const { tabs, home } = await r.json();
@@ -591,5 +597,104 @@ if (typeof document !== 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     wirePaneToolbar();
     initPanes();
+  });
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+// ponytail: one filter set applied to every pane. Chatterino scopes filters per
+// split; that needs a rule editor per pane and a merge rule when a channel is
+// open twice. Move `paneFilters` into the tab config if that becomes worth it.
+
+let paneFilters = { presets: {}, rules: [] };
+let paneCompiled = [];
+
+function recompileFilters() {
+  paneCompiled = compileRules([
+    ...presetRules(paneFilters.presets || {}, paneHome),
+    ...(paneFilters.rules || []),
+  ]);
+}
+
+async function loadFilters() {
+  try {
+    const { filters } = await fetch('/api/chat/filters').then(r => r.json());
+    if (filters) paneFilters = JSON.parse(filters);
+  } catch { /* defaults are fine */ }
+  if (!paneFilters.presets) paneFilters.presets = {};
+  if (!Array.isArray(paneFilters.rules)) paneFilters.rules = [];
+  recompileFilters();
+}
+
+function saveFilters() {
+  recompileFilters();
+  fetch('/api/chat/filters', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(paneFilters),
+  }).catch(() => {});
+  renderFilterPanel();
+}
+
+function renderFilterPanel() {
+  const panel = document.getElementById('filter-panel');
+  if (!panel || panel.hidden) return;
+  const p = paneFilters.presets || {};
+  const cb = (key, label) =>
+    `<label class="filter-check"><input type="checkbox" data-preset="${key}"${p[key] ? ' checked' : ''}> ${label}</label>`;
+
+  const rows = (paneFilters.rules || []).map((r, i) => {
+    const compiled = compileRule(r);
+    return `<div class="filter-row" data-rule="${i}">
+      <select data-f="type">${['hide', 'highlight'].map(t => `<option${r.type === t ? ' selected' : ''}>${t}</option>`).join('')}</select>
+      <select data-f="field">${['message', 'user', 'channel'].map(f => `<option${r.field === f ? ' selected' : ''}>${f}</option>`).join('')}</select>
+      <input data-f="pattern" value="${esc(r.pattern || '')}" placeholder="text or /regex/i" />
+      <button class="pane-btn" data-f="del" title="Delete rule">×</button>
+      ${compiled.error ? `<span class="filter-err">${esc(compiled.error)}</span>` : ''}
+    </div>`;
+  }).join('');
+
+  panel.innerHTML =
+    `<div class="filter-presets">${cb('hideBots', 'Hide bots')}${cb('hideCommands', 'Hide ! commands')}${cb('highlightMe', 'Highlight mentions of me')}</div>` +
+    `<div class="filter-rules">${rows || '<div class="filter-empty">No custom rules.</div>'}</div>` +
+    `<button class="pane-add" id="filter-add">＋ Rule</button>` +
+    `<span class="filter-note">Plain text matches anywhere, case-insensitive. Wrap in slashes for a regex.</span>`;
+}
+
+function wireFilterPanel() {
+  const panel = document.getElementById('filter-panel');
+  const toggle = document.getElementById('filter-toggle');
+  if (!panel || !toggle || panel.dataset.wired) return;
+  panel.dataset.wired = '1';
+
+  toggle.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    toggle.classList.toggle('active', !panel.hidden);
+    renderFilterPanel();
+  });
+
+  panel.addEventListener('change', e => {
+    const preset = e.target.dataset.preset;
+    if (preset) {
+      paneFilters.presets[preset] = e.target.checked;
+      return saveFilters();
+    }
+    const row = e.target.closest('.filter-row');
+    if (!row) return;
+    const rule = paneFilters.rules[Number(row.dataset.rule)];
+    if (rule && e.target.dataset.f) {
+      rule[e.target.dataset.f] = e.target.value;
+      saveFilters();
+    }
+  });
+
+  panel.addEventListener('click', e => {
+    if (e.target.id === 'filter-add') {
+      paneFilters.rules.push({ type: 'hide', field: 'message', pattern: '', enabled: true });
+      return saveFilters();
+    }
+    if (e.target.dataset.f === 'del') {
+      paneFilters.rules.splice(Number(e.target.closest('.filter-row').dataset.rule), 1);
+      saveFilters();
+    }
   });
 }

@@ -68,6 +68,7 @@ const STORE_SCHEMA = {
   CHAT_OVERLAY_CONFIG:      { type: 'string', default: '' },
   CHAT_CHANNELS:            { type: 'string', default: '[]' },
   CHAT_TABS:                { type: 'string', default: '' },
+  CHAT_FILTERS:             { type: 'string', default: '' },
   OVERLAY_MODE:             { type: 'string', default: '' },
   SEVENTV_ENABLED:          { type: 'string', default: '' },
   BTTV_ENABLED:             { type: 'string', default: '' },

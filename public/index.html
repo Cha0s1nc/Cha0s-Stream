@@ -168,6 +168,18 @@
     .pane-obs { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
     .pane-new-pill { position: absolute; left: 50%; transform: translateX(-50%); bottom: 52px; z-index: 3; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
     .pane-error { font-size: 11px; color: var(--red); background: rgba(255,68,68,0.1); border-left: 2px solid var(--red); padding: 4px 6px; border-radius: 4px; }
+    .filter-panel { padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+    .filter-presets { display: flex; gap: 14px; flex-wrap: wrap; }
+    .filter-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); cursor: pointer; }
+    .filter-rules { display: flex; flex-direction: column; gap: 4px; }
+    .filter-row { display: flex; align-items: center; gap: 5px; }
+    .filter-row select, .filter-row input { font-family: var(--font); font-size: 11px; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+    .filter-row input { flex: 1; min-width: 120px; }
+    .filter-err { font-size: 11px; color: var(--red); }
+    .filter-empty, .filter-note { font-size: 11px; color: var(--text3); }
+    /* Highlighted messages get a bar and a wash rather than a colour change, so
+       emotes and the name colour stay readable. */
+    .chat-hl { background: rgba(145,71,255,0.12); border-left: 2px solid #9147ff; padding-left: 5px; border-radius: 3px; }
     .pane-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
     .pane-add { font-family: var(--font); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: border-color var(--dur-base), color var(--dur-base); }
     .pane-add:hover { border-color: var(--accent); color: var(--text); }
@@ -646,8 +658,10 @@
             <button class="pane-add" id="pane-add-chat" title="Add a channel pane">＋ Channel</button>
             <button class="pane-add" id="pane-add-events" title="Add the events feed">＋ Events</button>
             <button class="pane-add" id="pane-add-obs" title="Add OBS controls">＋ OBS</button>
+            <button class="pane-add" id="filter-toggle" title="Chat filters">⚗ Filters</button>
             <span class="pane-toolbar-hint" id="pane-hint"></span>
           </div>
+          <div class="filter-panel" id="filter-panel" hidden></div>
           <div class="stream-wrap" id="stream-wrap"></div>
         </div>
       </div>
@@ -995,6 +1009,7 @@
 </div>
 <input type="file" id="sound-upload-trigger-input" accept=".mp3,.wav,.ogg,.flac" style="display:none;">
 <script src="/chat-render.js"></script>
+<script src="/chat-filter.js"></script>
 <script src="/chat-pane.js"></script>
 <script>
     let ws, totalCommands = 0, totalErrors = 0, activeFilter = 'all';

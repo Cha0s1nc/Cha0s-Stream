@@ -14,7 +14,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','CHAT_TABS','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
+  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
   'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
@@ -1237,10 +1237,8 @@ function sanitizeTTS(text, maxLen) {
 // Bots announce timers, command output and now Guard's own relayed replies. Reading
 // those aloud is noise at best and an echo of ourselves at worst, since Guard posts
 // the result of a command this app just ran.
-const DEFAULT_TTS_IGNORED = [
-  'nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot',
-  'wizebot', 'botrixoficial', 'sery_bot', 'own3d',
-];
+// Shared with the chat filter's "hide bots" preset so the list lives in one place.
+const { KNOWN_BOTS: DEFAULT_TTS_IGNORED } = require('./public/chat-filter.js');
 
 function ttsIgnoredSpeakers() {
   const extra = (process.env.TTS_IGNORE_USERS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -2584,6 +2582,19 @@ app.get('/api/chat/tabs', (req, res) => {
 app.post('/api/chat/tabs', (req, res) => {
   if (!Array.isArray(req.body?.tabs)) return res.status(400).json({ error: 'tabs must be an array' });
   process.env.CHAT_TABS = JSON.stringify(req.body.tabs);
+  persistSettings();
+  res.json({ ok: true });
+});
+
+// Chat filters: { presets: {...}, rules: [...] }. Same blob-in-an-env-var pattern
+// as the tabs and overlay configs; the client owns the shape.
+app.get('/api/chat/filters', (req, res) => {
+  res.json({ filters: process.env.CHAT_FILTERS || '' });
+});
+
+app.post('/api/chat/filters', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'Invalid body' });
+  process.env.CHAT_FILTERS = JSON.stringify(req.body);
   persistSettings();
   res.json({ ok: true });
 });
