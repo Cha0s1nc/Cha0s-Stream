@@ -14,8 +14,8 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
-  'SEVENTV_ENABLED','BTTV_ENABLED',
+  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
+  'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
@@ -155,7 +155,9 @@ const DEFAULT_COMMANDS = {
 const state = {
   obs: { connected: false, reconnecting: false, failCount: 0, paused: false },
   jellyfin: { connected: false, lastChecked: null },
-  twitch: { connected: false, failCount: 0, paused: false },
+  // channels: guest rooms we also read, keyed by lowercase login ->
+  // { id, subId, error }. The home channel is never in here; it is implicit.
+  twitch: { connected: false, failCount: 0, paused: false, channels: {} },
   log: [],
   queue: [],
   history: [],
@@ -281,7 +283,11 @@ process.nextTick(loadAllPlugins);
 // --- Broadcast / log ---
 function broadcast(data) {
   const msg = JSON.stringify(data);
-  [wss, modWss].forEach(ws => {
+  // Chat goes to the dashboard only. The mod queue on MOD_PORT is a
+  // network-exposed surface that never rendered chat anyway, and once guest
+  // channels can be joined this would be relaying strangers' chat to it.
+  const targets = data && data.event === 'chat' ? [wss] : [wss, modWss];
+  targets.forEach(ws => {
     if (!ws) return;
     ws.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) client.send(msg);
@@ -779,6 +785,7 @@ function nowPlayingStartPolling() {
 // half is the bit with the side effects.
 const { reconcile: reconcileQueue } = require('./queue-lifecycle');
 const { parseAllowlist, hostAllowed, pathAllowed } = require('./script-allowlist');
+const { isHomeChannel, normalizeLogin, parseChannelList } = require('./chat-channels');
 
 let queuePlayingId = null;
 const HISTORY_MAX = 50;
@@ -847,17 +854,32 @@ let twitchIsReconnect = false;   // true when connecting via session_reconnect U
 let twitchReconnectAttempts = 0; // for exponential backoff
 let twitchAuthFailed = false;   // set true on 401/403; cleared when Twitch settings update
 
+// Twitch user ids are immutable, so a plain Map with no TTL is enough. Without
+// it every outbound chat message costs one or two extra Helix lookups, and
+// joining channels by name would make that worse.
+const twitchUserIdCache = new Map();
+
 async function getTwitchUserId(channelName, token) {
+  const login = String(channelName || '').toLowerCase();
+  if (!login) return null;
+  const cached = twitchUserIdCache.get(login);
+  if (cached) return cached;
   const bearerToken = token.replace(/^oauth:/i, '');
-  const res = await fetch(`https://api.twitch.tv/helix/users?login=${channelName}`, {
+  const res = await fetch(`https://api.twitch.tv/helix/users?login=${login}`, {
     headers: { 'Authorization': `Bearer ${bearerToken}`, 'Client-Id': getEffectiveClientId() }
   });
   if (!res.ok) throw new Error(`Twitch user lookup failed: ${res.status}`);
   const data = await res.json();
-  return data.data?.[0]?.id || null;
+  const id = data.data?.[0]?.id || null;
+  if (id) twitchUserIdCache.set(login, id);
+  return id;
 }
 
-async function subscribeEventSub(sessionId, type, condition, version = '1') {
+// `fatal` is for the home channel: a rejected token there means nothing works, so
+// we latch and stop reconnecting. Guest channels pass fatal:false — one banned or
+// suspended channel must not take down ingest for every other one.
+// Returns the created subscription (we need its id to unsubscribe), or null.
+async function subscribeEventSub(sessionId, type, condition, version = '1', { fatal = true } = {}) {
   const token = (process.env.TWITCH_OAUTH || '').replace(/^oauth:/i, '');
   const clientId = getEffectiveClientId();
   const res = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
@@ -867,7 +889,7 @@ async function subscribeEventSub(sessionId, type, condition, version = '1') {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (res.status === 401 || res.status === 403) {
+    if ((res.status === 401 || res.status === 403) && fatal) {
       twitchAuthFailed = true;
       addLog('system', 'twitch',
         `Token rejected (${res.status}) — check Twitch settings. Auto-reconnect paused.`, false);
@@ -876,7 +898,105 @@ async function subscribeEventSub(sessionId, type, condition, version = '1') {
     } else {
       addLog('system', 'twitch', `Subscription failed (${type}): ${err.message || res.status}`, false);
     }
+    return null;
   }
+  const data = await res.json().catch(() => ({}));
+  return data.data?.[0] || null;
+}
+
+async function unsubscribeEventSub(subId) {
+  if (!subId) return;
+  const token = (process.env.TWITCH_OAUTH || '').replace(/^oauth:/i, '');
+  try {
+    await fetch(`https://api.twitch.tv/helix/eventsub/subscriptions?id=${encodeURIComponent(subId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}`, 'Client-Id': getEffectiveClientId() }
+    });
+  } catch (err) {
+    // Not worth failing a leave over: the subscription dies with the session anyway.
+    addLog('system', 'twitch', `Could not remove subscription ${subId}: ${err.message}`, false);
+  }
+}
+
+// Subscribes to a guest channel's chat on the session we already have open.
+// user_id is us — that is what makes the subscription free and what our
+// user:read:chat scope authorizes.
+async function subscribeGuestChannel(login) {
+  const home = state.twitch.broadcasterId;
+  if (!twitchSessionId || !home) return { ok: false, error: 'Twitch not connected' };
+
+  let id;
+  try {
+    id = await getTwitchUserId(login, process.env.TWITCH_OAUTH || '');
+  } catch (err) {
+    return { ok: false, error: `Lookup failed: ${err.message}` };
+  }
+  if (!id) return { ok: false, error: `No Twitch channel called "${login}"` };
+
+  // fatal:false — a banned, suspended or otherwise refused guest channel must not
+  // latch twitchAuthFailed and tear down ingest for our own chat.
+  const sub = await subscribeEventSub(twitchSessionId, 'channel.chat.message',
+    { broadcaster_user_id: id, user_id: home }, '1', { fatal: false });
+  if (!sub) return { ok: false, error: `Twitch refused a chat subscription for "${login}"` };
+
+  state.twitch.channels[login] = { id, subId: sub.id, error: null };
+  return { ok: true, login, id };
+}
+
+function persistChannels() {
+  process.env.CHAT_CHANNELS = JSON.stringify(Object.keys(state.twitch.channels));
+  persistSettings();
+}
+
+async function joinChannel(input) {
+  const login = normalizeLogin(input);
+  if (!login) return { ok: false, error: 'That is not a valid Twitch channel name' };
+  if (login === normalizeLogin(process.env.TWITCH_CHANNEL)) {
+    return { ok: false, error: 'Your own channel is always shown' };
+  }
+  if (state.twitch.channels[login]) return { ok: true, login, already: true };
+
+  const result = await subscribeGuestChannel(login);
+  if (!result.ok) return result;
+  persistChannels();
+  addLog('system', 'twitch', `Joined #${login}`);
+  broadcast({ event: 'chat_channels', channels: listChannels() });
+  return result;
+}
+
+async function leaveChannel(input) {
+  const login = normalizeLogin(input);
+  const entry = state.twitch.channels[login];
+  if (!entry) return { ok: false, error: 'Not joined' };
+  delete state.twitch.channels[login];
+  persistChannels();
+  await unsubscribeEventSub(entry.subId);
+  addLog('system', 'twitch', `Left #${login}`);
+  broadcast({ event: 'chat_channels', channels: listChannels() });
+  return { ok: true, login };
+}
+
+function listChannels() {
+  return Object.entries(state.twitch.channels)
+    .map(([login, v]) => ({ login, id: v.id, error: v.error || null }));
+}
+
+// Re-join everything in CHAT_CHANNELS. Called only on a fresh EventSub session:
+// Twitch migrates subscriptions itself across a session_reconnect, so running
+// this on a reconnect would double every subscription.
+async function resubscribeSavedChannels() {
+  const saved = parseChannelList(process.env.CHAT_CHANNELS, process.env.TWITCH_CHANNEL);
+  state.twitch.channels = {};
+  for (const login of saved) {
+    const result = await subscribeGuestChannel(login);
+    if (!result.ok) {
+      // Keep the tab, mark it broken. Dropping it silently would lose the channel
+      // from the user's saved layout because of one bad reconnect.
+      state.twitch.channels[login] = { id: null, subId: null, error: result.error };
+      addLog('system', 'twitch', `Could not rejoin #${login}: ${result.error}`, false);
+    }
+  }
+  if (saved.length) broadcast({ event: 'chat_channels', channels: listChannels() });
 }
 
 function resetKeepaliveWatchdog() {
@@ -920,13 +1040,15 @@ function attachTwitchHandlers(socket) {
             state.twitch.broadcasterId = broadcasterId;
             // Invalidate the 7TV cache — broadcasterId just became available, so any
             // cache built from the earlier connected broadcast was global-only.
-            sevenTvCacheTime           = 0;
-            sevenTvCacheHadBroadcaster = false;
+            invalidateEmoteCache();
             // Tell all connected clients to re-fetch emotes now that we have the broadcaster ID
             broadcast({ event: 'seventv_ready' });
             await subscribeEventSub(twitchSessionId, 'channel.chat.message', {
               broadcaster_user_id: broadcasterId, user_id: broadcasterId
             });
+            // Guest channels we also read. Inside the !wasReconnect guard on
+            // purpose — Twitch migrates these itself on session_reconnect.
+            await resubscribeSavedChannels();
             // Whisper subscription (needs user:read:whispers scope)
             await subscribeEventSub(twitchSessionId, 'user.whisper.message', {
               user_id: broadcasterId
@@ -1227,7 +1349,12 @@ async function handleChatMessage(event) {
   const sourceChannel = (event?.source_broadcaster_user_login &&
     event.source_broadcaster_user_login !== event.broadcaster_user_login)
     ? event.source_broadcaster_user_login : null;
-  pluginEvents.emit('chat', { user, text, event });
+
+  // Guest channels are display-only: see isHomeChannel() for why everything that
+  // acts on chat is gated on this.
+  const isHome = isHomeChannel(event?.broadcaster_user_id, state.twitch.broadcasterId);
+
+  if (isHome) pluginEvents.emit('chat', { user, text, event });
   broadcast({
     event:     'chat',
     user,
@@ -1240,11 +1367,21 @@ async function handleChatMessage(event) {
       text:    f.text,
       emoteId: f.emote?.id || null,
     })),
+    // Which room this came from, so the dashboard can route it to a pane.
+    channel:   event?.broadcaster_user_login || '',
+    channelId: event?.broadcaster_user_id || '',
+    // id/userId/login cost nothing now and are painful to retrofit: message
+    // deletion, dedupe and user cards all need them.
+    id:        event?.message_id || '',
+    userId:    event?.chatter_user_id || '',
+    login:     event?.chatter_user_login || '',
     sourceChannel, // null if same channel, login name if shared chat
     ts:        Date.now(),
   });
   // When deferring to Guard, skip the `!` command path here so the two bots
   // don't both answer. Keyword commands and TTS still run locally.
+  if (!isHome) return; // guest channels display only — see the isHome note above
+
   const deferToGuard = process.env.RELAY_DEFER_COMMANDS === 'true' && relayClient.isConnected();
   await dispatchCommand(event, 'chat', user, text, { keywordOnly: deferToGuard });
 
@@ -1381,12 +1518,15 @@ async function dispatchCommand(permEvent, source, user, text, opts = {}) {
 let replyInterceptor = null;
 function setReplyInterceptor(fn) { replyInterceptor = fn; }
 
-async function sendChatMessage(text, sender = 'auto') {
-  if (!text) return;
-  if (replyInterceptor) { replyInterceptor(String(text)); return; }
+// `channel` defaults to our own room, so every existing caller is unchanged.
+// Returns { ok, error } — the HTTP route used to report success even when Twitch
+// rejected the message, which is the wrong answer for a chat client.
+async function sendChatMessage(text, sender = 'auto', channel = process.env.TWITCH_CHANNEL) {
+  if (!text) return { ok: false, error: 'No message' };
+  if (replyInterceptor) { replyInterceptor(String(text)); return { ok: true }; }
   const clientId = getEffectiveClientId();
-  const channel = process.env.TWITCH_CHANNEL || '';
-  if (!channel) return;
+  const target = String(channel || '').toLowerCase();
+  if (!target) return { ok: false, error: 'No channel' };
 
   // Determine which credentials to use based on requested sender:
   //   'broadcaster' → always use broadcaster token (TWITCH_OAUTH), send as broadcaster
@@ -1398,14 +1538,14 @@ async function sendChatMessage(text, sender = 'auto') {
     ? process.env.TWITCH_BOT_OAUTH
     : (process.env.TWITCH_OAUTH || process.env.TWITCH_BOT_OAUTH || '')
   ).replace(/^oauth:/i, '');
-  if (!rawToken) return;
+  if (!rawToken) return { ok: false, error: 'No Twitch token' };
 
   try {
     // Need broadcaster ID to address the chat room, and sender ID for the bot (or broadcaster)
-    const broadcasterId = await getTwitchUserId(channel, rawToken);
+    const broadcasterId = await getTwitchUserId(target, rawToken);
     if (!broadcasterId) {
-      addLog('system', 'chat', `Could not resolve broadcaster ID for channel "${channel}"`, false);
-      return;
+      addLog('system', 'chat', `Could not resolve broadcaster ID for channel "${target}"`, false);
+      return { ok: false, error: `Unknown channel "${target}"` };
     }
 
     // Sender is the bot account if username is set and we're not forcing broadcaster
@@ -1415,7 +1555,7 @@ async function sendChatMessage(text, sender = 'auto') {
       : broadcasterId;
     if (!senderId) {
       addLog('system', 'chat', `Could not resolve sender ID for bot username "${botUsername}" — is it correct?`, false);
-      return;
+      return { ok: false, error: `Unknown bot username "${botUsername}"` };
     }
 
     const chatRes = await fetch('https://api.twitch.tv/helix/chat/messages', {
@@ -1433,10 +1573,17 @@ async function sendChatMessage(text, sender = 'auto') {
     });
     if (!chatRes.ok) {
       const body = await chatRes.text().catch(() => '');
-      addLog('system', 'chat', `Chat send failed ${chatRes.status}: ${body}`, false);
+      // Helix wraps the useful part in {message}. Sub-only, follower-only,
+      // slow mode and bans all land here, so the caller needs the reason.
+      let reason = `${chatRes.status}`;
+      try { reason = JSON.parse(body).message || reason; } catch {}
+      addLog('system', 'chat', `Chat send failed in #${target}: ${reason}`, false);
+      return { ok: false, error: reason };
     }
+    return { ok: true };
   } catch (err) {
     addLog('system', 'chat', `Failed to send message: ${err.message}`, false);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -2415,14 +2562,33 @@ app.get('/api/chat/config', (req, res) => {
 app.post('/api/chat/send', async (req, res) => {
   const text   = (req.body?.message || '').trim();
   const sender = req.body?.sender || 'auto'; // 'bot' | 'broadcaster' | 'auto'
+  const channel = req.body?.channel || undefined; // undefined => our own channel
   if (!text) return res.status(400).json({ error: 'No message' });
   if (!state.twitch.connected) return res.status(503).json({ error: 'Twitch not connected' });
   try {
-    await sendChatMessage(text, sender);
+    const result = await sendChatMessage(text, sender, channel);
+    if (!result?.ok) return res.status(502).json({ error: result?.error || 'Send failed' });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Guest chat channels. The home channel is implicit and never listed here.
+app.get('/api/chat/channels', (req, res) => {
+  res.json({ home: normalizeLogin(process.env.TWITCH_CHANNEL), channels: listChannels() });
+});
+
+app.post('/api/chat/channels', async (req, res) => {
+  const result = await joinChannel(req.body?.channel);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.json({ ok: true, login: result.login, channels: listChannels() });
+});
+
+app.delete('/api/chat/channels/:login', async (req, res) => {
+  const result = await leaveChannel(req.params.login);
+  if (!result.ok) return res.status(404).json({ error: result.error });
+  res.json({ ok: true, login: result.login, channels: listChannels() });
 });
 
 app.post('/api/chat/config', (req, res) => {
@@ -2506,96 +2672,93 @@ app.get('/api/overlay/config', (req, res) => {
 // ── Twitch badge cache ────────────────────────────────────────────────────────
 // Builds a flat map: "set_id/version_id" → image_url_1x
 // e.g. "subscriber/3" → "https://static-cdn.jtvnw.net/badges/v1/.../1"
-let badgeCache     = {};   // { "moderator/1": url, ... }
-let badgeCacheTime = 0;
+// Badges are per channel for the same reason emotes are: sub badges, bit badges
+// and custom mod icons all differ per broadcaster.
+//   { global: {map,time}, channels: { [id]: {map,time} } }
+let badgeCache = { global: { map: null, time: 0 }, channels: {} };
 const BADGE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-async function fetchBadgeCache() {
-  if (Date.now() - badgeCacheTime < BADGE_TTL_MS && Object.keys(badgeCache).length) return badgeCache;
-  const token      = process.env.TWITCH_OAUTH;
-  const clientId   = getEffectiveClientId();
-  const broadcasterId = state.twitch.broadcasterId;
-  if (!token || !clientId) return badgeCache;
-
-  const headers = { 'Authorization': `Bearer ${token.replace(/^oauth:/i, '')}`, 'Client-Id': clientId };
-  const map = {};
-
-  try {
-    const globalRes = await fetch('https://api.twitch.tv/helix/chat/badges/global', { headers });
-    if (globalRes.ok) {
-      const { data } = await globalRes.json();
-      for (const set of data) {
-        for (const v of set.versions) map[`${set.set_id}/${v.id}`] = v.image_url_1x;
-      }
-    }
-  } catch {}
-
-  if (broadcasterId) {
-    try {
-      const chanRes = await fetch(`https://api.twitch.tv/helix/chat/badges?broadcaster_id=${broadcasterId}`, { headers });
-      if (chanRes.ok) {
-        const { data } = await chanRes.json();
-        for (const set of data) {
-          for (const v of set.versions) map[`${set.set_id}/${v.id}`] = v.image_url_1x;
-        }
-      }
-    } catch {}
+function badgesInto(map, data) {
+  for (const set of (data || [])) {
+    for (const v of (set.versions || [])) map[`${set.set_id}/${v.id}`] = v.image_url_1x;
   }
+}
 
-  if (Object.keys(map).length) { badgeCache = map; badgeCacheTime = Date.now(); }
-  return badgeCache;
+async function fetchBadges(channelId) {
+  const token    = process.env.TWITCH_OAUTH;
+  const clientId = getEffectiveClientId();
+  if (!token || !clientId) return { map: {}, ok: false };
+  const headers = { 'Authorization': `Bearer ${token.replace(/^oauth:/i, '')}`, 'Client-Id': clientId };
+  const url = channelId
+    ? `https://api.twitch.tv/helix/chat/badges?broadcaster_id=${channelId}`
+    : 'https://api.twitch.tv/helix/chat/badges/global';
+  const map = {};
+  try {
+    const r = await fetch(url, { headers });
+    if (!r.ok) return { map, ok: false };
+    badgesInto(map, (await r.json()).data);
+    return { map, ok: true };
+  } catch {
+    return { map, ok: false };
+  }
+}
+
+async function getBadgeSlot(slot, channelId) {
+  if (slot.map !== null && (Date.now() - slot.time) < BADGE_TTL_MS) return slot.map;
+  const { map, ok } = await fetchBadges(channelId);
+  if (!ok && slot.map !== null) return slot.map;
+  slot.map = map;
+  slot.time = Date.now();
+  return map;
 }
 
 app.get('/api/chat/badges', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(await fetchBadgeCache());
+  try {
+    const channelId = await resolveEmoteChannelId(req.query.channel);
+    const global = await getBadgeSlot(badgeCache.global, null);
+    let channel = {};
+    if (channelId) {
+      const slot = badgeCache.channels[channelId] || (badgeCache.channels[channelId] = { map: null, time: 0 });
+      channel = await getBadgeSlot(slot, channelId);
+    }
+    res.json({ ...global, ...channel });
+  } catch (err) {
+    addLog('system', 'chat', `Badge endpoint error: ${err.message}`, false);
+    res.json({ ...(badgeCache.global.map || {}) });
+  }
 });
 
 // ── 7TV persistent emote cache ────────────────────────────────────────────────
-const SEVENTV_CACHE_FILE = process.env.SEVENTV_CACHE_FILE || require('path').join(__dirname, 'emote-cache.json');
-const SEVENTV_TTL_MS     = 30 * 60 * 1000; // re-check every 30 min
+// Env var name kept for compatibility — electron/main.js points it at userData.
+const EMOTE_CACHE_FILE = process.env.SEVENTV_CACHE_FILE || require('path').join(__dirname, 'emote-cache.json');
+const EMOTE_TTL_MS     = 30 * 60 * 1000; // re-check every 30 min
 
-let sevenTvEmoteCache          = null; // { name: url, ... }
-let sevenTvCacheChecksum       = '';   // MD5 of sorted emote names — detects real changes
-let sevenTvCacheTime           = 0;
-let sevenTvCacheHadBroadcaster = false;
+// Emotes are cached per channel, not as one flat map. Two channels routinely use
+// the same emote name for different images, so a single shared map renders the
+// wrong picture in the wrong pane. It also meant changing TWITCH_CHANNEL silently
+// kept serving the previous account's emotes.
+//   { global: {map,time}, channels: { [twitchUserId]: {map,time} } }
+let emoteCache = { global: { map: null, time: 0 }, channels: {} };
 
-// Load whatever was saved last time the app ran
-function loadSevenTvCacheFromDisk() {
+function loadEmoteCacheFromDisk() {
   try {
-    const raw  = fs.readFileSync(SEVENTV_CACHE_FILE, 'utf8');
-    const data = JSON.parse(raw);
-    if (data.emotes && Object.keys(data.emotes).length > 0) {
-      sevenTvEmoteCache          = data.emotes;
-      sevenTvCacheChecksum       = data.checksum       || '';
-      sevenTvCacheTime           = data.timestamp      || 0;
-      sevenTvCacheHadBroadcaster = data.hadBroadcaster || false;
-      addLog('system', 'chat',
-        `7TV: restored ${Object.keys(sevenTvEmoteCache).length} emotes from disk cache`);
-    }
+    const data = JSON.parse(fs.readFileSync(EMOTE_CACHE_FILE, 'utf8'));
+    // Files written by the old single-map version have no `global` key. They fail
+    // this check and get refetched, which beats migrating a 30-minute cache.
+    if (!data || typeof data.global !== 'object' || !data.global) return;
+    emoteCache = { global: data.global, channels: data.channels || {} };
+    addLog('system', 'chat', `Emotes: restored ${Object.keys(emoteCache.global.map || {}).length} global ` +
+      `and ${Object.keys(emoteCache.channels).length} channel set(s) from disk`);
   } catch { /* no cache yet — that's fine */ }
 }
 
-function saveSevenTvCacheToDisk() {
+function saveEmoteCacheToDisk() {
   try {
-    fs.writeFileSync(SEVENTV_CACHE_FILE, JSON.stringify({
-      emotes:        sevenTvEmoteCache,
-      checksum:      sevenTvCacheChecksum,
-      timestamp:     sevenTvCacheTime,
-      hadBroadcaster: sevenTvCacheHadBroadcaster,
-    }), 'utf8');
+    fs.writeFileSync(EMOTE_CACHE_FILE, JSON.stringify(emoteCache), 'utf8');
   } catch (err) {
-    addLog('system', 'chat', `7TV: failed to write disk cache: ${err.message}`, false);
+    addLog('system', 'chat', `Emotes: failed to write disk cache: ${err.message}`, false);
   }
-}
-
-function computeEmoteChecksum(map) {
-  // MD5 of sorted "name=url" pairs — sensitive to both additions and URL changes
-  const content = Object.entries(map)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n');
-  return crypto.createHash('md5').update(content).digest('hex');
 }
 
 function buildEmoteUrl(emote) {
@@ -2612,144 +2775,161 @@ function buildEmoteUrl(emote) {
   return `${base}/${file.name}`;
 }
 
+const EMOTE_HEADERS = { 'User-Agent': 'Cha0sStream/1.0' };
+
+// FFZ nests emotes under sets[*].emoticons for both the global and room endpoints,
+// so walking every set handles both without special-casing default_sets vs room.set.
+function ffzExtract(data, map) {
+  let n = 0;
+  for (const set of Object.values(data?.sets || {})) {
+    for (const e of (set?.emoticons || [])) {
+      const raw = e?.urls?.['2'] || e?.urls?.['1'] || e?.urls?.['4'];
+      if (!e?.name || !raw) continue;
+      map[e.name] = raw.startsWith('//') ? `https:${raw}` : raw;
+      n++;
+    }
+  }
+  return n;
+}
+
+function sevenTvExtract(data, map) {
+  let n = 0;
+  // Global returns {emotes}, the per-user endpoint returns {emote_set:{emotes}}.
+  for (const e of (data?.emotes || data?.emote_set?.emotes || [])) {
+    const url = buildEmoteUrl(e);
+    if (e?.name && url) { map[e.name] = url; n++; }
+  }
+  return n;
+}
+
+function bttvExtract(data, map) {
+  let n = 0;
+  // Global returns a bare array; a channel returns {channelEmotes, sharedEmotes}.
+  const list = Array.isArray(data)
+    ? data
+    : [...(data?.channelEmotes || []), ...(data?.sharedEmotes || [])];
+  for (const e of list) {
+    if (e?.code && e?.id) { map[e.code] = `https://cdn.betterttv.net/emote/${e.id}/2x`; n++; }
+  }
+  return n;
+}
+
+// Returns true when the call actually succeeded. That is what lets the caller tell
+// "this channel genuinely has no emotes" (a real answer worth caching) from "the
+// fetch failed" (keep serving stale). The old code treated both as failure, so a
+// channel with no emotes could never stop serving another account's cached set.
+async function fetchEmoteSet(label, url, map, extract) {
+  try {
+    const r = await fetch(url, { headers: EMOTE_HEADERS });
+    if (!r.ok) {
+      // 404 from a channel endpoint means "not registered with this provider",
+      // which is a legitimate empty answer rather than an outage.
+      if (r.status === 404) return true;
+      addLog('system', 'chat', `${label} fetch failed: HTTP ${r.status}`, false);
+      return false;
+    }
+    extract(await r.json(), map);
+    return true;
+  } catch (err) {
+    addLog('system', 'chat', `${label} fetch error: ${err.message}`, false);
+    return false;
+  }
+}
+
+// Providers are applied 7TV last so it wins a name collision, matching what most
+// viewers see. Channel emotes beat global because the two maps are merged
+// separately by the route.
+async function fetchEmotes(channelId) {
+  const map = {};
+  const ok = [];
+  const scope = channelId ? 'channel' : 'global';
+  const on = { seventv: process.env.SEVENTV_ENABLED !== 'false',
+               bttv:    process.env.BTTV_ENABLED    !== 'false',
+               ffz:     process.env.FFZ_ENABLED     !== 'false' };
+
+  if (on.ffz) ok.push(await fetchEmoteSet(`FFZ ${scope}`,
+    channelId ? `https://api.frankerfacez.com/v1/room/id/${channelId}`
+              : 'https://api.frankerfacez.com/v1/set/global', map, ffzExtract));
+
+  if (on.bttv) ok.push(await fetchEmoteSet(`BTTV ${scope}`,
+    channelId ? `https://api.betterttv.net/3/cached/users/twitch/${channelId}`
+              : 'https://api.betterttv.net/3/cached/emotes/global', map, bttvExtract));
+
+  if (on.seventv) ok.push(await fetchEmoteSet(`7TV ${scope}`,
+    channelId ? `https://7tv.io/v3/users/twitch/${channelId}`
+              : 'https://7tv.io/v3/emote-sets/global', map, sevenTvExtract));
+
+  return { map, ok: ok.length > 0 && ok.every(Boolean) };
+}
+
+// Accepts a numeric Twitch id or a login; falls back to our own channel.
+async function resolveEmoteChannelId(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) return state.twitch.broadcasterId || null;
+  if (/^\d+$/.test(raw)) return raw;
+  const login = normalizeLogin(raw);
+  if (!login) return null;
+  try {
+    return await getTwitchUserId(login, process.env.TWITCH_OAUTH || '');
+  } catch {
+    return null;
+  }
+}
+
+// Refreshes one cache slot if it is stale, and returns its map. On a failed fetch
+// the stale map is kept and returned rather than blanking the pane.
+async function getEmoteSlot(slot, channelId, force) {
+  const fresh = slot.map !== null && !force && (Date.now() - slot.time) < EMOTE_TTL_MS;
+  if (fresh) return slot.map;
+  const { map, ok } = await fetchEmotes(channelId);
+  if (!ok && slot.map !== null) return slot.map;
+  slot.map = map;
+  slot.time = Date.now();
+  return map;
+}
+
+// Only write the disk cache when something actually changed. Replaces the old MD5
+// checksum bookkeeping — comparing the serialized cache does the same job.
+let lastSavedEmoteCache = '';
+
+// Marks every slot stale so the next request refetches. Keeps the maps in place
+// so panes keep rendering until the new data lands.
+function invalidateEmoteCache() {
+  emoteCache.global.time = 0;
+  for (const slot of Object.values(emoteCache.channels)) slot.time = 0;
+}
+
 // Load disk cache at startup
-loadSevenTvCacheFromDisk();
+loadEmoteCacheFromDisk();
+lastSavedEmoteCache = JSON.stringify(emoteCache);
 
 app.get('/api/chat/emotes', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
-    const now            = Date.now();
-    const broadcasterId  = state.twitch.broadcasterId;
-    const forceRefresh   = req.query.refresh === '1';
+    const force     = req.query.refresh === '1';
+    const channelId = await resolveEmoteChannelId(req.query.channel);
 
-    // Serve from in-memory (or already-loaded disk) cache when:
-    //   • we have data AND
-    //   • it's within the TTL AND
-    //   • it was built with a broadcasterId, or we still don't have one yet AND
-    //   • the caller didn't ask for a forced refresh
-    const cacheValid =
-      sevenTvEmoteCache !== null &&
-      (now - sevenTvCacheTime) < SEVENTV_TTL_MS &&
-      (sevenTvCacheHadBroadcaster || !broadcasterId) &&
-      !forceRefresh;
+    const global = await getEmoteSlot(emoteCache.global, null, force);
 
-    res.set('Cache-Control', 'no-store');
-    if (cacheValid) return res.json(sevenTvEmoteCache);
-
-    const map          = {};
-    const HEADERS      = { 'User-Agent': 'Cha0sStream/1.0' };
-    const sevenTvOn    = process.env.SEVENTV_ENABLED !== 'false';
-    const bttvOn       = process.env.BTTV_ENABLED    !== 'false';
-
-    // ── Global 7TV emotes ─────────────────────────────────────────
-    if (sevenTvOn) try {
-      const r = await fetch('https://7tv.io/v3/emote-sets/global', { headers: HEADERS });
-      if (r.ok) {
-        const data = await r.json();
-        let n = 0;
-        for (const e of (data?.emotes || [])) {
-          const url = buildEmoteUrl(e);
-          if (e?.name && url) { map[e.name] = url; n++; }
-        }
-        addLog('system', 'chat', `7TV: fetched ${n} global emotes`);
-      } else {
-        addLog('system', 'chat', `7TV global fetch failed: HTTP ${r.status}`, false);
-      }
-    } catch (err) {
-      addLog('system', 'chat', `7TV global fetch error: ${err.message}`, false);
+    let channel = {};
+    if (channelId) {
+      const slot = emoteCache.channels[channelId] || (emoteCache.channels[channelId] = { map: null, time: 0 });
+      channel = await getEmoteSlot(slot, channelId, force);
     }
 
-    // ── Channel 7TV emotes ────────────────────────────────────────
-    if (sevenTvOn && broadcasterId) {
-      try {
-        const r = await fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`, { headers: HEADERS });
-        if (r.ok) {
-          const data = await r.json();
-          let n = 0;
-          for (const e of (data?.emote_set?.emotes || [])) {
-            const url = buildEmoteUrl(e);
-            if (e?.name && url) { map[e.name] = url; n++; }
-          }
-          addLog('system', 'chat', `7TV: fetched ${n} channel emotes`);
-        } else {
-          addLog('system', 'chat', `7TV channel fetch failed: HTTP ${r.status}`, false);
-        }
-      } catch (err) {
-        addLog('system', 'chat', `7TV channel fetch error: ${err.message}`, false);
-      }
+    // Channel emotes shadow global ones of the same name, which is what viewers see.
+    const merged = { ...global, ...channel };
+
+    const serialized = JSON.stringify(emoteCache);
+    if (serialized !== lastSavedEmoteCache) {
+      lastSavedEmoteCache = serialized;
+      saveEmoteCacheToDisk();
     }
-
-    // ── Global BTTV emotes ────────────────────────────────────────
-    if (bttvOn) try {
-      const r = await fetch('https://api.betterttv.net/3/cached/emotes/global', { headers: HEADERS });
-      if (r.ok) {
-        const data = await r.json();
-        let n = 0;
-        for (const e of (data || [])) {
-          if (e?.code && e?.id) {
-            map[e.code] = `https://cdn.betterttv.net/emote/${e.id}/2x`;
-            n++;
-          }
-        }
-        addLog('system', 'chat', `BTTV: fetched ${n} global emotes`);
-      } else {
-        addLog('system', 'chat', `BTTV global fetch failed: HTTP ${r.status}`, false);
-      }
-    } catch (err) {
-      addLog('system', 'chat', `BTTV global fetch error: ${err.message}`, false);
-    }
-
-    // ── Channel BTTV emotes ───────────────────────────────────────
-    if (bttvOn && broadcasterId) {
-      try {
-        const r = await fetch(`https://api.betterttv.net/3/cached/users/twitch/${broadcasterId}`, { headers: HEADERS });
-        if (r.ok) {
-          const data = await r.json();
-          let n = 0;
-          // channelEmotes = emotes the broadcaster added; sharedEmotes = emotes shared from other users
-          for (const e of [...(data?.channelEmotes || []), ...(data?.sharedEmotes || [])]) {
-            if (e?.code && e?.id) {
-              map[e.code] = `https://cdn.betterttv.net/emote/${e.id}/2x`;
-              n++;
-            }
-          }
-          addLog('system', 'chat', `BTTV: fetched ${n} channel emotes`);
-        } else {
-          addLog('system', 'chat', `BTTV channel fetch failed: HTTP ${r.status}`, false);
-        }
-      } catch (err) {
-        addLog('system', 'chat', `BTTV channel fetch error: ${err.message}`, false);
-      }
-    }
-
-    if (Object.keys(map).length > 0) {
-      const newChecksum = computeEmoteChecksum(map);
-      const changed     = newChecksum !== sevenTvCacheChecksum;
-
-      sevenTvEmoteCache          = map;
-      sevenTvCacheTime           = now;
-      sevenTvCacheHadBroadcaster = !!broadcasterId;
-      sevenTvCacheChecksum       = newChecksum;
-
-      if (changed) {
-        // Emotes actually changed — persist to disk
-        saveSevenTvCacheToDisk();
-        addLog('system', 'chat',
-          `Emote cache updated (${Object.keys(map).length} total, checksum ${newChecksum.slice(0, 8)})`);
-      } else {
-        // Same data — just reset the TTL clock, no disk write needed
-        addLog('system', 'chat', `7TV: emote set unchanged (checksum match)`);
-      }
-    } else {
-      // Fetch returned nothing — serve last known good data rather than an empty map
-      addLog('system', 'chat',
-        `Emote fetch returned 0 results — serving cached data (${Object.keys(sevenTvEmoteCache || {}).length} emotes)`, false);
-    }
-
-    res.json(sevenTvEmoteCache || {});
+    res.json(merged);
   } catch (err) {
-    addLog('system', 'chat', `7TV endpoint error: ${err.message}`, false);
-    // Always return whatever we have rather than an error
-    res.json(sevenTvEmoteCache || {});
+    addLog('system', 'chat', `Emote endpoint error: ${err.message}`, false);
+    // Serve whatever is cached rather than an error — a blank pane is worse.
+    res.json({ ...(emoteCache.global.map || {}) });
   }
 });
 
@@ -2762,79 +2942,49 @@ app.post('/api/tts/test', (req, res) => {
 });
 
 app.post('/api/emotes/refresh', (req, res) => {
-  const { which } = req.body || {};
-  // 'which' is 'seventv', 'bttv', or omitted (both)
-  const all = !which || which === 'both';
-  if (all || which === 'seventv' || which === 'bttv') {
-    sevenTvCacheTime           = 0;
-    sevenTvCacheHadBroadcaster = false;
-    addLog('system', 'chat', `Emote cache cleared (${which || 'all'}) — will re-fetch on next request`);
-  }
+  // ponytail: `which` is logged but not honoured — one cache slot holds all three
+  // providers merged, so there is nothing to clear selectively. Split the slot per
+  // provider if a single provider ever needs refreshing on its own.
+  const which = (req.body || {}).which || 'all';
+  invalidateEmoteCache();
+  addLog('system', 'chat', `Emote cache cleared (${which}) — will re-fetch on next request`);
   res.json({ ok: true });
 });
 
 // Debug endpoint — visit /api/chat/emotes/debug to see exactly what 7TV returns
+// Debug endpoint — /api/chat/emotes/debug[?channel=forsen] shows what is cached
+// and what each provider currently returns for that channel.
 app.get('/api/chat/emotes/debug', async (req, res) => {
-  const broadcasterId = state.twitch.broadcasterId;
-  const result = {
-    broadcasterId:        broadcasterId || null,
-    cacheSize:            sevenTvEmoteCache ? Object.keys(sevenTvEmoteCache).length : 0,
-    cacheChecksum:        sevenTvCacheChecksum || null,
-    cacheHadBroadcaster:  sevenTvCacheHadBroadcaster,
-    cacheAgeSeconds:      sevenTvCacheTime ? Math.round((Date.now() - sevenTvCacheTime) / 1000) : null,
-    globalFetch:          null,
-    channelFetch:         null,
-  };
+  const channelId = await resolveEmoteChannelId(req.query.channel);
+  const slot      = channelId ? emoteCache.channels[channelId] : null;
+  const age       = t => (t ? Math.round((Date.now() - t) / 1000) : null);
 
-  try {
-    const r = await fetch('https://7tv.io/v3/emote-sets/global', { headers: { 'User-Agent': 'Cha0sStream/1.0' } });
-    result.globalFetch = { status: r.status, ok: r.ok };
-    if (r.ok) {
-      const data = await r.json();
-      result.globalFetch.emoteCount = (data?.emotes || []).length;
-      result.globalFetch.sampleEmotes = (data?.emotes || []).slice(0, 3).map(e => e.name);
-    }
-  } catch (err) {
-    result.globalFetch = { error: err.message };
-  }
+  const live = { global: await fetchEmotes(null) };
+  if (channelId) live.channel = await fetchEmotes(channelId);
 
-  if (broadcasterId) {
-    try {
-      const r = await fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`, { headers: { 'User-Agent': 'Cha0sStream/1.0' } });
-      result.channelFetch = { status: r.status, ok: r.ok };
-      if (r.ok) {
-        const data = await r.json();
-        result.channelFetch.topLevelKeys   = Object.keys(data);
-        result.channelFetch.emoteSetKeys   = data.emote_set ? Object.keys(data.emote_set) : null;
-        result.channelFetch.emoteCount     = (data?.emote_set?.emotes || []).length;
-        result.channelFetch.sampleEmotes   = (data?.emote_set?.emotes || []).slice(0, 5).map(e => ({
-          name: e.name,
-          url:  buildEmoteUrl(e),
-          hasData: !!e?.data,
-          hasHost: !!e?.data?.host,
-          filesCount: (e?.data?.host?.files || []).length,
-        }));
-      } else {
-        const body = await r.text().catch(() => '');
-        result.channelFetch.body = body.slice(0, 300);
-      }
-    } catch (err) {
-      result.channelFetch = { error: err.message };
-    }
-  } else {
-    result.channelFetch = { skipped: 'broadcasterId not set — Twitch not connected' };
-  }
-
-  // Show what the cache actually has for a few known channel emote names
-  if (sevenTvEmoteCache) {
-    const channelSamples = ['peepoShy','donowall','Madge','NOOOO','COPIUM'];
-    result.cacheUrlSamples = {};
-    for (const name of channelSamples) {
-      result.cacheUrlSamples[name] = sevenTvEmoteCache[name] || null;
-    }
-  }
-
-  res.json(result);
+  res.json({
+    homeBroadcasterId: state.twitch.broadcasterId || null,
+    resolvedChannelId: channelId,
+    providers: {
+      seventv: process.env.SEVENTV_ENABLED !== 'false',
+      bttv:    process.env.BTTV_ENABLED    !== 'false',
+      ffz:     process.env.FFZ_ENABLED     !== 'false',
+    },
+    cache: {
+      globalSize:      Object.keys(emoteCache.global.map || {}).length,
+      globalAgeSec:    age(emoteCache.global.time),
+      channelSize:     slot ? Object.keys(slot.map || {}).length : null,
+      channelAgeSec:   slot ? age(slot.time) : null,
+      cachedChannels:  Object.keys(emoteCache.channels),
+    },
+    liveFetch: {
+      globalCount:  Object.keys(live.global.map).length,
+      globalOk:     live.global.ok,
+      channelCount: live.channel ? Object.keys(live.channel.map).length : null,
+      channelOk:    live.channel ? live.channel.ok : null,
+      channelNames: live.channel ? Object.keys(live.channel.map).slice(0, 15) : null,
+    },
+  });
 });
 
 // --- Alerts config API ---
@@ -3257,7 +3407,7 @@ const SETTINGS_KEYS = [
   'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
-  'SEVENTV_ENABLED','BTTV_ENABLED',
+  'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
@@ -3303,10 +3453,9 @@ app.post('/settings', (req, res) => {
     if (twitchKeepaliveTimer) { clearTimeout(twitchKeepaliveTimer); twitchKeepaliveTimer = null; }
     if (process.env.TWITCH_OAUTH) setTimeout(connectTwitchEventSub, 500);
   }
-  if (updated.some(k => k === 'SEVENTV_ENABLED' || k === 'BTTV_ENABLED')) {
+  if (updated.some(k => ['SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED'].includes(k))) {
     // Bust the emote cache so the next overlay fetch picks up the new setting
-    sevenTvCacheTime           = 0;
-    sevenTvCacheHadBroadcaster = false;
+    invalidateEmoteCache();
   }
   if (updated.includes('MEDIA_CONTROL_MODE')) nowPlayingStartPolling();
   if (updated.some(k => k.startsWith('RELAY_'))) relayClient.reload();
@@ -3394,6 +3543,9 @@ wss.on('connection', (ws) => {
           }
           break;
         case 'chat_send':
+          // Deliberately no channel argument. This socket has no auth, so letting
+          // it name a channel would let anything on the network post as us in
+          // any room. The dashboard sends through /api/chat/send instead.
           if (msg.text) await sendChatMessage(msg.text, msg.sender || 'auto');
           break;
         case 'command': {

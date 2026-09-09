@@ -12,7 +12,7 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 - **Spotify integration** — connect via OAuth for `!song`, `!play`, `!pause`, `!skip`, and `!prev` through the Spotify Web API (requires Spotify Premium)
 - **OS media keys** — system-level playback control and now playing detection (Spotify, Apple Music on Mac; Windows media transport on Windows; `playerctl` on Linux)
 - **Cider integration** — playback control and now playing for [Cider](https://cider.sh), talked to directly over its local API
-- **Twitch chat overlays** — transparent browser source for live chat with 7TV, BTTV, and native Twitch emotes, badge pills, and per-message lifetime
+- **Twitch chat overlays** — transparent browser source for live chat with 7TV, BTTV, FFZ, and native Twitch emotes, badge pills, and per-message lifetime
 - **Alert overlays** — browser source or OBS source flash for follows, cheers, subs, resubs, and gift subs with per-type colours, messages, and sounds
 - **Now Playing overlay** — its own browser source with seven layouts, accent colour pulled from the album art, and an optional "requested by" credit
 - **Per-overlay switches** — each overlay has its own URL and its own switch. Switching one off serves a blank page at its address, so the browser source already in OBS goes dark
@@ -103,7 +103,9 @@ Under **Settings → Overlays**, choose a browser source mode:
 
 ### Emotes
 
-Under **Settings → Twitch**, enable **7TV Emotes** and/or **BTTV Emotes** to render third-party emotes as images in chat overlays. Both are off by default.
+Third-party emotes render as images in chat and in the overlays. **7TV**, **BTTV** and **FFZ** are all on by default; turn any of them off under **Settings → Twitch**. Each has a **Refresh** button that re-fetches that provider immediately rather than waiting for the 30 minute cache to expire.
+
+Emotes are cached per channel, so a pane showing someone else's chat renders their emotes, not yours.
 
 ### Mod Queue
 

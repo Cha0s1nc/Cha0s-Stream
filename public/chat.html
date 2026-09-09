@@ -80,6 +80,7 @@
 <style id="custom-styles"></style>
 </head>
 <body>
+<script src="/chat-render.js"></script>
 <script>
   // ── 7TV emote map (name → cdn url) ───────────────────────────────
   let sevenTvEmotes = {};
@@ -114,17 +115,8 @@
     return `rgba(${r},${g},${b},${(pct / 100).toFixed(2)})`;
   }
 
-  // Deterministic fallback colour when Twitch doesn't send one.
-  const FALLBACK_COLOURS = ['#ff6b6b','#ff9f40','#ffd60a','#4ade80','#22d3ee','#818cf8','#e879f9','#fb7185'];
-  function nameToColour(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-    return FALLBACK_COLOURS[Math.abs(h) % FALLBACK_COLOURS.length];
-  }
-
-  function esc(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
+  // esc(), nameToColour(), renderFragment(), renderBody() and renderBadges()
+  // come from chat-render.js, shared with the dashboard stream panel.
 
   // ── Config application ────────────────────────────────────────────
   function applyConfig() {
@@ -147,38 +139,6 @@
     document.getElementById('custom-styles').textContent = CFG.customCSS || '';
   }
 
-  // ── Emote / fragment rendering ────────────────────────────────────
-  function renderFragment(fragment) {
-    // Twitch native emote
-    if (fragment.type === 'emote' && fragment.emoteId) {
-      const url = `https://static-cdn.jtvnw.net/emoticons/v2/${fragment.emoteId}/default/dark/2.0`;
-      return `<img class="chat-emote" src="${url}" alt="${esc(fragment.text)}" title="${esc(fragment.text)}">`;
-    }
-    // Text fragment — scan each word for 7TV emotes
-    const words = fragment.text.split(' ');
-    return words.map(word => {
-      const emoteUrl = sevenTvEmotes[word];
-      if (emoteUrl) {
-        return `<img class="chat-emote" src="${emoteUrl}" alt="${esc(word)}" title="${esc(word)}">`;
-      }
-      return esc(word);
-    }).join(' ');
-  }
-
-  function renderMessageBody(data) {
-    if (data.fragments && data.fragments.length > 0) {
-      return data.fragments.map(renderFragment).join('');
-    }
-    // Fallback: plain text + 7TV scan
-    return data.message.split(' ').map(word => {
-      const emoteUrl = sevenTvEmotes[word];
-      if (emoteUrl) {
-        return `<img class="chat-emote" src="${emoteUrl}" alt="${esc(word)}" title="${esc(word)}">`;
-      }
-      return esc(word);
-    }).join(' ');
-  }
-
   // ── Message display ───────────────────────────────────────────────
   function addMessage(data) {
     // Evict oldest first if over limit
@@ -191,19 +151,9 @@
 
     let html = '';
 
-    // Badges
-    if (CFG.showBadges && data.badges?.length) {
-      const PILL_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
-      const imgs = data.badges.map(b => {
-        const key = typeof b === 'string' ? b : `${b.set_id}/${b.id}`;
-        const url = badgeCache[key];
-        if (url) return `<img class="chat-badge-img" src="${url}" alt="${b.set_id || b}" title="${b.set_id || b}">`;
-        const setId = typeof b === 'string' ? b : b.set_id;
-        const cls = PILL_MAP[setId];
-        return cls ? `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'streamer' : cls}</span>` : '';
-      }).filter(Boolean);
-      if (imgs.length) html += `<span class="chat-badges">${imgs.join('')}</span>`;
-    }
+    // Badges — the showBadges gate stays here at the call site so the shared
+    // renderer stays dumb about overlay config.
+    if (CFG.showBadges) html += renderBadges(data.badges, badgeCache);
 
     // Shared chat source tag
     if (data.sourceChannel) html += `<span class="chat-source-tag">${esc(data.sourceChannel)}</span>`;
@@ -212,7 +162,7 @@
     const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user);
     html += `<span class="chat-name" style="color:${colour}">${esc(data.user)}</span>`;
     html += `<span class="chat-colon">:</span>`;
-    html += `<span class="chat-text">${renderMessageBody(data)}</span>`;
+    html += `<span class="chat-text">${renderBody(data, sevenTvEmotes)}</span>`;
 
     // Timestamp
     if (CFG.showTimestamps) {

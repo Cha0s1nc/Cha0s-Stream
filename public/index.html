@@ -871,6 +871,7 @@
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Account <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional)</span></div><div class="setting-desc" id="oauth-bot-status-text">A separate account for chat responses.</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button id="btn-bot-disconnect" class="btn btn-secondary btn-sm" style="display:none;" onclick="twitchDisconnect('bot')">Disconnect</button><button id="btn-get-bot-token" class="btn btn-secondary btn-sm" onclick="startBotOAuth()">Connect Bot</button></div></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">7TV Emotes</div><div class="setting-desc">Render 7TV global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-seventv" onclick="refreshEmotes('seventv')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-seventv-enabled" /><span class="toggle-track"></span></label></div></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">BTTV Emotes</div><div class="setting-desc">Render BetterTTV global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-bttv" onclick="refreshEmotes('bttv')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-bttv-enabled" /><span class="toggle-track"></span></label></div></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">FFZ Emotes</div><div class="setting-desc">Render FrankerFaceZ global and channel emotes in chat.</div></div><div style="display:flex;align-items:center;gap:8px;"><button class="btn btn-secondary" id="btn-refresh-ffz" onclick="refreshEmotes('ffz')" style="font-size:11px;padding:3px 10px;">Refresh</button><label class="toggle"><input type="checkbox" id="cfg-ffz-enabled" /><span class="toggle-track"></span></label></div></div>
             <details id="twitch-advanced" style="border-top:1px solid var(--border);"><summary style="padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;user-select:none;"><span id="adv-arrow" style="font-size:9px;transition:transform var(--dur-base);">▶</span> Advanced</summary><div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Channel</div><div class="setting-desc">Auto-filled on connect.</div></div><input class="setting-input" id="cfg-twitch-channel" type="text" placeholder="yourchannel" /></div>
               <div class="setting-row"><div class="setting-label"><div class="setting-name">Bot Username</div><div class="setting-desc">Auto-filled on bot connect.</div></div><input class="setting-input" id="cfg-twitch-bot-username" type="text" placeholder="mybotaccount" /></div>
@@ -968,6 +969,7 @@
   </div>
 </div>
 <input type="file" id="sound-upload-trigger-input" accept=".mp3,.wav,.ogg,.flac" style="display:none;">
+<script src="/chat-render.js"></script>
 <script>
     let ws, totalCommands = 0, totalErrors = 0, activeFilter = 'all';
     let mediaMode = 'jellyfin';
@@ -1204,7 +1206,7 @@
     }
 
     async function refreshEmotes(which) {
-      const btnId = which === 'seventv' ? 'btn-refresh-seventv' : 'btn-refresh-bttv';
+      const btnId = 'btn-refresh-' + which;
       const btn = document.getElementById(btnId);
       if (!btn || btn.disabled) return;
       btn.disabled = true;
@@ -1220,71 +1222,29 @@
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
     }
 
-    function streamRenderFragment(fragment) {
-      if (fragment.type === 'emote' && fragment.emoteId) {
-        const url = `https://static-cdn.jtvnw.net/emoticons/v2/${fragment.emoteId}/default/dark/2.0`;
-        return `<img class="chat-emote" src="${url}" alt="${escHtml(fragment.text)}" title="${escHtml(fragment.text)}">`;
-      }
-      return fragment.text.split(' ').map(word => {
-        const emoteUrl = streamSevenTvEmotes[word];
-        return emoteUrl
-          ? `<img class="chat-emote" src="${emoteUrl}" alt="${escHtml(word)}" title="${escHtml(word)}">`
-          : escHtml(word);
-      }).join(' ');
-    }
-
-    function streamRenderBody(data) {
-      if (data.fragments && data.fragments.length > 0) {
-        return data.fragments.map(streamRenderFragment).join('');
-      }
-      return data.message.split(' ').map(word => {
-        const emoteUrl = streamSevenTvEmotes[word];
-        return emoteUrl
-          ? `<img class="chat-emote" src="${emoteUrl}" alt="${escHtml(word)}" title="${escHtml(word)}">`
-          : escHtml(word);
-      }).join(' ');
-    }
+    // Fragment/body/badge/colour rendering lives in chat-render.js, shared with
+    // the chat overlay. Only the container handling below is dashboard-specific.
 
     // ── Stream panel: Chat column ─────────────────────────────────────
     const STREAM_CHAT_MAX = 80;
-    const FALLBACK_CHAT_COLOURS = ['#ff6b6b','#ff9f40','#ffd60a','#4ade80','#22d3ee','#818cf8','#e879f9','#fb7185'];
-    function chatNameColour(name) {
-      let h = 0;
-      for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-      return FALLBACK_CHAT_COLOURS[Math.abs(h) % FALLBACK_CHAT_COLOURS.length];
-    }
 
     // Badge image cache — fetched once from /api/chat/badges
     let streamBadgeCache = {};
     fetch('/api/chat/badges').then(r => r.ok ? r.json() : {}).then(d => { streamBadgeCache = d; }).catch(() => {});
-
-    function renderBadges(badges) {
-      if (!badges?.length) return '';
-      return '<span class="chat-badges">' + badges.map(b => {
-        const key = typeof b === 'string' ? b : `${b.set_id}/${b.id}`;
-        const url = streamBadgeCache[key];
-        if (url) return `<img class="chat-badge-img" src="${url}" alt="${b.set_id || b}" title="${b.set_id || b}">`;
-        // Fallback to text pill using set_id
-        const setId = typeof b === 'string' ? b : b.set_id;
-        const PILL_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
-        const cls = PILL_MAP[setId];
-        return cls ? `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'host' : cls}</span>` : '';
-      }).filter(Boolean).join('') + '</span>';
-    }
 
     function addStreamChatMessage(data) {
       const container = document.getElementById('stream-chat');
       if (!container) return;
       container.querySelector('.empty-state')?.remove();
 
-      const colour = (data.color && data.color.length === 7) ? data.color : chatNameColour(data.user || '');
-      const badgeHtml = renderBadges(data.badges);
+      const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user || '');
+      const badgeHtml = renderBadges(data.badges, streamBadgeCache);
       const sourceTag = data.sourceChannel
         ? `<span class="chat-source-tag">${escHtml(data.sourceChannel)}</span>` : '';
 
       const el = document.createElement('div');
       el.className = 'chat-msg';
-      el.innerHTML = `${badgeHtml}${sourceTag}<span class="chat-user" style="color:${colour}">${escHtml(data.user)}</span><span style="opacity:0.5;margin-right:4px">:</span>${streamRenderBody(data)}`;
+      el.innerHTML = `${badgeHtml}${sourceTag}<span class="chat-user" style="color:${colour}">${escHtml(data.user)}</span><span style="opacity:0.5;margin-right:4px">:</span>${renderBody(data, streamSevenTvEmotes)}`;
       container.appendChild(el);
       container.scrollTop = container.scrollHeight;
       while (container.children.length > STREAM_CHAT_MAX) container.firstChild.remove();
@@ -1390,14 +1350,13 @@
       while (container.children.length > STREAM_EVENTS_MAX) container.firstChild.remove();
     }
 
-    function escHtml(s) {
-      // Quotes matter: this is used inside attributes (title="...", data-scene="...")
-      // as well as in text, and without them a value containing a quote escapes the
-      // attribute and can add its own.
-      return String(s ?? '')
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    }
+    // Same function as chat-render.js's esc(). Aliased rather than renamed at all
+    // 33 call sites, which are mostly OBS scene buttons and have nothing to do
+    // with chat. Quotes matter: this is used inside attributes (title="...",
+    // data-scene="...") as well as in text.
+    // Declared as a function, not a const alias: there are call sites above this
+    // line and function declarations hoist.
+    function escHtml(s) { return esc(s); }
 
     // ── OBS Controls ─────────────────────────────────────────────────────
     let obsCurrentScene = null;
@@ -2779,8 +2738,12 @@
         applyOverlayEnabledUI();
         setOverlayUrls();
         document.getElementById('cfg-sr-enabled').checked = saved.SONG_REQUEST_ENABLED !== 'false';
-        document.getElementById('cfg-seventv-enabled').checked = saved.SEVENTV_ENABLED === 'true';
-        document.getElementById('cfg-bttv-enabled').checked    = saved.BTTV_ENABLED    === 'true';
+        // Unset means ON — that is what the server does (`!== 'false'`). Reading
+        // these as `=== 'true'` showed them off on a fresh install, and saving
+        // Settings then wrote 'false' and genuinely turned them off.
+        document.getElementById('cfg-seventv-enabled').checked = saved.SEVENTV_ENABLED !== 'false';
+        document.getElementById('cfg-bttv-enabled').checked    = saved.BTTV_ENABLED    !== 'false';
+        document.getElementById('cfg-ffz-enabled').checked     = saved.FFZ_ENABLED     !== 'false';
         document.getElementById('cfg-tts-enabled').checked              = saved.TTS_ENABLED === 'true';
         document.getElementById('cfg-tts-chat-enabled').checked         = saved.TTS_CHAT_ENABLED === 'true';
         document.getElementById('cfg-tts-chat-say-name').checked        = saved.TTS_CHAT_SAY_NAME !== 'false';
@@ -2835,6 +2798,7 @@
       settings.SONG_REQUEST_ENABLED = document.getElementById('cfg-sr-enabled').checked ? 'true' : 'false';
       settings.SEVENTV_ENABLED      = document.getElementById('cfg-seventv-enabled').checked ? 'true' : 'false';
       settings.BTTV_ENABLED         = document.getElementById('cfg-bttv-enabled').checked    ? 'true' : 'false';
+      settings.FFZ_ENABLED          = document.getElementById('cfg-ffz-enabled').checked     ? 'true' : 'false';
       settings.CIDER_TOKEN = document.getElementById('cfg-cider-token')?.value.trim() || '';
       settings.SONG_REQUEST_APPROVAL = srApproval;
       settings.SONG_REQUEST_FILTERS  = JSON.stringify(songRequestFilters());
@@ -3763,8 +3727,9 @@
       // Checkboxes
       const cb = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
       cb('cfg-sr-enabled',               true);
-      cb('cfg-seventv-enabled',          false);
-      cb('cfg-bttv-enabled',             false);
+      cb('cfg-seventv-enabled',          true);
+      cb('cfg-bttv-enabled',             true);
+      cb('cfg-ffz-enabled',              true);
       cb('cfg-mod-enabled',              true);
       cb('cfg-tts-enabled',              false);
       cb('cfg-tts-chat-enabled',         false);
