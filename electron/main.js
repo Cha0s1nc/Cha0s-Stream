@@ -70,6 +70,7 @@ const STORE_SCHEMA = {
   CHAT_TABS:                { type: 'string', default: '' },
   CHAT_FILTERS:             { type: 'string', default: '' },
   CHAT_PANE_WINDOWS:        { type: 'string', default: '{}' },
+  CHAT_HISTORY_ENABLED:     { type: 'string', default: '' },
   OVERLAY_MODE:             { type: 'string', default: '' },
   SEVENTV_ENABLED:          { type: 'string', default: '' },
   BTTV_ENABLED:             { type: 'string', default: '' },

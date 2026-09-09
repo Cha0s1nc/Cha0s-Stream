@@ -209,8 +209,11 @@ function renderPanes() {
         handle.dataset.left = String(i - 1);
         group.appendChild(handle);
       }
-      group.appendChild(buildPane(pane, i));
-      if (pane.kind === 'chat') loadChannelAssets(pane.channel);
+      const el = buildPane(pane, i);
+      group.appendChild(el);
+      if (pane.kind === 'chat') {
+        loadChannelAssets(pane.channel).then(() => backfillPane(el, pane.channel));
+      }
     });
     wrap.appendChild(group);
   });
@@ -616,6 +619,34 @@ if (typeof document !== 'undefined') {
     wirePaneToolbar();
     initPanes();
   });
+}
+
+// Fills a freshly opened pane with recent history. Anything already in the pane
+// wins: live messages that arrived while history was in flight are not displaced,
+// and history is never inserted twice for the same pane.
+async function backfillPane(col, login) {
+  const box = col.querySelector('[data-role="messages"]');
+  if (!box || col.dataset.backfilled) return;
+  col.dataset.backfilled = '1';
+  let messages = [];
+  try {
+    const r = await fetch(`/api/chat/history?channel=${encodeURIComponent(login)}&limit=40`);
+    messages = (await r.json()).messages || [];
+  } catch { return; }
+  if (!messages.length) return;
+
+  const frag = document.createDocumentFragment();
+  for (const m of messages) {
+    if (applyRules(paneCompiled, m).hide) continue;
+    const row = buildChatRow(m, paneEmotes[login] || {}, paneBadges[login] || {});
+    row.classList.add('chat-historical');
+    frag.appendChild(row);
+  }
+  if (!frag.childNodes.length) return;
+  box.querySelector('.empty-state')?.remove();
+  // Prepended, so live messages that already arrived stay below their own history.
+  box.insertBefore(frag, box.firstChild);
+  box.scrollTop = box.scrollHeight;
 }
 
 // ── Filters ───────────────────────────────────────────────────────────────────

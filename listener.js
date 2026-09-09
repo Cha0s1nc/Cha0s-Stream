@@ -14,7 +14,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
+  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','CHAT_HISTORY_ENABLED','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
   'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
@@ -786,6 +786,7 @@ function nowPlayingStartPolling() {
 const { reconcile: reconcileQueue } = require('./queue-lifecycle');
 const { parseAllowlist, hostAllowed, pathAllowed } = require('./script-allowlist');
 const { isHomeChannel, normalizeLogin, parseChannelList } = require('./chat-channels');
+const { parseIrcMessage } = require('./irc-parse');
 
 let queuePlayingId = null;
 const HISTORY_MAX = 50;
@@ -2584,6 +2585,41 @@ app.post('/api/chat/tabs', (req, res) => {
   process.env.CHAT_TABS = JSON.stringify(req.body.tabs);
   persistSettings();
   res.json({ ok: true });
+});
+
+// Scrollback for a channel we just opened, so a pane shows history instead of
+// filling from empty. recent-messages.robotty.de is a third-party service run by
+// one person, not by us and not by Twitch: cache what it gives us, keep the
+// timeout short, and treat any failure as simply "no history".
+const HISTORY_TTL_MS = 5 * 60 * 1000;
+const historyCache = new Map();   // login -> { at, messages }
+
+app.get('/api/chat/history', async (req, res) => {
+  const login = normalizeLogin(req.query.channel);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 40, 1), 200);
+  if (!login) return res.status(400).json({ error: 'Invalid channel' });
+
+  const hit = historyCache.get(login);
+  if (hit && Date.now() - hit.at < HISTORY_TTL_MS) return res.json({ messages: hit.messages.slice(-limit) });
+
+  if (process.env.CHAT_HISTORY_ENABLED === 'false') return res.json({ messages: [] });
+
+  try {
+    const r = await fetch(
+      `https://recent-messages.robotty.de/api/v2/recent-messages/${encodeURIComponent(login)}?limit=200`,
+      { headers: { 'User-Agent': 'Cha0sStream/1.0' }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return res.json({ messages: [] });
+    const body = await r.json();
+    const messages = (body?.messages || [])
+      .map(parseIrcMessage)
+      .filter(m => m && m.channel === login);
+    historyCache.set(login, { at: Date.now(), messages });
+    res.json({ messages: messages.slice(-limit) });
+  } catch (err) {
+    // Never fatal: an empty pane is a much smaller problem than a broken one.
+    addLog('system', 'chat', `Chat history unavailable for #${login}: ${err.message}`, false);
+    res.json({ messages: [] });
+  }
 });
 
 // Chat filters: { presets: {...}, rules: [...] }. Same blob-in-an-env-var pattern
