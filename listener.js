@@ -14,7 +14,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
+  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','CHAT_TABS','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
   'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
@@ -2572,6 +2572,20 @@ app.post('/api/chat/send', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Stream panel layout: [{ name, panes: [{kind, channel, grow}] }].
+// Stored as one JSON string like the other structured configs. The client owns
+// the shape and validates it on load, so this end just holds the blob.
+app.get('/api/chat/tabs', (req, res) => {
+  res.json({ tabs: process.env.CHAT_TABS || '', home: normalizeLogin(process.env.TWITCH_CHANNEL) });
+});
+
+app.post('/api/chat/tabs', (req, res) => {
+  if (!Array.isArray(req.body?.tabs)) return res.status(400).json({ error: 'tabs must be an array' });
+  process.env.CHAT_TABS = JSON.stringify(req.body.tabs);
+  persistSettings();
+  res.json({ ok: true });
 });
 
 // Guest chat channels. The home channel is implicit and never listed here.

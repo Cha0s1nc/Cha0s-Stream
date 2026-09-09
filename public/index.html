@@ -114,22 +114,22 @@
     .mode-val:hover { opacity: 0.75; }
     #np-track { font-size: 11px; color: var(--text2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .statusbar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-    .stream-wrap { flex: 1; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
-    .stream-col { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+    .stream-wrap { flex: 1; overflow: hidden; display: flex; }
+    .stream-col { display: flex; flex-direction: column; overflow: hidden; flex: 1 1 0; min-width: 180px; position: relative; }
     .stream-col:last-child { border-right: none; }
     .stream-col-header { padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--surface); font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; flex-shrink: 0; }
     .stream-messages { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
     .stream-messages::-webkit-scrollbar { width: 4px; }
     .stream-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     .stream-chat-input-wrap { display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface); align-items: center; }
-    .stream-chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--text1); outline: none; }
+    .stream-chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--text); outline: none; }
     .stream-chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .stream-chat-input:disabled { opacity: 0.4; cursor: not-allowed; }
     .stream-chat-send { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; flex-shrink: 0; transition: opacity var(--dur-base); }
     .stream-chat-send:hover:not(:disabled) { opacity: 0.85; }
     .stream-chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
     .stream-chat-sender-btn { display: none; align-items: center; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 600; color: var(--text2); cursor: pointer; flex-shrink: 0; white-space: nowrap; transition: border-color var(--dur-base), color var(--dur-base); user-select: none; }
-    .stream-chat-sender-btn:hover { border-color: var(--accent); color: var(--text1); }
+    .stream-chat-sender-btn:hover { border-color: var(--accent); color: var(--text); }
     .stream-chat-sender-btn.active { display: flex; }
     .stream-chat-sender-btn[data-sender="bot"] { border-color: rgba(145,71,255,0.4); color: #9147ff; }
     .stream-chat-sender-btn[data-sender="broadcaster"] { border-color: rgba(255,68,68,0.4); color: #ff7070; }
@@ -145,6 +145,21 @@
     .chat-badge-img { width: 18px; height: 18px; vertical-align: middle; display: inline-block; }
     .chat-source-tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.08); color: var(--text3); vertical-align: middle; margin-right: 4px; text-transform: lowercase; }
     .chat-emote { height: 1.4em; width: auto; vertical-align: middle; display: inline-block; margin: 0 1px; }
+    /* Panes are sized in flex-grow, not pixels, so a window resize needs no recalculation. */
+    .pane-resize { flex: 0 0 6px; cursor: col-resize; background: var(--border); opacity: 0.5; transition: opacity var(--dur-base), background var(--dur-base); touch-action: none; }
+    .pane-resize:hover, .pane-resize.dragging { opacity: 1; background: var(--accent); }
+    .stream-col-header { display: flex; align-items: center; gap: 8px; }
+    .pane-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pane-actions { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
+    .pane-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; font-family: var(--font); }
+    .pane-btn:hover { background: var(--surface2); color: var(--text); }
+    .pane-obs { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    .pane-new-pill { position: absolute; left: 50%; transform: translateX(-50%); bottom: 52px; z-index: 3; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+    .pane-error { font-size: 11px; color: var(--red); background: rgba(255,68,68,0.1); border-left: 2px solid var(--red); padding: 4px 6px; border-radius: 4px; }
+    .pane-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+    .pane-add { font-family: var(--font); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: border-color var(--dur-base), color var(--dur-base); }
+    .pane-add:hover { border-color: var(--accent); color: var(--text); }
+    .pane-toolbar-hint { font-size: 11px; color: var(--text3); margin-left: auto; }
     .stream-event { font-size: 12px; padding: 6px 8px; background: var(--surface); border-radius: 6px; border-left: 2px solid var(--accent); }
     /* OBS panel */
     .obs-panel { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0; }
@@ -160,25 +175,21 @@
     .obs-status-pill .timecode { font-family: var(--font-mono); font-size: 10px; opacity: 0.8; }
     .obs-ctrl-row { display: flex; gap: 6px; }
     .obs-ctrl-btn { flex: 1; font-family: var(--font); font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-fast) var(--ease-out); text-align: center; }
-    .obs-ctrl-btn:hover { border-color: var(--accent); color: var(--text1); }
+    .obs-ctrl-btn:hover { border-color: var(--accent); color: var(--text); }
     .obs-ctrl-btn.danger:hover { border-color: var(--red); color: var(--red); }
     .obs-ctrl-btn.active { background: rgba(50,215,75,0.1); border-color: rgba(50,215,75,0.4); color: #32d74b; }
     .obs-ctrl-btn.active.danger, .obs-ctrl-btn.active.danger:hover { background: rgba(255,69,58,0.1); border-color: rgba(255,69,58,0.4); color: var(--red); }
     .scene-grid { display: flex; flex-direction: column; gap: 4px; }
     .scene-btn { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 500; transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-fast) var(--ease-out); text-align: left; width: 100%; }
-    .scene-btn:hover { border-color: var(--accent); color: var(--text1); }
-    .scene-btn.active { border-color: var(--accent); background: rgba(145,71,255,0.1); color: var(--text1); font-weight: 600; }
+    .scene-btn:hover { border-color: var(--accent); color: var(--text); }
+    .scene-btn.active { border-color: var(--accent); background: rgba(145,71,255,0.1); color: var(--text); font-weight: 600; }
     .scene-btn .scene-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
     .scene-btn.active .scene-dot { background: var(--accent); }
     .source-list { display: flex; flex-direction: column; gap: 4px; }
     .source-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 7px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; color: var(--text2); gap: 8px; }
-    .source-row.enabled { color: var(--text1); }
+    .source-row.enabled { color: var(--text); }
     .source-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* OBS column in stream splitscreen */
-    .stream-wrap.obs-visible { grid-template-columns: 1fr 1fr 1fr; }
-    .obs-col-toggle { margin-left: auto; font-family: var(--font); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text3); cursor: pointer; user-select: none; transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-fast) var(--ease-out); text-transform: uppercase; }
-    .obs-col-toggle:hover { border-color: var(--accent); color: var(--text2); }
-    .obs-col-toggle.active { border-color: rgba(10,132,255,0.4); color: var(--blue); background: rgba(10,132,255,0.08); }
     .log-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
     .filter-group { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
     .filter-btn { font-family: var(--font); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 5px; border: none; background: transparent; color: var(--text2); cursor: pointer; transition: background var(--dur-base), border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base), transform var(--dur-fast) var(--ease-out); }
@@ -617,15 +628,16 @@
             </div>
           </div>
         </div>
-        <div class="sub-panel" id="sub-stream">
-          <div class="stream-wrap">
-            <div class="stream-col"><div class="stream-col-header">Chat</div><div class="stream-messages" id="stream-chat"><div class="empty-state" style="padding:20px 0">No chat messages yet</div></div><div class="stream-chat-input-wrap"><button class="stream-chat-sender-btn" id="stream-chat-sender" data-tip="Click to switch sender account"><span id="stream-chat-sender-icon">🤖</span><span id="stream-chat-sender-label">Bot</span></button><input class="stream-chat-input" id="stream-chat-input" type="text" placeholder="Send a message…" maxlength="500" autocomplete="off" /><button class="stream-chat-send" id="stream-chat-send">Send</button></div></div>
-            <div class="stream-col"><div class="stream-col-header">Events<button class="obs-col-toggle" id="obs-col-toggle" data-tip="Show OBS controls alongside events" onclick="toggleObsColumn()">OBS</button></div><div class="stream-messages" id="stream-events"><div class="empty-state" style="padding:20px 0">No events yet</div></div></div>
-            <div class="stream-col" id="obs-split-col" style="display:none">
-              <div class="stream-col-header">OBS</div>
-              <div id="obs-split-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;"></div>
-            </div>
+                <div class="sub-panel" id="sub-stream">
+          <div class="pane-toolbar">
+            <button class="pane-add" id="pane-add-chat" title="Add a channel pane">＋ Channel</button>
+            <button class="pane-add" id="pane-add-events" title="Add the events feed">＋ Events</button>
+            <button class="pane-add" id="pane-add-obs" title="Add OBS controls">＋ OBS</button>
+            <span class="pane-toolbar-hint" id="pane-hint"></span>
           </div>
+          <div class="stream-wrap" id="stream-wrap"></div>
+        </div>
+      </div>
         </div>
       </div>
       <div class="panel-view" id="tab-requests">
@@ -970,6 +982,7 @@
 </div>
 <input type="file" id="sound-upload-trigger-input" accept=".mp3,.wav,.ogg,.flac" style="display:none;">
 <script src="/chat-render.js"></script>
+<script src="/chat-pane.js"></script>
 <script>
     let ws, totalCommands = 0, totalErrors = 0, activeFilter = 'all';
     let mediaMode = 'jellyfin';
@@ -1036,7 +1049,7 @@
           updateService('jellyfin', data.jellyfin.connected, data.jellyfin.paused);
           updateService('twitch', data.twitch?.connected || false, data.twitch?.paused || false);
           // Pre-load emotes if Twitch is already connected on init
-          if (data.twitch?.connected) { streamTwitchWasConnected = true; loadStreamEmotes(); }
+          if (data.twitch?.connected) { streamTwitchWasConnected = true; reloadPaneAssets(); }
           data.log.forEach(entry => renderLog(entry, false));
           totalCommands = data.log.length;
           totalErrors = data.log.filter(l => !l.ok).length;
@@ -1060,22 +1073,18 @@
           // Dev mode: show the hidden dev nav item if .debug file is present
           if (data.devMode) { const devNav = document.getElementById('nav-item-dev'); if (devNav) devNav.style.display = ''; }
           // Sender toggle: show bot option if bot credentials are configured
-          if (typeof updateSenderBtn === 'function') {
-            const senderBtn = document.getElementById('stream-chat-sender');
-            if (senderBtn) senderBtn.dataset.knownBot = data.botUsername || '';
-            updateSenderBtn(data.botUsername || '');
-          }
+          setPaneBotName(data.botUsername || '');
         } else if (data.event === 'status') {
           updateService(data.service, data.connected, data.paused || false);
           // Load 7TV emotes when Twitch first connects (broadcasterId is now set)
           if (data.service === 'twitch' && data.connected && !streamTwitchWasConnected) {
             streamTwitchWasConnected = true;
-            loadStreamEmotes();
+            reloadPaneAssets();
           }
         } else if (data.event === 'relay_status') {
           updateRelayStatus(data);
         } else if (data.event === 'seventv_ready') {
-          loadStreamEmotes();
+          reloadPaneAssets();
         } else if (data.event === 'play_sound') {
           const audio = new Audio(data.url);
           audio.play().catch(err => console.warn('Audio play failed:', err));
@@ -1114,11 +1123,7 @@
           updateTwitchUI('bot', data.username || 'Connected');
           if (btn) btn.disabled = false;
           // Update sender toggle with new bot username
-          if (data.username && typeof updateSenderBtn === 'function') {
-            const senderBtn = document.getElementById('stream-chat-sender');
-            if (senderBtn) senderBtn.dataset.knownBot = data.username;
-            updateSenderBtn(data.username);
-          }
+          if (data.username) setPaneBotName(data.username);
           const toSave = { TWITCH_BOT_OAUTH: data.token };
           if (data.username) toSave.TWITCH_BOT_USERNAME = data.username;
           persistSettings(toSave);
@@ -1147,13 +1152,13 @@
         } else if (data.event === 'spotify_disconnected') {
           updateSpotifyUI(false);
         } else if (data.event === 'chat') {
-          addStreamChatMessage(data);
+          routeChatToPanes(data);
         } else if (data.event === 'alert') {
           addStreamEvent(data);
         } else if (['obs_scene','obs_stream_state','obs_record_state','obs_source'].includes(data.event)) {
           applyObsWsEvent(data);
-          // Keep split column in sync too
-          if (document.getElementById('obs-split-col').style.display !== 'none') {
+          // Keep an OBS pane in sync too, if one is open
+          if (document.querySelector('#stream-wrap [data-kind="obs"]')) {
             const sb = document.getElementById('obs-split-stream-btn');
             const rb = document.getElementById('obs-split-record-btn');
             if (data.event === 'obs_stream_state') { if (sb) sb.textContent = data.streaming ? '⏹ Stop' : '▶ Stream'; }
@@ -1193,17 +1198,10 @@
       }
     }
 
-    // ── Stream panel: 7TV emotes ──────────────────────────────────────
-    let streamSevenTvEmotes = {};
+    // ── Stream panel: emotes ──────────────────────────────────────────
+    // Per-channel emote and badge maps live in chat-pane.js, one per pane, since
+    // two channels routinely use the same emote name for different images.
     let streamTwitchWasConnected = false;
-
-    async function loadStreamEmotes(forceRefresh = false) {
-      try {
-        const url = '/api/chat/emotes?t=' + Date.now() + (forceRefresh ? '&refresh=1' : '');
-        const r = await fetch(url);
-        if (r.ok) streamSevenTvEmotes = await r.json();
-      } catch {}
-    }
 
     async function refreshEmotes(which) {
       const btnId = 'btn-refresh-' + which;
@@ -1214,7 +1212,7 @@
       btn.textContent = '…';
       try {
         await fetch('/api/emotes/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ which }) });
-        await loadStreamEmotes(true);
+        await reloadPaneAssets();
         btn.textContent = '✓';
       } catch {
         btn.textContent = '✗';
@@ -1225,106 +1223,8 @@
     // Fragment/body/badge/colour rendering lives in chat-render.js, shared with
     // the chat overlay. Only the container handling below is dashboard-specific.
 
-    // ── Stream panel: Chat column ─────────────────────────────────────
-    const STREAM_CHAT_MAX = 80;
-
-    // Badge image cache — fetched once from /api/chat/badges
-    let streamBadgeCache = {};
-    fetch('/api/chat/badges').then(r => r.ok ? r.json() : {}).then(d => { streamBadgeCache = d; }).catch(() => {});
-
-    function addStreamChatMessage(data) {
-      const container = document.getElementById('stream-chat');
-      if (!container) return;
-      container.querySelector('.empty-state')?.remove();
-
-      const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user || '');
-      const badgeHtml = renderBadges(data.badges, streamBadgeCache);
-      const sourceTag = data.sourceChannel
-        ? `<span class="chat-source-tag">${escHtml(data.sourceChannel)}</span>` : '';
-
-      const el = document.createElement('div');
-      el.className = 'chat-msg';
-      el.innerHTML = `${badgeHtml}${sourceTag}<span class="chat-user" style="color:${colour}">${escHtml(data.user)}</span><span style="opacity:0.5;margin-right:4px">:</span>${renderBody(data, streamSevenTvEmotes)}`;
-      container.appendChild(el);
-      container.scrollTop = container.scrollHeight;
-      while (container.children.length > STREAM_CHAT_MAX) container.firstChild.remove();
-    }
-
-    // ── Stream panel: Chat send ───────────────────────────────────────
-    // 'bot' | 'broadcaster' — toggled by the sender button
-    let streamChatSender = 'bot';
-
-    function updateSenderBtn(botName) {
-      // botName: non-empty string = bot is configured; falsy = no bot
-      const btn   = document.getElementById('stream-chat-sender');
-      const icon  = document.getElementById('stream-chat-sender-icon');
-      const label = document.getElementById('stream-chat-sender-label');
-      if (!btn) return;
-
-      if (!botName) {
-        // No bot configured — hide toggle, always send as broadcaster
-        btn.classList.remove('active');
-        streamChatSender = 'broadcaster';
-        return;
-      }
-
-      btn.classList.add('active');
-      if (streamChatSender === 'bot') {
-        btn.dataset.sender = 'bot';
-        if (icon)  icon.textContent  = '🤖';
-        if (label) label.textContent = botName;
-      } else {
-        btn.dataset.sender = 'broadcaster';
-        if (icon)  icon.textContent  = '🙋';
-        if (label) label.textContent = 'Me';
-      }
-    }
-
-    async function sendStreamChatMessage() {
-      const input  = document.getElementById('stream-chat-input');
-      const btn    = document.getElementById('stream-chat-send');
-      if (!input) return;
-      const text = input.value.trim();
-      if (!text) return;
-      input.disabled = true;
-      btn.disabled   = true;
-      try {
-        const res = await fetch('/api/chat/send', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ message: text, sender: streamChatSender }),
-        });
-        if (res.ok) {
-          input.value = '';
-        } else {
-          const err = await res.json().catch(() => ({}));
-          console.warn('Chat send failed:', err.error || res.status);
-        }
-      } catch (e) {
-        console.warn('Chat send error:', e);
-      } finally {
-        input.disabled = false;
-        btn.disabled   = false;
-        input.focus();
-      }
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      const input      = document.getElementById('stream-chat-input');
-      const sendBtn    = document.getElementById('stream-chat-send');
-      const senderBtn  = document.getElementById('stream-chat-sender');
-
-      if (sendBtn)   sendBtn.addEventListener('click', sendStreamChatMessage);
-      if (input)     input.addEventListener('keydown', e => { if (e.key === 'Enter') sendStreamChatMessage(); });
-
-      if (senderBtn) {
-        senderBtn.addEventListener('click', () => {
-          streamChatSender = streamChatSender === 'bot' ? 'broadcaster' : 'bot';
-          // Re-render with whichever bot name we last knew about
-          updateSenderBtn(senderBtn.dataset.knownBot || '');
-        });
-      }
-    });
+    // Chat rendering, routing, per-pane send and the splitter all live in
+    // chat-pane.js. Only the event feed's HTML is still built here.
 
     // ── Stream panel: Events column ───────────────────────────────────
     const STREAM_EVENTS_MAX = 40;
@@ -1337,17 +1237,12 @@
     };
 
     function addStreamEvent(data) {
-      const container = document.getElementById('stream-events');
-      if (!container) return;
-      container.querySelector('.empty-state')?.remove();
-      const meta = ALERT_TYPE_META[data.type] || { icon: '🔔', label: data.type };
-      const detail = data.bits ? ` · ${data.bits} bits` : data.months ? ` · ${data.months} mo` : data.count ? ` · ×${data.count}` : '';
-      const el = document.createElement('div');
-      el.className = 'stream-event';
-      el.innerHTML = `${meta.icon} <strong>${escHtml(data.user)}</strong> <span style="opacity:0.6;font-size:11px">${meta.label}${escHtml(detail)}</span>`;
-      container.appendChild(el);
-      container.scrollTop = container.scrollHeight;
-      while (container.children.length > STREAM_EVENTS_MAX) container.firstChild.remove();
+      const meta = ALERT_TYPE_META[data.type] || { icon: '\u{1F514}', label: data.type };
+      const detail = data.bits ? ` \u00b7 ${data.bits} bits` : data.months ? ` \u00b7 ${data.months} mo` : data.count ? ` \u00b7 \u00d7${data.count}` : '';
+      routeEventToPanes(
+        `<span style="margin-right:5px">${meta.icon}</span>` +
+        `<strong>${escHtml(data.user || 'someone')}</strong> ` +
+        `<span style="color:var(--text3)">${escHtml(meta.label)}${escHtml(detail)}</span>`);
     }
 
     // Same function as chat-render.js's esc(). Aliased rather than renamed at all
@@ -1366,8 +1261,8 @@
     let obsStatusInterval = null;
 
     async function loadObsPanel() {
-      if (!document.getElementById('sub-obs').classList.contains('active') &&
-          !document.getElementById('obs-split-col').style.display !== 'none') return;
+      if (!document.getElementById('sub-obs')?.classList.contains('active') &&
+          !document.querySelector('#stream-wrap [data-kind="obs"]')) return;
       await Promise.all([loadObsScenes(), loadObsSources(), loadObsStatus()]);
     }
 
@@ -1501,7 +1396,7 @@
 
     // Clone OBS panel content into the split-screen column
     function syncObsSplitCol() {
-      const col = document.getElementById('obs-split-content');
+      const col = document.querySelector('#stream-wrap [data-role="obs"]');
       if (!col) return;
       // Render a lightweight version — scene buttons only
       fetch('/api/obs/scenes').then(r => r.ok ? r.json() : null).then(d => {
@@ -1520,17 +1415,6 @@
       }).catch(() => {});
     }
 
-    function toggleObsColumn() {
-      const col = document.getElementById('obs-split-col');
-      const btn = document.getElementById('obs-col-toggle');
-      const wrap = col?.closest('.stream-wrap');
-      if (!col || !wrap) return;
-      const show = col.style.display === 'none';
-      col.style.display = show ? 'flex' : 'none';
-      wrap.classList.toggle('obs-visible', show);
-      if (btn) btn.classList.toggle('active', show);
-      if (show) syncObsSplitCol();
-    }
 
     // Poll status every 5s while OBS tab is active
     function startObsStatusPoll() {
