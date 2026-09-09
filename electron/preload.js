@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startTwitchAuth:    () => ipcRenderer.invoke('twitch-auth-start', { flowType: 'broadcaster' }),
   startBotTwitchAuth: () => ipcRenderer.invoke('twitch-auth-start', { flowType: 'bot' }),
   onOAuthResult:    (callback) => ipcRenderer.on('oauth-result', (_, data) => callback(data)),
+  // Detached chat panes ("docks"). Absent in standalone mode, which is why the
+  // pane header checks for it before showing the button.
+  detachPane:       (pane) => ipcRenderer.invoke('pane:detach', pane),
+  setPaneAlwaysOnTop: (pane, value) => ipcRenderer.invoke('pane:set-always-on-top', { pane, value }),
   openDevTools:     () => ipcRenderer.invoke('open-devtools'),
   getDevMode:       () => ipcRenderer.invoke('get-dev-mode'),
   wipeSettings:     () => ipcRenderer.invoke('wipe-settings'),

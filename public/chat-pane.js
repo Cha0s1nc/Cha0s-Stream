@@ -223,7 +223,7 @@ function renderPanes() {
 
 function renderTabStrip() {
   const strip = document.getElementById('chat-tabs');
-  if (!strip) return;
+  if (!strip) return;   // absent in a detached dock
   // Own classes, never .dtab/.sub-panel: those selectors are unscoped, so the two
   // tab systems would clear each other's active state.
   strip.innerHTML = paneTabs.map((t, i) =>
@@ -592,9 +592,27 @@ function wirePaneToolbar() {
   add('pane-add-obs', () => ({ kind: 'obs' }));
 }
 
+// A detached dock is the same code with one pane and no chrome. pane.html loads
+// this file too, so the query string decides which bootstrap runs.
+async function initSinglePane() {
+  const q = new URLSearchParams(location.search);
+  const kind = q.get('kind') || 'chat';
+  const channel = (q.get('channel') || '').toLowerCase();
+  wirePaneEvents();
+  await loadFilters();
+  try {
+    paneHome = (await fetch('/api/chat/tabs').then(r => r.json())).home || '';
+  } catch { /* home is only used by the highlight-me preset */ }
+  paneTabs = [{ name: 'dock', panes: [{ kind, ...(kind === 'chat' ? { channel } : {}), grow: 1 }] }];
+  paneActiveTab = 0;
+  document.title = kind === 'chat' ? channel : kind;
+  renderPanes();
+}
+
 // Guarded so node:test can require this file for the pure helpers above.
 if (typeof document !== 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
+    if (new URLSearchParams(location.search).has('kind')) return void initSinglePane();
     wirePaneToolbar();
     initPanes();
   });

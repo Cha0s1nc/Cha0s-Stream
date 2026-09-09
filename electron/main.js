@@ -69,6 +69,7 @@ const STORE_SCHEMA = {
   CHAT_CHANNELS:            { type: 'string', default: '[]' },
   CHAT_TABS:                { type: 'string', default: '' },
   CHAT_FILTERS:             { type: 'string', default: '' },
+  CHAT_PANE_WINDOWS:        { type: 'string', default: '{}' },
   OVERLAY_MODE:             { type: 'string', default: '' },
   SEVENTV_ENABLED:          { type: 'string', default: '' },
   BTTV_ENABLED:             { type: 'string', default: '' },
@@ -619,8 +620,84 @@ function overlayOptions() {
 // The renderer owns the theme (it lives in localStorage, not the store), so it
 // recolours the caption buttons itself once applyTheme() has run.
 ipcMain.on('set-titlebar-overlay', (_e, { mode }) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  try { mainWindow.setTitleBarOverlay(titleBarOverlayColors(mode)); } catch {}
+  // Resolve from the sender: this used to always target mainWindow, so a detached
+  // pane window would have recoloured the dashboard's caption buttons instead.
+  const win = BrowserWindow.fromWebContents(_e.sender) || mainWindow;
+  if (!win || win.isDestroyed()) return;
+  try { win.setTitleBarOverlay(titleBarOverlayColors(mode)); } catch {}
+});
+
+// ── Detached panes ────────────────────────────────────────────────────────────
+// A dock is just another BrowserWindow pointed at the listener's own pane.html,
+// so it shares the origin (and therefore the theme in localStorage) with the
+// dashboard and needs no separate build.
+const paneWindows = new Map();   // key -> BrowserWindow
+
+function paneKey(pane) {
+  return pane?.kind === 'chat' ? `chat:${pane.channel}` : `kind:${pane?.kind || 'events'}`;
+}
+
+function readPaneBounds() {
+  try { return JSON.parse(store.get('CHAT_PANE_WINDOWS') || '{}'); } catch { return {}; }
+}
+
+function writePaneBounds(key, bounds, alwaysOnTop) {
+  const all = readPaneBounds();
+  all[key] = { ...bounds, alwaysOnTop: !!alwaysOnTop };
+  store.set('CHAT_PANE_WINDOWS', JSON.stringify(all));
+}
+
+function openPaneWindow(pane) {
+  const key = paneKey(pane);
+  const existing = paneWindows.get(key);
+  if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true, focused: true }; }
+
+  const saved = readPaneBounds()[key] || {};
+  const win = new BrowserWindow({
+    width: saved.width || 400,
+    height: saved.height || 700,
+    x: saved.x, y: saved.y,
+    minWidth: 260,
+    minHeight: 220,
+    title: pane.kind === 'chat' ? pane.channel : pane.kind,
+    backgroundColor: '#0f0f11',
+    autoHideMenuBar: true,
+    alwaysOnTop: !!saved.alwaysOnTop,
+    // A normal OS frame on purpose. Frameless would need the titleBarOverlay
+    // dance the dashboard does, for a window with no header of its own to blend
+    // into, and pulls in the caption-button recolouring for no gain.
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    },
+  });
+
+  const port = store.get('LISTENER_PORT') || 3000;
+  const params = new URLSearchParams({ kind: pane.kind || 'chat' });
+  if (pane.channel) params.set('channel', pane.channel);
+  win.loadURL(`http://localhost:${port}/pane.html?${params}`).catch(() => {});
+
+  // Save on the events that actually mean "the user put it there", and once more
+  // on close in case the last move never settled.
+  const remember = () => { if (!win.isDestroyed()) writePaneBounds(key, win.getBounds(), win.isAlwaysOnTop()); };
+  win.on('moved', remember);
+  win.on('resized', remember);
+  win.on('close', remember);
+  win.on('closed', () => paneWindows.delete(key));
+
+  paneWindows.set(key, win);
+  return { ok: true };
+}
+
+ipcMain.handle('pane:detach', (_e, pane) => openPaneWindow(pane || {}));
+
+ipcMain.handle('pane:set-always-on-top', (_e, { pane, value }) => {
+  const win = paneWindows.get(paneKey(pane));
+  if (!win || win.isDestroyed()) return { ok: false };
+  win.setAlwaysOnTop(!!value);
+  writePaneBounds(paneKey(pane), win.getBounds(), !!value);
+  return { ok: true, alwaysOnTop: !!value };
 });
 
 function createWindow() {
