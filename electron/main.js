@@ -66,6 +66,7 @@ const STORE_SCHEMA = {
   ALERT_OBS_DURATION:       { type: 'string', default: '5000' },
   ALERT_CUSTOM_CONFIG:      { type: 'string', default: '' },
   CHAT_OVERLAY_CONFIG:      { type: 'string', default: '' },
+  CHAT_OVERLAY_CHANNEL:     { type: 'string', default: '' },
   CHAT_CHANNELS:            { type: 'string', default: '[]' },
   CHAT_TABS:                { type: 'string', default: '' },
   CHAT_FILTERS:             { type: 'string', default: '' },

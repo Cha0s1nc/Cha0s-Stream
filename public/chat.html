@@ -86,9 +86,16 @@
   let sevenTvEmotes = {};
 
   async function loadEmotes() {
+    // Scoped to whichever channel the overlay is tracking: emote names collide
+    // across channels, so the home map would render the wrong images.
+    const ch = CFG.trackedChannel ? '&channel=' + encodeURIComponent(CFG.trackedChannel) : '';
     try {
-      const r = await fetch('/api/chat/emotes?t=' + Date.now());
+      const r = await fetch('/api/chat/emotes?t=' + Date.now() + ch);
       if (r.ok) sevenTvEmotes = await r.json();
+    } catch {}
+    try {
+      const b = await fetch('/api/chat/badges?t=' + Date.now() + ch);
+      if (b.ok) badgeCache = await b.json();
     } catch {}
   }
 
@@ -189,6 +196,15 @@
   }
 
   // ── Config fetch ──────────────────────────────────────────────────
+  // An empty tracked channel means the server has not resolved ours yet; render
+  // nothing rather than everything, since over-rendering is the failure that
+  // shows up on stream.
+  function isTrackedChannel(data) {
+    const want = CFG.trackedChannel || '';
+    if (!want) return false;
+    return String(data.channel || '').toLowerCase() === want;
+  }
+
   async function loadConfig() {
     try {
       const r = await fetch('/api/chat/config');
@@ -213,8 +229,11 @@
     ws.onmessage = (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
-      if (data.event === 'chat') addMessage(data);
-      if (data.event === 'overlay_config_update' && data.scope === 'chat') loadConfig();
+      // Only the tracked channel reaches the overlay. Every joined channel is
+      // broadcast on this socket, and someone else's chat must never appear on
+      // stream just because a pane is open for it in the dashboard.
+      if (data.event === 'chat' && isTrackedChannel(data)) addMessage(data);
+      if (data.event === 'overlay_config_update' && data.scope === 'chat') loadConfig().then(loadEmotes);
       // Re-fetch emotes once broadcasterId is resolved on the server
       if (data.event === 'seventv_ready') loadEmotes();
       if (data.event === 'init') loadBadges(); // refresh badges after reconnect

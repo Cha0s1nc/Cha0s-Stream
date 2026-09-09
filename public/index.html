@@ -165,6 +165,9 @@
     .pane-actions { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
     .pane-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px; font-family: var(--font); }
     .pane-btn:hover { background: var(--surface2); color: var(--text); }
+    .pane-track { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--border); }
+    .pane-track.active { border-color: var(--red); color: var(--red); background: rgba(255,68,68,0.1); }
+    .pane-track.active::before { content: "\25CF"; margin-right: 4px; font-size: 8px; vertical-align: middle; }
     .pane-obs { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
     .pane-new-pill { position: absolute; left: 50%; transform: translateX(-50%); bottom: 52px; z-index: 3; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
     .pane-error { font-size: 11px; color: var(--red); background: rgba(255,68,68,0.1); border-left: 2px solid var(--red); padding: 4px 6px; border-radius: 4px; }
@@ -182,6 +185,28 @@
     /* Backfilled history is dimmed so it reads as "before you got here". */
     .chat-historical { opacity: 0.62; }
     .chat-hl { background: rgba(145,71,255,0.12); border-left: 2px solid #9147ff; padding-left: 5px; border-radius: 3px; }
+    /* Dialog. Fades the backdrop and lifts the box; both transition from a
+       .open class flipped one frame after the element is displayed, since a
+       transition from display:none never runs. */
+    .pane-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); opacity: 0; transition: opacity 150ms var(--ease-out); }
+    .pane-modal.open { opacity: 1; }
+    .pane-modal-box { width: min(420px, calc(100vw - 48px)); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 18px 48px rgba(0,0,0,0.5); transform: translateY(8px) scale(0.985); opacity: 0; transition: transform 170ms var(--ease-out), opacity 170ms var(--ease-out); }
+    .pane-modal.open .pane-modal-box { transform: none; opacity: 1; }
+    .pane-modal-title { margin: 0 0 6px; font-size: 15px; font-weight: 700; color: var(--text); }
+    .pane-modal-desc { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--text3); }
+    .pane-modal-input { width: 100%; box-sizing: border-box; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; font-family: var(--font); font-size: 13px; color: var(--text); outline: none; }
+    .pane-modal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .pane-modal-error { margin-top: 8px; font-size: 12px; color: var(--red); }
+    .pane-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .pane-modal-btn { font-family: var(--font); font-size: 12px; font-weight: 600; padding: 7px 15px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: border-color var(--dur-base), color var(--dur-base), opacity var(--dur-base); }
+    .pane-modal-btn:hover { border-color: var(--accent); color: var(--text); }
+    .pane-modal-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .pane-modal-btn.primary:hover { opacity: 0.88; }
+    /* Respect the OS setting: no motion, but still a visible state change. */
+    @media (prefers-reduced-motion: reduce) {
+      .pane-modal, .pane-modal-box { transition-duration: 1ms; }
+      .pane-modal-box { transform: none; }
+    }
     .pane-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
     .pane-add { font-family: var(--font); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: border-color var(--dur-base), color var(--dur-base); }
     .pane-add:hover { border-color: var(--accent); color: var(--text); }
@@ -1113,6 +1138,8 @@
           }
         } else if (data.event === 'relay_status') {
           updateRelayStatus(data);
+        } else if (data.event === 'overlay_config_update' && data.scope === 'chat') {
+          loadTracked().then(refreshTrackButtons);
         } else if (data.event === 'seventv_ready') {
           reloadPaneAssets();
         } else if (data.event === 'play_sound') {

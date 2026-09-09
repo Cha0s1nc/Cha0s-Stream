@@ -116,6 +116,7 @@ const paneBadges = {};
 let paneTabs = [];
 let paneActiveTab = 0;
 let paneHome = '';
+let paneTracked = '';   // channel currently feeding the OBS overlays
 let paneSaveTimer = null;
 
 function paneCurrent() {
@@ -154,8 +155,16 @@ function paneHeaderHtml(pane) {
               : pane.kind === 'events' ? 'Events' : 'OBS';
   const detach = window.electronAPI?.detachPane
     ? `<button class="pane-btn pane-detach" title="Open in its own window">⧉</button>` : '';
+  // Exactly one channel feeds the OBS overlays. Without it every joined channel
+  // would render on stream, which is the one place other people's chat must not
+  // appear. Radio behaviour, not a checkbox: there is only ever one browser source.
+  const track = pane.kind === 'chat'
+    ? `<button class="pane-btn pane-track${pane.channel === paneTracked ? ' active' : ''}" ` +
+      `title="Send this channel to the OBS chat overlay">Track</button>`
+    : '';
   return `<span class="pane-title">${esc(label)}</span>` +
-         `<span class="pane-actions">${detach}<button class="pane-btn pane-close" title="Close pane">×</button></span>`;
+         `<span class="pane-actions">${track}${detach}` +
+         `<button class="pane-btn pane-close" title="Close pane">×</button></span>`;
 }
 
 function buildPane(pane, index) {
@@ -219,6 +228,7 @@ function renderPanes() {
   });
 
   renderTabStrip();
+  refreshTrackButtons();
   // OBS panes reuse the existing dashboard renderer.
   if (paneTabs.some(t => t.panes.some(p => p.kind === 'obs')) && typeof syncObsSplitCol === 'function') syncObsSplitCol();
   refreshSenderButtons();
@@ -248,8 +258,14 @@ function switchTab(index) {
   });
 }
 
-function addTab() {
-  const name = prompt('Name for the new tab:', `Tab ${paneTabs.length + 1}`);
+async function addTab() {
+  const name = await askModal({
+    title: 'New tab',
+    desc: 'Tabs hold their own set of panes.',
+    placeholder: 'Tab name',
+    value: `Tab ${paneTabs.length + 1}`,
+    confirm: 'Create tab',
+  });
   if (!name) return;
   paneTabs.push({ name: String(name).slice(0, 40), panes: [{ kind: 'events', grow: 1 }] });
   paneActiveTab = paneTabs.length - 1;
@@ -265,10 +281,10 @@ function closeTab(index) {
   savePaneLayout();
 }
 
-function renameTab(index) {
+async function renameTab(index) {
   const tab = paneTabs[index];
   if (!tab) return;
-  const name = prompt('Rename tab:', tab.name);
+  const name = await askModal({ title: 'Rename tab', value: tab.name, placeholder: 'Tab name', confirm: 'Rename' });
   if (!name) return;
   tab.name = String(name).slice(0, 40);
   renderTabStrip();
@@ -494,6 +510,7 @@ function wirePaneEvents() {
     const col = e.target.closest('.stream-col');
     if (!col) return;
     const ti = Number(col.closest('.cpane-group')?.dataset.tab ?? paneActiveTab);
+    if (e.target.closest('.pane-track')) return void setTracked(col.dataset.channel);
     if (e.target.closest('.pane-close')) return closePane(ti, Number(col.dataset.index));
     if (e.target.closest('.pane-detach')) {
       const pane = paneTabs[ti]?.panes[Number(col.dataset.index)];
@@ -552,7 +569,7 @@ async function initPanes() {
   wirePaneEvents();
   wireTabStrip();
   wireFilterPanel();
-  await loadFilters();
+  await Promise.all([loadFilters(), loadTracked()]);
   try {
     const r = await fetch('/api/chat/tabs');
     const { tabs, home } = await r.json();
@@ -572,6 +589,138 @@ async function reloadPaneAssets() {
   await Promise.all(logins.map(loadChannelAssets));
 }
 
+// ── Modal ─────────────────────────────────────────────────────────────────────
+// Electron does not implement window.prompt — it throws
+// "prompt() is and will not be supported." — so every prompt-based flow died
+// silently. This replaces it, and can report a failure without closing.
+
+let modalResolve = null;
+let modalHideTimer = null;
+
+function ensureModal() {
+  let back = document.getElementById('pane-modal');
+  if (back) return back;
+  back = document.createElement('div');
+  back.id = 'pane-modal';
+  back.className = 'pane-modal';
+  back.hidden = true;
+  back.innerHTML =
+    `<div class="pane-modal-box" role="dialog" aria-modal="true" aria-labelledby="pane-modal-title">
+       <h3 class="pane-modal-title" id="pane-modal-title"></h3>
+       <p class="pane-modal-desc"></p>
+       <input class="pane-modal-input" type="text" autocomplete="off" spellcheck="false" />
+       <div class="pane-modal-error" hidden></div>
+       <div class="pane-modal-actions">
+         <button class="pane-modal-btn" data-act="cancel">Cancel</button>
+         <button class="pane-modal-btn primary" data-act="ok">Add</button>
+       </div>
+     </div>`;
+  document.body.appendChild(back);
+
+  back.addEventListener('click', e => {
+    if (e.target === back || e.target.dataset.act === 'cancel') closeModal(null);
+    if (e.target.dataset.act === 'ok') submitModal();
+  });
+  back.querySelector('.pane-modal-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitModal();
+    if (e.key === 'Escape') closeModal(null);
+  });
+  return back;
+}
+
+function modalError(message) {
+  const el = document.querySelector('#pane-modal .pane-modal-error');
+  if (!el) return;
+  el.textContent = message || '';
+  el.hidden = !message;
+}
+
+function submitModal() {
+  const input = document.querySelector('#pane-modal .pane-modal-input');
+  closeModal(input.value.trim());
+}
+
+function closeModal(value) {
+  const back = document.getElementById('pane-modal');
+  if (!back || back.hidden) return;
+  back.classList.remove('open');
+  // Wait out the fade before hiding, or the next open starts mid-transition.
+  // Tracked so a reopen can cancel it: otherwise this fires 160ms later and
+  // hides the dialog that was just reopened to show a validation error.
+  clearTimeout(modalHideTimer);
+  modalHideTimer = setTimeout(() => { back.hidden = true; }, 160);
+  const resolve = modalResolve;
+  modalResolve = null;
+  if (resolve) resolve(value);
+}
+
+/**
+ * Opens the dialog and resolves with the trimmed input, or null if cancelled.
+ * Resolves rather than rejects on cancel: cancelling is a normal outcome, not an
+ * error the caller should have to catch.
+ */
+function askModal({ title, desc = '', placeholder = '', value = '', confirm = 'Add', error = '' }) {
+  const back = ensureModal();
+  closeModal(null);                       // never stack two dialogs
+  clearTimeout(modalHideTimer);           // we are reopening; cancel the pending hide
+  back.querySelector('.pane-modal-title').textContent = title;
+  const descEl = back.querySelector('.pane-modal-desc');
+  descEl.textContent = desc;
+  descEl.hidden = !desc;
+  back.querySelector('[data-act="ok"]').textContent = confirm;
+  const input = back.querySelector('.pane-modal-input');
+  input.placeholder = placeholder;
+  input.value = value;
+  modalError(error);
+
+  back.hidden = false;
+  // Reading offsetWidth forces a synchronous layout, which gives the transition a
+  // starting state to animate from. Deliberately not requestAnimationFrame:
+  // Chromium throttles rAF in a background or occluded window, so the dialog
+  // would open invisible if the app lost focus at the wrong moment.
+  void back.offsetWidth;
+  back.classList.add('open');
+  input.focus();
+  input.select();
+
+  return new Promise(resolve => { modalResolve = resolve; });
+}
+
+async function loadTracked() {
+  try {
+    const { tracked } = await fetch('/api/chat/tracked').then(r => r.json());
+    paneTracked = tracked || '';
+  } catch { /* header just shows nothing tracked */ }
+}
+
+// Clicking Track on the already-tracked pane is a no-op rather than a toggle
+// off: an overlay with no channel renders nothing, which looks like a broken
+// browser source rather than a deliberate choice.
+async function setTracked(channel) {
+  if (!channel || channel === paneTracked) return;
+  const prev = paneTracked;
+  paneTracked = channel;
+  refreshTrackButtons();
+  try {
+    const r = await fetch('/api/chat/tracked', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel }),
+    });
+    if (!r.ok) throw new Error('rejected');
+    paneHint(`OBS chat overlay now shows #${channel}`);
+  } catch {
+    paneTracked = prev;                 // put the highlight back where it was
+    refreshTrackButtons();
+    paneHint('Could not change the tracked channel');
+  }
+}
+
+function refreshTrackButtons() {
+  document.querySelectorAll('#stream-wrap .stream-col[data-kind="chat"]').forEach(col => {
+    col.querySelector('.pane-track')?.classList.toggle('active', col.dataset.channel === paneTracked);
+  });
+}
+
 function paneHint(msg) {
   const el = document.getElementById('pane-hint');
   if (!el) return;
@@ -579,20 +728,32 @@ function paneHint(msg) {
   if (msg) setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 6000);
 }
 
-function wirePaneToolbar() {
-  const add = (id, make) => document.getElementById(id)?.addEventListener('click', async () => {
-    const pane = await make();
-    if (!pane) return;
-    const r = await addPane(pane);
-    paneHint(r.ok ? '' : r.error);
-  });
+async function promptForChannel() {
+  // Reopens on failure rather than closing, so a typo does not lose what you
+  // typed and the reason is visible right where you fix it.
+  let value = '';
+  let error = '';
+  for (;;) {
+    const answer = await askModal({
+      title: 'Add a channel',
+      desc: 'Its chat appears in a new pane. Only your own channel runs commands; others are read and send only.',
+      placeholder: 'e.g. forsen',
+      confirm: 'Add pane',
+      value, error,
+    });
+    if (answer === null) return;
+    value = answer;
+    const r = await addPane({ kind: 'chat', channel: answer.toLowerCase() });
+    if (r.ok) return;
+    error = r.error || 'Could not add that channel';
+  }
+}
 
-  add('pane-add-chat', () => {
-    const name = prompt('Channel to open (Twitch login):', '');
-    return name ? { kind: 'chat', channel: String(name).trim().toLowerCase() } : null;
-  });
-  add('pane-add-events', () => ({ kind: 'events' }));
-  add('pane-add-obs', () => ({ kind: 'obs' }));
+function wirePaneToolbar() {
+  document.getElementById('pane-add-chat')?.addEventListener('click', promptForChannel);
+  // Nothing to ask for these two, so a dialog would be pure friction.
+  document.getElementById('pane-add-events')?.addEventListener('click', () => addPane({ kind: 'events' }));
+  document.getElementById('pane-add-obs')?.addEventListener('click', () => addPane({ kind: 'obs' }));
 }
 
 // A detached dock is the same code with one pane and no chrome. pane.html loads

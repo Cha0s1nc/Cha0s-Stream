@@ -124,6 +124,12 @@ Double-click a tab to rename it. The layout is saved as you change it.
 Only your own channel runs commands. Chat from any other channel is display
 only, so nobody in someone else's room can drive your queue or your bot.
 
+**Track.** Exactly one channel feeds the OBS chat overlay, marked with a red
+**● TRACK** in its pane header. Click **TRACK** on another channel's pane to
+move it. Without this, every channel you opened a pane for would appear on
+stream, which is the one place other people's chat must not show up. It defaults
+to your own channel, and the overlay switches emote sets to match.
+
 **Detaching.** The ⧉ button in a pane header opens it as a separate window that
 remembers its size, position and always-on-top state. Closing the window docks
 it again.

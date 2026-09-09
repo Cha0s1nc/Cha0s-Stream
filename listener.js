@@ -14,7 +14,7 @@ const PERSIST_KEYS = [
   'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
-  'CHAT_OVERLAY_CONFIG','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','CHAT_HISTORY_ENABLED','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
+  'CHAT_OVERLAY_CONFIG','CHAT_OVERLAY_CHANNEL','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','CHAT_HISTORY_ENABLED','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
   'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
@@ -2556,7 +2556,7 @@ function getChatOverlayConfig() {
   return null;
 }
 app.get('/api/chat/config', (req, res) => {
-  res.json({ ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}), browserSourceUrl: `http://localhost:${PORT}/chat` });
+  res.json({ ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}), trackedChannel: trackedOverlayChannel(), browserSourceUrl: `http://localhost:${PORT}/chat` });
 });
 app.post('/api/chat/send', async (req, res) => {
   const text   = (req.body?.message || '').trim();
@@ -2571,6 +2571,29 @@ app.post('/api/chat/send', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Which channel the chat overlays render. Empty means our own channel, so an
+// existing install keeps behaving exactly as it did before guest channels
+// existed. Without this every joined channel's chat would pour into the OBS
+// browser source, which is the one place it must not appear.
+function trackedOverlayChannel() {
+  return normalizeLogin(process.env.CHAT_OVERLAY_CHANNEL) || normalizeLogin(process.env.TWITCH_CHANNEL);
+}
+
+app.get('/api/chat/tracked', (req, res) => {
+  res.json({ tracked: trackedOverlayChannel(), home: normalizeLogin(process.env.TWITCH_CHANNEL) });
+});
+
+app.post('/api/chat/tracked', (req, res) => {
+  const login = normalizeLogin(req.body?.channel);
+  if (req.body?.channel && !login) return res.status(400).json({ error: 'Invalid channel' });
+  process.env.CHAT_OVERLAY_CHANNEL = login;
+  persistSettings();
+  // Overlays already listen for this and re-fetch their config.
+  broadcast({ event: 'overlay_config_update', scope: 'chat' });
+  addLog('system', 'chat', `Overlay chat now tracking #${trackedOverlayChannel()}`);
+  res.json({ ok: true, tracked: trackedOverlayChannel() });
 });
 
 // Stream panel layout: [{ name, panes: [{kind, channel, grow}] }].
@@ -2721,7 +2744,7 @@ app.get('/api/overlay/config', (req, res) => {
     mode: enabled.events && enabled.chat ? 'both' : enabled.chat ? 'chat' : 'alerts',
     enabled,
     alert:            alertCfg,
-    chat:             { ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}) },
+    chat:             { ...CHAT_OVERLAY_DEFAULTS, ...(getChatOverlayConfig() || {}), trackedChannel: trackedOverlayChannel() },
     nowPlaying:       npCfg,
     browserSourceUrl: `http://localhost:${PORT}/overlay`,
     alertsUrl:        `http://localhost:${PORT}/alerts`,

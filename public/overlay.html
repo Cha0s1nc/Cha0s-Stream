@@ -189,6 +189,12 @@
   // ════════════════════════════════════════
   //  CHAT
   // ════════════════════════════════════════
+  function isTrackedChannel(data) {
+    const want = CHAT_CFG.trackedChannel || '';
+    if (!want) return false;
+    return String(data.channel || '').toLowerCase() === want;
+  }
+
   let CHAT_CFG = {
     maxMessages: 8, lifetime: 30000, fontSize: 15, bgOpacity: 75,
     bgColor: '#000000', showBadges: true, showTimestamps: false,
@@ -198,8 +204,7 @@
   const chatActive = [];
 
   const PILL_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
-  let badgeCache = {};
-  fetch('/api/chat/badges').then(r => r.ok ? r.json() : {}).then(d => { badgeCache = d; }).catch(() => {});
+  let badgeCache = {};   // filled by loadEmotes(), scoped to the tracked channel
 
   const FALLBACK_COLOURS = ['#ff6b6b','#ff9f40','#ffd60a','#4ade80','#22d3ee','#818cf8','#e879f9','#fb7185'];
   function nameToColour(n) { let h=0; for(let i=0;i<n.length;i++) h=((h<<5)-h+n.charCodeAt(i))|0; return FALLBACK_COLOURS[Math.abs(h)%FALLBACK_COLOURS.length]; }
@@ -272,7 +277,16 @@
   }
 
   async function loadEmotes() {
-    try { const r = await fetch('/api/chat/emotes?t=' + Date.now()); if (r.ok) sevenTvEmotes = await r.json(); } catch {}
+    // Scoped to the tracked channel; see chat.html.
+    const ch = CHAT_CFG.trackedChannel ? '&channel=' + encodeURIComponent(CHAT_CFG.trackedChannel) : '';
+    try {
+      const r = await fetch('/api/chat/emotes?t=' + Date.now() + ch);
+      if (r.ok) sevenTvEmotes = await r.json();
+    } catch {}
+    try {
+      const b = await fetch('/api/chat/badges?t=' + Date.now() + ch);
+      if (b.ok) badgeCache = await b.json();
+    } catch {}
   }
 
   // ════════════════════════════════════════
@@ -318,7 +332,8 @@
     ws.onmessage = (e) => {
       let data; try { data = JSON.parse(e.data); } catch { return; }
       if (data.event === 'alert'        && MODE !== 'chat')   queueAlert(data);
-      if (data.event === 'chat'         && MODE !== 'alerts') addChatMessage(data);
+      // See chat.html: only the tracked channel is allowed on stream.
+      if (data.event === 'chat' && MODE !== 'alerts' && isTrackedChannel(data)) addChatMessage(data);
       if (data.event === 'seventv_ready'&& MODE !== 'alerts') loadEmotes();
       // Covers both layers: loadConfig re-reads alerts and chat together.
       if (data.event === 'overlay_config_update') loadConfig();
