@@ -63,20 +63,38 @@ function renderBody(data, emotes) {
 // which happens for channel-specific badges we haven't fetched yet.
 const BADGE_PILL_MAP = { moderator: 'mod', subscriber: 'sub', vip: 'vip', broadcaster: 'broadcaster', founder: 'founder' };
 
-function renderBadges(badges, badgeCache) {
-  if (!badges || !badges.length) return '';
-  const parts = badges.map(b => {
+// `extra` is any badge not from Twitch (currently 7TV), already shaped as
+// { url, title }. It renders after the Twitch ones, which is where viewers of
+// both the 7TV extension and Chatterino expect it.
+function renderBadges(badges, badgeCache, extra) {
+  const parts = (badges || []).map(b => {
     const setId = typeof b === 'string' ? b : b.set_id;
     const key = typeof b === 'string' ? b : `${b.set_id}/${b.id}`;
-    const url = badgeCache && badgeCache[key];
-    if (url) return `<img class="chat-badge-img" src="${esc(url)}" alt="${esc(setId)}" title="${esc(setId)}">`;
+    const hit = badgeCache && badgeCache[key];
+    // Cache entries used to be a bare url string; accept both so a stale cached
+    // response cannot blank every badge.
+    const url = typeof hit === 'string' ? hit : hit?.url;
+    const title = (typeof hit === 'string' ? null : hit?.title) || setId;
+    if (url) return badgeImg(url, title);
     const cls = BADGE_PILL_MAP[setId];
-    return cls ? `<span class="chat-badge ${cls}">${cls === 'broadcaster' ? 'streamer' : cls}</span>` : '';
+    return cls
+      ? `<span class="chat-badge ${cls}" data-tip="${esc(title)}">${cls === 'broadcaster' ? 'streamer' : cls}</span>`
+      : '';
   }).filter(Boolean);
+
+  if (extra?.url) parts.push(badgeImg(extra.url, extra.title || '7TV badge', 'chat-badge-7tv'));
   return parts.length ? `<span class="chat-badges">${parts.join('')}</span>` : '';
+}
+
+// data-tip drives the dashboard's own delegated tooltip; title is the fallback
+// for the overlay pages, which have no tooltip layer of their own.
+function badgeImg(url, title, extraClass) {
+  const cls = extraClass ? `chat-badge-img ${extraClass}` : 'chat-badge-img';
+  return `<img class="${cls}" src="${esc(url)}" alt="${esc(title)}" ` +
+         `title="${esc(title)}" data-tip="${esc(title)}">`;
 }
 
 // Node can require this for tests; browsers just get the globals above.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { esc, nameToColour, renderWords, renderFragment, renderBody, renderBadges, FALLBACK_COLOURS };
+  module.exports = { esc, nameToColour, renderWords, renderFragment, renderBody, renderBadges, badgeImg, FALLBACK_COLOURS };
 }

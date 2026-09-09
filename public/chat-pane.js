@@ -344,6 +344,48 @@ function routeEventToPanes(html) {
   });
 }
 
+// ── 7TV badges ────────────────────────────────────────────────────────────────
+// Resolved per chatter, so unknown users are collected and asked about in one
+// batch rather than one request each. A user whose badge arrives after their
+// message is back-filled into the rows already on screen, which is why every row
+// carries data-user.
+const seventvBadges = {};        // twitch user id -> { url, title }
+const seventvAsked = new Set();  // includes users with no badge, so we ask once
+let seventvQueue = new Set();
+let seventvTimer = null;
+
+function queueSevenTvBadge(userId) {
+  if (!userId || seventvAsked.has(userId)) return;
+  seventvQueue.add(userId);
+  clearTimeout(seventvTimer);
+  // Short debounce: a burst of new chatters becomes one request.
+  seventvTimer = setTimeout(flushSevenTvBadges, 900);
+}
+
+async function flushSevenTvBadges() {
+  const ids = [...seventvQueue];
+  seventvQueue = new Set();
+  if (!ids.length) return;
+  ids.forEach(id => seventvAsked.add(id));
+  let badges = {};
+  try {
+    const r = await fetch(`/api/chat/7tv-badges?ids=${ids.join(',')}`);
+    badges = (await r.json()).badges || {};
+  } catch { return; }
+
+  for (const [id, badge] of Object.entries(badges)) {
+    seventvBadges[id] = badge;
+    // Back-fill rows already rendered for this user.
+    document.querySelectorAll(`#stream-wrap .chat-msg[data-user-id="${CSS.escape(id)}"]`).forEach(row => {
+      if (row.querySelector('.chat-badge-7tv')) return;
+      const holder = row.querySelector('.chat-badges');
+      const html = badgeImg(badge.url, badge.title, 'chat-badge-7tv');
+      if (holder) holder.insertAdjacentHTML('beforeend', html);
+      else row.insertAdjacentHTML('afterbegin', `<span class="chat-badges">${html}</span>`);
+    });
+  }
+}
+
 function buildChatRow(data, emotes, badges) {
   const colour = (data.color && data.color.length === 7) ? data.color : nameToColour(data.user || '');
   const source = data.sourceChannel ? `<span class="chat-source-tag">${esc(data.sourceChannel)}</span>` : '';
@@ -353,8 +395,10 @@ function buildChatRow(data, emotes, badges) {
   el.dataset.user = (data.login || data.user || '').toLowerCase();
   el.dataset.channel = data.channel || '';
   if (data.id) el.dataset.msgId = data.id;
+  if (data.userId) el.dataset.userId = data.userId;
+  queueSevenTvBadge(data.userId);
   el.innerHTML =
-    `${renderBadges(data.badges, badges)}${source}` +
+    `${renderBadges(data.badges, badges, seventvBadges[data.userId])}${source}` +
     `<span class="chat-user" style="color:${colour}">${esc(data.user)}</span>` +
     `<span style="opacity:0.5;margin-right:4px">:</span>${renderBody(data, emotes)}`;
   return el;

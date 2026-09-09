@@ -15,7 +15,7 @@ const PERSIST_KEYS = [
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
   'CHAT_OVERLAY_CONFIG','CHAT_OVERLAY_CHANNEL','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','CHAT_HISTORY_ENABLED','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
-  'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
+  'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED','SEVENTV_BADGES_ENABLED',
   'EVENT_TRIGGERS',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',
@@ -2753,9 +2753,95 @@ app.get('/api/overlay/config', (req, res) => {
   });
 });
 
+// ── 7TV badges ────────────────────────────────────────────────────────────────
+// 7TV has no endpoint that maps a channel's chatters to their badges: the old
+// v3 /cosmetics route is gone, and their own extension gets them over a
+// websocket protocol. What v4 does give us is a full badge catalogue (127 of
+// them) plus a per-user lookup, and GraphQL aliasing lets us ask about many
+// users in one request. So: fetch the catalogue once, then batch-resolve users.
+const SEVENTV_GQL = 'https://7tv.io/v4/gql';
+const SEVENTV_BADGE_TTL_MS = 12 * 60 * 60 * 1000;  // badges effectively never change
+const SEVENTV_BATCH = 40;                          // users per GraphQL request
+
+let sevenTvBadgeCatalog = null;    // badgeId -> { url, title }
+let sevenTvCatalogTime = 0;
+const sevenTvUserBadge = new Map();  // twitchUserId -> badgeId | null (null = has none)
+
+async function sevenTvGql(query) {
+  const r = await fetch(SEVENTV_GQL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Cha0sStream/1.0' },
+    body: JSON.stringify({ query }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) throw new Error(`7TV GraphQL ${r.status}`);
+  const body = await r.json();
+  if (body.errors?.length) throw new Error(body.errors[0]?.message || '7TV GraphQL error');
+  return body.data;
+}
+
+async function loadSevenTvCatalog() {
+  if (sevenTvBadgeCatalog && Date.now() - sevenTvCatalogTime < SEVENTV_BADGE_TTL_MS) return sevenTvBadgeCatalog;
+  const data = await sevenTvGql('{badges{badges{id name description images{url scale}}}}');
+  const out = {};
+  for (const b of (data?.badges?.badges || [])) {
+    // scale 1 is 18px, matching Twitch's own badge images in chat.
+    const img = (b.images || []).find(i => i.scale === 1) || (b.images || [])[0];
+    if (b.id && img?.url) out[b.id] = { url: img.url, title: b.description || b.name || '7TV badge' };
+  }
+  sevenTvBadgeCatalog = out;
+  sevenTvCatalogTime = Date.now();
+  addLog('system', 'chat', `7TV: loaded ${Object.keys(out).length} badges`);
+  return out;
+}
+
+// One request per SEVENTV_BATCH users, using GraphQL aliases. A user with no
+// badge is cached as null so we never ask about them twice.
+async function resolveSevenTvUsers(ids) {
+  const unknown = ids.filter(id => id && !sevenTvUserBadge.has(id));
+  for (let i = 0; i < unknown.length; i += SEVENTV_BATCH) {
+    const slice = unknown.slice(i, i + SEVENTV_BATCH);
+    const query = '{users{' + slice.map((id, n) =>
+      `u${n}: userByConnection(platform: TWITCH, platformId: "${id}") { style { activeBadgeId } }`
+    ).join(' ') + '}}';
+    try {
+      const data = await sevenTvGql(query);
+      slice.forEach((id, n) => {
+        sevenTvUserBadge.set(id, data?.users?.[`u${n}`]?.style?.activeBadgeId || null);
+      });
+    } catch (err) {
+      // Cache nothing on failure so a later request can retry, but do not let a
+      // 7TV outage hold up chat rendering.
+      addLog('system', 'chat', `7TV badge lookup failed: ${err.message}`, false);
+      return;
+    }
+  }
+}
+
+app.get('/api/chat/7tv-badges', async (req, res) => {
+  if (process.env.SEVENTV_BADGES_ENABLED === 'false') return res.json({ badges: {} });
+  const ids = String(req.query.ids || '').split(',').map(x => x.trim()).filter(x => /^\d+$/.test(x)).slice(0, 200);
+  if (!ids.length) return res.json({ badges: {} });
+  try {
+    const catalog = await loadSevenTvCatalog();
+    await resolveSevenTvUsers(ids);
+    const badges = {};
+    for (const id of ids) {
+      const badgeId = sevenTvUserBadge.get(id);
+      if (badgeId && catalog[badgeId]) badges[id] = catalog[badgeId];
+    }
+    res.json({ badges });
+  } catch (err) {
+    addLog('system', 'chat', `7TV badges unavailable: ${err.message}`, false);
+    res.json({ badges: {} });
+  }
+});
+
 // ── Twitch badge cache ────────────────────────────────────────────────────────
-// Builds a flat map: "set_id/version_id" → image_url_1x
-// e.g. "subscriber/3" → "https://static-cdn.jtvnw.net/badges/v1/.../1"
+// Builds a flat map: "set_id/version_id" → { url, title }
+// e.g. "subscriber/3" → { url: "https://static-cdn.jtvnw.net/...", title: "3-Month Subscriber" }
+// The title is the only thing worth showing on hover and Twitch is its only
+// source: "12-Month Subscriber" cannot be derived from the set id.
 // Badges are per channel for the same reason emotes are: sub badges, bit badges
 // and custom mod icons all differ per broadcaster.
 //   { global: {map,time}, channels: { [id]: {map,time} } }
@@ -2764,7 +2850,9 @@ const BADGE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function badgesInto(map, data) {
   for (const set of (data || [])) {
-    for (const v of (set.versions || [])) map[`${set.set_id}/${v.id}`] = v.image_url_1x;
+    for (const v of (set.versions || [])) {
+      map[`${set.set_id}/${v.id}`] = { url: v.image_url_1x, title: v.title || set.set_id };
+    }
   }
 }
 
@@ -3491,7 +3579,7 @@ const SETTINGS_KEYS = [
   'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
-  'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED',
+  'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED','SEVENTV_BADGES_ENABLED',
   'SPOTIFY_CLIENT_ID','SPOTIFY_ACCESS_TOKEN','SPOTIFY_REFRESH_TOKEN','SPOTIFY_TOKEN_EXPIRY',
   'TTS_ENABLED','TTS_VOICE','TTS_RATE',
   'TTS_CHAT_ENABLED','TTS_CHAT_PERMISSION','TTS_CHAT_SAY_NAME','TTS_CHAT_MAX_LENGTH',

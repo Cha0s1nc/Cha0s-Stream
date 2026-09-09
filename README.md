@@ -124,6 +124,14 @@ Double-click a tab to rename it. The layout is saved as you change it.
 Only your own channel runs commands. Chat from any other channel is display
 only, so nobody in someone else's room can drive your queue or your bot.
 
+**Badges.** Hovering a badge names it — "7-Year Subscriber", "1000 Gift Subs",
+"GlitchCon 2020" — using the title Twitch ships with each badge. 7TV badges are
+shown after the Twitch ones where a chatter has one. They are resolved in
+batches and cached, so a busy channel costs a handful of requests rather than
+one per chatter; set `SEVENTV_BADGES_ENABLED=false` to skip it entirely. Note
+that 7TV badges are genuinely rare: in a sample of 19 chatters in a large
+channel, 12 had 7TV accounts and none had an active badge.
+
 **Track.** Exactly one channel feeds the OBS chat overlay, marked with a red
 **● TRACK** in its pane header. Click **TRACK** on another channel's pane to
 move it. Without this, every channel you opened a pane for would appear on

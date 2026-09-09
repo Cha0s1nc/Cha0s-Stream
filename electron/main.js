@@ -76,6 +76,7 @@ const STORE_SCHEMA = {
   SEVENTV_ENABLED:          { type: 'string', default: '' },
   BTTV_ENABLED:             { type: 'string', default: '' },
   FFZ_ENABLED:              { type: 'string', default: '' },
+  SEVENTV_BADGES_ENABLED:   { type: 'string', default: '' },
   EVENT_TRIGGERS:           { type: 'string', default: '' },
   SPOTIFY_CLIENT_ID:        { type: 'string', default: '' },
   SPOTIFY_ACCESS_TOKEN:     { type: 'string', default: '' },
