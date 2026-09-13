@@ -777,7 +777,7 @@
                   <div style="display:grid;grid-template-columns:90px 90px 130px 100px 1fr auto;gap:8px;align-items:center;">
                     <input class="setting-input" id="new-cmd-name" type="text" placeholder="!commandname" style="font-size:12px;padding:5px 8px;" />
                     <select class="cmd-perm-select" id="new-cmd-match" onchange="updateNewCmdPlaceholder()"><option value="command">! Command</option><option value="contains">Contains</option><option value="starts">Starts with</option></select>
-                    <select class="cmd-perm-select" id="new-cmd-perm"><option value="everyone">Everyone</option><option value="subscriber">Subscribers+</option><option value="vip">VIPs+</option><option value="moderator">Moderators+</option><option value="broadcaster">Broadcaster only</option></select>
+                    <select class="cmd-perm-select" id="new-cmd-perm"><option value="everyone">Everyone</option><option value="subscriber">Subscribers+</option><option value="vip">VIPs+</option><option value="moderator">Moderators+</option><option value="lead_moderator">Lead Mods+</option><option value="broadcaster">Broadcaster only</option></select>
                     <div class="sources-dropdown" id="sd-new"><div class="sources-trigger" onclick="toggleSourcesPanel('new',event)"><span id="sl-new">Chat</span><span class="caret">▼</span></div><div class="sources-panel" id="sp-new"><div class="source-check-row"><input type="checkbox" id="sc-new-chat" checked onchange="toggleSource('new','chat',this.checked)" /><label for="sc-new-chat">Chat</label></div><div class="source-check-row"><input type="checkbox" id="sc-new-whisper" onchange="toggleSource('new','whisper',this.checked)" /><label for="sc-new-whisper">Whisper</label></div><div class="source-check-row"><input type="checkbox" id="sc-new-redemption_input" onchange="toggleSource('new','redemption_input',this.checked)" /><label for="sc-new-redemption_input">Redemption</label></div></div></div>
                     <input class="setting-input" id="new-cmd-response" type="text" placeholder="Response text — supports {user}" style="font-size:12px;padding:5px 8px;" />
                     <button class="btn btn-primary" onclick="addCustomCommand()" style="font-size:11px;padding:5px 12px;white-space:nowrap;">Add</button>
@@ -995,7 +995,7 @@
                 <div class="setting-row"><div class="setting-label"><div class="setting-name">Rate</div><div class="setting-desc">Speech rate in words per minute. ~150 is normal speed. Leave blank for default.</div></div><input class="setting-input" id="cfg-tts-rate" type="number" placeholder="150" min="50" max="500" style="width:80px;" /></div>
                 <div class="settings-group-subtitle">Chat</div>
                 <div class="setting-row"><div class="setting-label"><div class="setting-name">Read chat messages</div><div class="setting-desc">Speak messages from chat aloud.</div></div><label class="toggle"><input type="checkbox" id="cfg-tts-chat-enabled" /><span class="toggle-track"></span></label></div>
-                <div class="setting-row"><div class="setting-label"><div class="setting-name">Minimum permission</div><div class="setting-desc">Only read messages from viewers at or above this level.</div></div><select class="cmd-perm-select" id="cfg-tts-chat-permission"><option value="everyone">Everyone</option><option value="subscriber">Subscribers+</option><option value="vip">VIPs+</option><option value="moderator">Moderators+</option><option value="broadcaster">Broadcaster only</option></select></div>
+                <div class="setting-row"><div class="setting-label"><div class="setting-name">Minimum permission</div><div class="setting-desc">Only read messages from viewers at or above this level.</div></div><select class="cmd-perm-select" id="cfg-tts-chat-permission"><option value="everyone">Everyone</option><option value="subscriber">Subscribers+</option><option value="vip">VIPs+</option><option value="moderator">Moderators+</option><option value="lead_moderator">Lead Mods+</option><option value="broadcaster">Broadcaster only</option></select></div>
                 <div class="setting-row"><div class="setting-label"><div class="setting-name">Say username</div><div class="setting-desc">Prefix each message with "[name] says:" when reading chat.</div></div><label class="toggle"><input type="checkbox" id="cfg-tts-chat-say-name" checked /><span class="toggle-track"></span></label></div>
                 <div class="setting-row"><div class="setting-label"><div class="setting-name">Max message length</div><div class="setting-desc">Truncate messages longer than this (characters). Default 200.</div></div><input class="setting-input" id="cfg-tts-chat-max-length" type="number" placeholder="200" min="10" max="1000" style="width:80px;" /></div>
                 <div class="settings-group-subtitle">Bits</div>
@@ -2092,8 +2092,10 @@
     let commandsConfig = {};
     let customCommandsConfig = {};
     let newCmdSources = ['chat'];
-    const PERM_LEVELS = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
-    const PERM_LABELS = { everyone: 'Everyone', subscriber: 'Subscribers+', vip: 'VIPs+', moderator: 'Moderators+', broadcaster: 'Broadcaster only' };
+    const PERM_LEVELS = ['everyone', 'subscriber', 'vip', 'moderator', 'lead_moderator', 'broadcaster'];
+    // Mirrors the server-side floor in listener.js: these never open below moderator.
+    const MOD_FLOOR_COMMANDS = ['run', 'killswitch'];
+    const PERM_LABELS = { everyone: 'Everyone', subscriber: 'Subscribers+', vip: 'VIPs+', moderator: 'Moderators+', lead_moderator: 'Lead Mods+', broadcaster: 'Broadcaster only' };
 
     const SOURCE_LABELS = { chat: 'Chat', whisper: 'Whisper', redemption_input: 'Redemption' };
     const ALL_SOURCES = ['chat', 'whisper', 'redemption_input'];
@@ -2119,7 +2121,7 @@
           <span class="cmd-name">!${name}</span>
           <span class="cmd-desc">${cfg.description}</span>
           <select class="cmd-perm-select" onchange="setCommandPerm('${name}', this.value)">
-            ${PERM_LEVELS.map(p => `<option value="${p}" ${cfg.permission === p ? 'selected' : ''}>${PERM_LABELS[p]}</option>`).join('')}
+            ${PERM_LEVELS.filter(p => !MOD_FLOOR_COMMANDS.includes(name) || PERM_LEVELS.indexOf(p) >= PERM_LEVELS.indexOf('moderator')).map(p => `<option value="${p}" ${cfg.permission === p ? 'selected' : ''}>${PERM_LABELS[p]}</option>`).join('')}
           </select>
           <div class="sources-dropdown" id="sd-${name}">
             <div class="sources-trigger" onclick="toggleSourcesPanel('${name}', event)">
@@ -2263,7 +2265,7 @@
             <option value="starts" ${match === 'starts' ? 'selected' : ''}>Starts with</option>
           </select>
           <select class="cmd-perm-select" onchange="setCustomCommandPerm('${name}', this.value)">
-            ${PERM_LEVELS.map(p => `<option value="${p}" ${cfg.permission === p ? 'selected' : ''}>${PERM_LABELS[p]}</option>`).join('')}
+            ${PERM_LEVELS.filter(p => !MOD_FLOOR_COMMANDS.includes(name) || PERM_LEVELS.indexOf(p) >= PERM_LEVELS.indexOf('moderator')).map(p => `<option value="${p}" ${cfg.permission === p ? 'selected' : ''}>${PERM_LABELS[p]}</option>`).join('')}
           </select>
           <div class="sources-dropdown" id="sd-c-${name}">
             <div class="sources-trigger" onclick="toggleSourcesPanel('c-${name}', event)">

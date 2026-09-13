@@ -132,7 +132,8 @@ const OBS_PORT = process.env.OBS_PORT || 4455;
 const OBS_PASSWORD = process.env.OBS_PASSWORD;
 
 // --- Default command config ---
-// permission: 'everyone' | 'subscriber' | 'vip' | 'moderator' | 'broadcaster'
+// permission: one of PERMISSION_LEVELS, lowest to highest
+const PERMISSION_LEVELS = ['everyone', 'subscriber', 'vip', 'moderator', 'lead_moderator', 'broadcaster'];
 // sources: any combination of 'chat' | 'whisper' | 'redemption_input'
 // response: chat reply template — supports {user}, {song}, {result}, {query}. Empty = no reply.
 const DEFAULT_COMMANDS = {
@@ -168,6 +169,15 @@ const state = {
   pluginCommands: {}
 };
 
+// !run executes a fetched script and !killswitch ends the stream. Neither opens
+// below moderator, whatever the settings file or dashboard asks for. Applied on
+// both write paths into state.commands, so the dashboard shows what is enforced.
+const MOD_FLOOR_COMMANDS = new Set(['run', 'killswitch']);
+function floorPermission(name, permission) {
+  if (!MOD_FLOOR_COMMANDS.has(name)) return permission;
+  return PERMISSION_LEVELS.indexOf(permission) < PERMISSION_LEVELS.indexOf('moderator') ? 'moderator' : permission;
+}
+
 // Load persisted configs from env
 try {
   if (process.env.REDEEM_ACTIONS) state.redeemActions = JSON.parse(process.env.REDEEM_ACTIONS);
@@ -183,7 +193,7 @@ try {
     for (const [key, val] of Object.entries(saved)) {
       if (state.commands[key]) {
         if (typeof val.enabled === 'boolean') state.commands[key].enabled = val.enabled;
-        if (val.permission) state.commands[key].permission = val.permission;
+        if (val.permission) state.commands[key].permission = floorPermission(key, val.permission);
         if (Array.isArray(val.sources)) state.commands[key].sources = val.sources;
         if (typeof val.response === 'string') state.commands[key].response = val.response;
       }
@@ -308,17 +318,21 @@ function addLog(type, command, detail, ok = true) {
 }
 
 // --- Permission check ---
-const PERMISSION_LEVELS = ['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'];
+// Badge set_id -> the level it grants. Twitch's Lead Moderator badge replaces
+// 'moderator' in the event rather than joining it, so it has to rank as a mod too.
+// Broadcaster is never granted by badge, only by chatter id == broadcaster id.
+const BADGE_LEVEL = Object.assign(Object.create(null), {
+  founder: 'subscriber', subscriber: 'subscriber', vip: 'vip',
+  moderator: 'moderator', lead_moderator: 'lead_moderator',
+});
 
 function checkPermission(chatEvent, required) {
   if (required === 'everyone') return true;
   const isBroadcaster = chatEvent.broadcaster_user_id === chatEvent.chatter_user_id;
   if (isBroadcaster) return true;
-  if (required === 'broadcaster') return false;
-  if (required === 'moderator') return chatEvent.badges?.some(b => b.set_id === 'moderator') || false;
-  if (required === 'vip') return chatEvent.badges?.some(b => b.set_id === 'moderator' || b.set_id === 'vip') || false;
-  if (required === 'subscriber') return chatEvent.badges?.some(b => ['moderator','vip','subscriber','founder'].includes(b.set_id)) || false;
-  return false;
+  const need = PERMISSION_LEVELS.indexOf(required);
+  if (need < 0 || required === 'broadcaster') return false;
+  return chatEvent.badges?.some(b => PERMISSION_LEVELS.indexOf(BADGE_LEVEL[b.set_id]) >= need) || false;
 }
 
 // --- OBS ---
@@ -3455,7 +3469,7 @@ app.post('/api/commands', (req, res) => {
   for (const [key, val] of Object.entries(commands)) {
     if (state.commands[key]) {
       if (typeof val.enabled === 'boolean') state.commands[key].enabled = val.enabled;
-      if (PERMISSION_LEVELS.includes(val.permission)) state.commands[key].permission = val.permission;
+      if (PERMISSION_LEVELS.includes(val.permission)) state.commands[key].permission = floorPermission(key, val.permission);
       if (Array.isArray(val.sources)) state.commands[key].sources = val.sources;
       if (typeof val.response === 'string') state.commands[key].response = val.response;
     }

@@ -33,8 +33,9 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   server). `PORT` 3000, `MOD_PORT` 3030. **`server.listen(PORT)` binds all
   interfaces** - the dashboard on 3000 is not localhost-only.
 - `132-150` - `DEFAULT_COMMANDS`: the built-in chat command table. `permission`
-  one of `everyone|subscriber|vip|moderator|broadcaster`. `run` and
-  `killswitch` ship disabled + broadcaster-only.
+  one of `everyone|subscriber|vip|moderator|lead_moderator|broadcaster`. `run` and
+  `killswitch` ship disabled + broadcaster-only, and `floorPermission` keeps
+  both at moderator or above on every write into `state.commands`.
 - `152-164` - `state`: the single in-memory store. `queue`, `wishlist`, `log`,
   `commands`, `customCommands`, connection status per service.
 
@@ -49,8 +50,8 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   `modWss`. This is how the dashboard and the mod queue stay live.
 - `294-299` - `addLog(type, command, detail, ok)`: prepend to `state.log`
   (capped 100), broadcast as `{event:'log'}`. **This is the only audit trail.**
-- `304-313` - `checkPermission(chatEvent, required)`: badge-based. Broadcaster
-  = chatter id matches broadcaster id.
+- `304-313` - `checkPermission(chatEvent, required)`: badge-based, ranked by
+  `PERMISSION_LEVELS` via `BADGE_LEVEL`. Broadcaster = chatter id matches broadcaster id.
 
 ### Media / song requests
 - `481-503` - `approveQueueEntry(id, via)`: the shared approve path. Resolves

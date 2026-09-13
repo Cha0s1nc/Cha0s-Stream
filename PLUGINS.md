@@ -55,9 +55,10 @@ api.addCommand('hello', {
 | Value | Who can use it |
 |-------|---------------|
 | `'everyone'` | All viewers |
-| `'subscriber'` | Subscribers, VIPs, mods, broadcaster |
-| `'vip'` | VIPs, mods, broadcaster |
-| `'moderator'` | Mods and broadcaster |
+| `'subscriber'` | Subscribers, VIPs, mods, lead mods, broadcaster |
+| `'vip'` | VIPs, mods, lead mods, broadcaster |
+| `'moderator'` | Mods, lead mods, broadcaster |
+| `'lead_moderator'` | Lead mods and broadcaster |
 | `'broadcaster'` | Broadcaster only |
 
 **Sources**

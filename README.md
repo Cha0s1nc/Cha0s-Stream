@@ -187,6 +187,8 @@ All commands are configurable from the **Commands** tab. Each has an enable togg
 | `!run <url>` | Broadcaster | Runs a script from an allowlisted URL. Off by default |
 | `!killswitch` | Broadcaster | Stops stream and recording immediately. Off by default |
 
+`!run` and `!killswitch` can be loosened to Lead Mods or Moderators, never lower.
+
 `!run` downloads a URL and executes it, so it is gated by **Settings → Advanced →
 Script Allowlist**: a comma-separated list of domains, which also covers their
 subdomains. The same list gates the directories event trigger scripts may run

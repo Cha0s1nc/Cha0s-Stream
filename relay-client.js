@@ -199,7 +199,7 @@ async function drainRunQueue() {
 // function and BADGES['__proto__'] with an object, so an odd userLevel used to
 // blow up in .map() below instead of falling back to no badges.
 const BADGES = Object.assign(Object.create(null), {
-  moderator: ['moderator'], vip: ['vip'], subscriber: ['subscriber'],
+  lead_moderator: ['lead_moderator'], moderator: ['moderator'], vip: ['vip'], subscriber: ['subscriber'],
 });
 
 // checkPermission() in listener.js reads badges, and treats chatter == broadcaster

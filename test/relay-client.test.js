@@ -78,6 +78,7 @@ test('handshake, serial command.run, reply capture, idempotency', async () => {
   // two commands back to back + a repeat of the first id
   wss._ws.send(JSON.stringify({ type: 'command.run', id: 'a', trigger: 'sr', args: ['one'], user: 'bob', userLevel: 'everyone' }));
   wss._ws.send(JSON.stringify({ type: 'command.run', id: 'b', trigger: 'sr', args: ['two'], user: 'kim', userLevel: 'moderator' }));
+  wss._ws.send(JSON.stringify({ type: 'command.run', id: 'c', trigger: 'sr', args: ['three'], user: 'lee', userLevel: 'lead_moderator' }));
 
   await new Promise((r) => setTimeout(r, 120));
 
@@ -85,9 +86,10 @@ test('handshake, serial command.run, reply capture, idempotency', async () => {
   await new Promise((r) => setTimeout(r, 60));
 
   // dispatchCommand ran once per unique id, in order
-  assert.deepEqual(dispatched.map((d) => d.text), ['!sr one', '!sr two']);
-  // moderator level produced a moderator badge
+  assert.deepEqual(dispatched.map((d) => d.text), ['!sr one', '!sr two', '!sr three']);
+  // moderator level produced a moderator badge, lead mod its own badge
   assert.deepEqual(dispatched[1].badges, [{ set_id: 'moderator' }]);
+  assert.deepEqual(dispatched[2].badges, [{ set_id: 'lead_moderator' }]);
   // every command answered, replies captured, repeat id reused the cached result
   const byId = Object.fromEntries(results.map((r) => [r.id, r]));
   assert.equal(byId.a.reply, 'done: !sr one');
