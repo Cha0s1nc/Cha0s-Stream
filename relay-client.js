@@ -25,6 +25,11 @@ let attempt = 0;
 let reconnectTimer = null;
 let warnedNoToken = false;
 
+// Whether a mod is watching the queue in Guard right now. The relay flips this
+// with queue.watch. Snapshots are only pushed while it's true, so viewer
+// song-request data doesn't stream to the relay for a screen nobody has open.
+let watching = false;
+
 // command.run is processed one at a time: the reply interceptor in
 // sendChatMessage is a single module global, so overlapping runs would cross
 // their replies. Queue the rest.
@@ -56,6 +61,7 @@ function reload() {
 function stop() {
   started = false;
   connected = false;
+  watching = false;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (ws) { try { ws.close(); } catch {} ws = null; }
   broadcastStatus();
@@ -87,6 +93,7 @@ function connect() {
     if (sock !== ws) return;
     if (connected) log('disconnected', code, reason?.toString() || '');
     connected = false;
+    watching = false; // relay re-signals on the next watch poll if a mod is still there
     ws = null;
     broadcastStatus();
     scheduleReconnect();
@@ -165,6 +172,12 @@ function onMessage(msg) {
       break;
     case 'queue.list':
       result(msg.id, { ok: true, queue: deps.state.queue, wishlist: deps.state.wishlist });
+      break;
+    case 'queue.watch':
+      // Send one snapshot immediately when a watcher arrives so they get current
+      // state, then stream on change (gated in pushSnapshot) until they leave.
+      watching = msg.watching === true;
+      if (watching) pushSnapshot();
       break;
   }
 }
@@ -258,9 +271,11 @@ function commandsChanged() {
   }
 }
 
-// listener.js calls this from broadcast() on queue/wishlist mutations.
+// listener.js calls this from broadcast() on queue/wishlist mutations. No-op
+// unless a mod is watching the queue in Guard (see `watching`), so the queue
+// only crosses the relay while someone actually has it open.
 function pushSnapshot() {
-  if (ws && connected) {
+  if (ws && connected && watching) {
     send(ws, { type: 'queue.snapshot', queue: deps.state.queue, wishlist: deps.state.wishlist });
   }
 }
