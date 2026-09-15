@@ -1037,7 +1037,7 @@
   </div>
   <div class="statusbar">
     <div class="status-item clickable" id="obs-item" data-tip="Reconnect OBS" onclick="reconnectService('obs')"><div class="dot off" id="obs-dot"></div><span class="sb-label">OBS</span></div>
-    <div class="status-item clickable" id="jf-item" data-tip="Reconnect Jellyfin" onclick="reconnectService('jellyfin')"><div class="dot off" id="jf-dot"></div><span class="sb-label">Jellyfin</span></div>
+    <div class="status-item clickable" id="media-item" data-tip="Recheck media player" onclick="reconnectService('media')"><div class="dot off" id="media-dot"></div><span class="sb-label">Media</span></div>
     <div class="status-item clickable" id="twitch-item" data-tip="Reconnect Twitch" onclick="reconnectService('twitch')"><div class="dot off" id="twitch-dot"></div><span class="sb-label">Twitch</span></div>
     <div class="statusbar-divider"></div>
     <div class="status-item"><span class="sb-label">Mode:&nbsp;</span><span class="mode-val" id="mode-val" data-tip="Click to toggle media mode">Jellyfin</span></div>
@@ -1113,7 +1113,7 @@
         const data = JSON.parse(e.data);
         if (data.event === 'init') {
           updateService('obs', data.obs.connected, data.obs.paused);
-          updateService('jellyfin', data.jellyfin.connected, data.jellyfin.paused);
+          updateService('media', data.media.connected, data.media.paused);
           updateService('twitch', data.twitch?.connected || false, data.twitch?.paused || false);
           // Pre-load emotes if Twitch is already connected on init
           if (data.twitch?.connected) { streamTwitchWasConnected = true; reloadPaneAssets(); }
@@ -1252,9 +1252,8 @@
     }
 
     function updateService(service, connected, paused = false) {
-      const id = service === 'jellyfin' ? 'jf' : service;
-      const dot = document.getElementById(`${id}-dot`);
-      const item = document.getElementById(`${id}-item`);
+      const dot = document.getElementById(`${service}-dot`);
+      const item = document.getElementById(`${service}-item`);
       if (dot) {
         dot.classList.toggle('on', connected);
         dot.classList.toggle('off', !connected && !paused);
@@ -1262,7 +1261,7 @@
       }
       if (item) {
         item.classList.toggle('paused', paused);
-        const svcName = service === 'jellyfin' ? 'Jellyfin' : service === 'obs' ? 'OBS' : 'Twitch';
+        const svcName = service === 'media' ? 'Media' : service === 'obs' ? 'OBS' : 'Twitch';
         item.title = paused ? `${svcName} — paused, click to retry` : svcName;
       }
     }
@@ -1588,9 +1587,8 @@
       try {
         await fetch(`/api/reconnect/${service}`, { method: 'POST' });
         // Optimistically clear the paused state so the dot stops being yellow immediately
-        const id = service === 'jellyfin' ? 'jf' : service;
-        const dot = document.getElementById(`${id}-dot`);
-        const item = document.getElementById(`${id}-item`);
+        const dot = document.getElementById(`${service}-dot`);
+        const item = document.getElementById(`${service}-item`);
         if (dot) { dot.classList.remove('paused'); dot.classList.add('off'); }
         if (item) { item.classList.remove('paused'); }
       } catch (e) { console.warn('reconnect failed', e); }

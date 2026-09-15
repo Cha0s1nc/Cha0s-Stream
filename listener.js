@@ -155,7 +155,7 @@ const DEFAULT_COMMANDS = {
 // --- State ---
 const state = {
   obs: { connected: false, reconnecting: false, failCount: 0, paused: false },
-  jellyfin: { connected: false, lastChecked: null },
+  media: { connected: false, lastChecked: null },
   // channels: guest rooms we also read, keyed by lowercase login ->
   // { id, subId, error }. The home channel is never in here; it is implicit.
   twitch: { connected: false, failCount: 0, paused: false, channels: {} },
@@ -550,27 +550,6 @@ async function getActiveSession() {
   }) || null;
 }
 
-async function checkJellyfinConnection() {
-  try {
-    await jellyfinRequest('/System/Info/Public');
-    if (!state.jellyfin.connected) {
-      state.jellyfin.connected = true;
-      broadcast({ event: 'status', service: 'jellyfin', connected: true, paused: false });
-      addLog('jellyfin', 'connect', 'Jellyfin reachable');
-    }
-    state.jellyfin.lastChecked = new Date().toISOString();
-  } catch {
-    if (state.jellyfin.connected) {
-      state.jellyfin.connected = false;
-      broadcast({ event: 'status', service: 'jellyfin', connected: false, paused: false });
-      addLog('jellyfin', 'disconnect', 'Jellyfin unreachable', false);
-    }
-    // Stay disconnected and keep polling silently — no log spam, no forced pause
-  }
-}
-
-checkJellyfinConnection();
-setInterval(checkJellyfinConnection, 30000);
 
 // --- OS Media Keys ---
 function getOSNowPlaying() {
@@ -722,6 +701,11 @@ function cascadeAuthHeaders() {
     const token = fs.readFileSync(require('path').join(require('os').homedir(), '.cascade-control-token'), 'utf8').trim();
     return { 'X-Cascade-Token': token };
   } catch { return {}; }
+}
+
+async function cascadeProbe() {
+  const r = await fetch('http://127.0.0.1:47847/cascade/status', { signal: AbortSignal.timeout(800), headers: cascadeAuthHeaders() });
+  if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
 }
 
 async function cascadeGetNowPlaying() {
@@ -1896,15 +1880,27 @@ async function spotifyQueueNext(item) {
   if (!res.ok) throw new Error(res.status === 404 ? 'Spotify has no active device' : `Spotify returned ${res.status}`);
 }
 
+// probe throws when the player is not reachable. It drives the statusbar's
+// Media dot, so it has to be cheap: it runs every 30 seconds.
 const MEDIA_MODES = {
   cascade:  { label: 'Cascade',        nowPlaying: cascadeGetNowPlaying,  control: cascadeControl,
-              search: jellyfinSearch, queueNext: jellyfinQueueNext },
+              search: jellyfinSearch, queueNext: jellyfinQueueNext,
+              probe: cascadeProbe },
   spotify:  { label: 'Spotify',        nowPlaying: spotifyGetCurrentTrack, control: spotifyControl, available: spotifyIsConfigured,
-              search: spotifySearch,  queueNext: spotifyQueueNext },
+              search: spotifySearch,  queueNext: spotifyQueueNext,
+              probe: async () => {
+                if (!spotifyIsConfigured()) throw new Error('Spotify is not connected');
+                const r = await spotifyApiCall('/me');
+                if (!r.ok) throw new Error(`Spotify returned ${r.status}`);
+              } },
   jellyfin: { label: 'Jellyfin',       nowPlaying: jellyfinNowPlaying,    control: jellyfinControl,
-              search: jellyfinSearch, queueNext: jellyfinQueueNext },
+              search: jellyfinSearch, queueNext: jellyfinQueueNext,
+              probe: () => jellyfinRequest('/System/Info/Public') },
   cider:    { label: 'Cider',          nowPlaying: ciderNowPlaying,       control: ciderControl,   available: ciderIsConfigured,
-              search: ciderSearch,    queueNext: ciderQueueNext },
+              search: ciderSearch,    queueNext: ciderQueueNext,
+              probe: () => ciderFetch('/playback/active') },
+  // ponytail: no probe, OS keys have nothing to connect to so they always read as connected.
+  // A missing playerctl/xdotool on Linux only shows up when a command runs.
   os:       { label: 'OS media keys',  nowPlaying: osNowPlaying,          control: sendOSMediaKey },
 };
 
@@ -1917,6 +1913,24 @@ function mediaMode() {
 function mediaAdapter() {
   return MEDIA_MODES[mediaMode()];
 }
+
+/** Probe whichever player is selected and flip the Media status dot on a change. */
+async function checkMediaConnection() {
+  const mode = mediaMode();
+  const { label, probe } = MEDIA_MODES[mode];
+  let connected = true;
+  try { if (probe) await probe(); } catch { connected = false; }
+  // The mode changed mid-probe, so this answer is about a player no longer selected.
+  if (mediaMode() !== mode) return;
+  state.media.lastChecked = new Date().toISOString();
+  if (state.media.connected === connected) return;
+  state.media.connected = connected;
+  broadcast({ event: 'status', service: 'media', connected, paused: false });
+  addLog('jellyfin', connected ? 'connect' : 'disconnect', `${label} ${connected ? 'reachable' : 'unreachable'}`, connected);
+}
+
+checkMediaConnection();
+setInterval(checkMediaConnection, 30000);
 
 /** "Artist — Title", or null. Shared by !song, the pollers and the overlay. */
 function formatTrack(track) {
@@ -2323,8 +2337,8 @@ app.post('/api/reconnect/:service', (req, res) => {
     state.obs.paused = false;
     state.obs.failCount = 0;
     connectOBS();
-  } else if (service === 'jellyfin') {
-    checkJellyfinConnection(); // triggers an immediate check outside the 30s cycle
+  } else if (service === 'media') {
+    checkMediaConnection(); // triggers an immediate check outside the 30s cycle
   } else if (service === 'twitch') {
     state.twitch.paused = false;
     twitchReconnectAttempts = 0;
@@ -2405,8 +2419,8 @@ app.get('/api/cider/status', async (req, res) => {
 
 app.get('/api/cascade/status', async (req, res) => {
   try {
-    const r = await fetch('http://127.0.0.1:47847/cascade/status', { signal: AbortSignal.timeout(800), headers: cascadeAuthHeaders() });
-    res.json({ running: r.ok });
+    await cascadeProbe();
+    res.json({ running: true });
   } catch { res.json({ running: false }); }
 });
 
@@ -3579,7 +3593,7 @@ app.delete('/api/plugins/:id', (req, res) => {
 });
 
 app.get('/api/state', (req, res) => res.json({
-  obs: state.obs, jellyfin: state.jellyfin, twitch: state.twitch, log: state.log,
+  obs: state.obs, media: state.media, twitch: state.twitch, log: state.log,
   mediaMode: process.env.MEDIA_CONTROL_MODE || 'os',
   srMode: process.env.SONG_REQUEST_MODE || 'chat',
   srRedeemName: process.env.SONG_REQUEST_REDEEM_NAME || '',
@@ -3630,9 +3644,9 @@ app.post('/settings', (req, res) => {
     obs.disconnect().catch(() => {}); setTimeout(connectOBS, 500);
   }
   if (updated.some(k => k.startsWith('JELLYFIN_'))) {
-    state.jellyfin.connected = false; jellyfinToken = null; jellyfinUserId = null; jellyfinBaseUrl = null;
-    checkJellyfinConnection();
+    jellyfinToken = null; jellyfinUserId = null; jellyfinBaseUrl = null;
   }
+  if (updated.some(k => k.startsWith('JELLYFIN_') || k === 'MEDIA_CONTROL_MODE' || k === 'CIDER_TOKEN')) checkMediaConnection();
   if (updated.some(k => k.startsWith('TWITCH_'))) {
     twitchAuthFailed = false;  // clear auth-failure latch so reconnect is allowed with new credentials
     if (twitchWs) { twitchWs.removeAllListeners(); twitchWs.terminate(); twitchWs = null; }
@@ -3669,7 +3683,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify(nowPlayingPayload(nowPlayingCurrent)));
   ws.send(JSON.stringify({
     event: 'init',
-    obs: state.obs, jellyfin: state.jellyfin, twitch: state.twitch, log: state.log,
+    obs: state.obs, media: state.media, twitch: state.twitch, log: state.log,
     mediaMode: process.env.MEDIA_CONTROL_MODE || 'os',
     srMode: process.env.SONG_REQUEST_MODE || 'chat',
     srRedeemName: process.env.SONG_REQUEST_REDEEM_NAME || '',
@@ -4015,6 +4029,7 @@ app.get('/api/spotify/callback', async (req, res) => {
     persistSettings();
     broadcast({ event: 'spotify_connected' });
     addLog('system', 'spotify', 'Spotify connected');
+    checkMediaConnection();
     if (mediaMode() === 'spotify') nowPlayingStartPolling();
     res.send('<html><body style="font-family:sans-serif;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><h2>✓ Spotify connected! You can close this tab.</h2></body></html>');
   } catch (err) {
@@ -4061,6 +4076,7 @@ app.post('/api/cider/disconnect', (req, res) => {
   persistSettings();
   if (mediaMode() === 'cider') nowPlayingStopPolling();
   addLog('system', 'cider', 'Cider token cleared');
+  checkMediaConnection();
   res.json({ ok: true });
 });
 
@@ -4072,6 +4088,7 @@ app.post('/api/spotify/disconnect', (req, res) => {
   if (mediaMode() === 'spotify') nowPlayingStopPolling();
   broadcast({ event: 'spotify_disconnected' });
   addLog('system', 'spotify', 'Spotify disconnected');
+  checkMediaConnection();
   res.json({ ok: true });
 });
 
@@ -4168,7 +4185,7 @@ modWss.on('connection', (ws) => {
     event: 'init',
     queue: state.queue,
     wishlist: state.wishlist,
-    jellyfin: state.jellyfin
+    media: state.media
   }));
 });
 
@@ -4244,7 +4261,7 @@ modApp.get('/', (req, res) => {
   <span class="ws-label" id="ws-label">connecting</span>
   <div class="jellyfin-status">
     <div class="jellyfin-dot" id="jf-dot"></div>
-    <span id="jf-label">Jellyfin</span>
+    <span id="jf-label">Media</span>
   </div>
 </header>
 <main>
@@ -4327,9 +4344,9 @@ modApp.get('/', (req, res) => {
       const data = JSON.parse(e.data);
       if (data.event === 'init') {
         queue = data.queue || []; wishlist = data.wishlist || [];
-        const jfOk = data.jellyfin?.connected;
+        const jfOk = data.media?.connected;
         document.getElementById('jf-dot').classList.toggle('ok', !!jfOk);
-        document.getElementById('jf-label').textContent = jfOk ? 'Jellyfin connected' : 'Jellyfin offline';
+        document.getElementById('jf-label').textContent = jfOk ? 'Media connected' : 'Media offline';
         renderQueue(); renderWishlist();
       } else if (data.event === 'queue_add') {
         queue.push(data.entry); renderQueue();
@@ -4342,9 +4359,9 @@ modApp.get('/', (req, res) => {
         wishlist.unshift(data.entry); renderWishlist();
       } else if (data.event === 'wishlist_remove') {
         wishlist = wishlist.filter(e => e.id !== data.id); renderWishlist();
-      } else if (data.event === 'status' && data.service === 'jellyfin') {
+      } else if (data.event === 'status' && data.service === 'media') {
         document.getElementById('jf-dot').classList.toggle('ok', data.connected);
-        document.getElementById('jf-label').textContent = data.connected ? 'Jellyfin connected' : 'Jellyfin offline';
+        document.getElementById('jf-label').textContent = data.connected ? 'Media connected' : 'Media offline';
       }
     };
   }
