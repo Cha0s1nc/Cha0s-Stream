@@ -557,27 +557,6 @@ function getOSNowPlaying() {
   const platform = require('os').platform();
 
   const cmds = {
-    darwin: `osascript -e '
-set output to ""
-try
-  if application "Spotify" is running then
-    tell application "Spotify"
-      if player state is playing then
-        set output to artist & " — " & name of current track
-      end if
-    end tell
-  end if
-end try
-try
-  if output is "" and application "Music" is running then
-    tell application "Music"
-      if player state is playing then
-        set output to artist of current track & " — " & name of current track
-      end if
-    end tell
-  end if
-end try
-return output'`,
     win32: `powershell -Command "$null=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media,ContentType=WindowsRuntime];$m=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync().GetAwaiter().GetResult();$s=$m.GetCurrentSession();if($s){$p=$s.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();if($p -and $p.Title){\\"$($p.Artist) — $($p.Title)\\"}}"`,
     linux: `playerctl metadata --format "{{artist}} — {{title}}" 2>/dev/null`
   };
@@ -1661,7 +1640,49 @@ async function jellyfinNowPlaying() {
 // that is all the platform scripts can get. Split it back apart so every
 // adapter returns the same shape; an em dash inside a title is why this splits
 // on the first separator only.
+// JXA rather than AppleScript on purpose. AppleScript resolves an app's terms
+// when it compiles, so on a Mac without Spotify installed `player state` inside
+// `tell application "Spotify"` was a syntax error and the whole script, Music
+// half included, never ran. JXA looks them up at run time.
+// ponytail: Spotify and Music only. Browsers and other players go through
+// MediaRemote, which macOS 15.4+ locks to entitled processes.
+const DARWIN_NOW_PLAYING_JXA = `
+function run() {
+  const found = [];
+  for (const name of ['Spotify', 'Music']) {
+    try {
+      const app = Application(name);
+      if (!app.running()) continue;
+      const state = app.playerState();
+      if (state !== 'playing' && state !== 'paused') continue;
+      const t = app.currentTrack;
+      let art = null;
+      try { art = name === 'Spotify' ? t.artworkUrl() : null; } catch (e) {}
+      found.push({
+        title: t.name(), artist: t.artist(), album: t.album(), art,
+        isPlaying: state === 'playing',
+        // Spotify reports milliseconds, Music seconds.
+        durationMs: Math.round(name === 'Spotify' ? t.duration() : t.duration() * 1000),
+        positionMs: Math.round(app.playerPosition() * 1000),
+      });
+    } catch (e) { /* not installed, or Automation permission denied */ }
+  }
+  // A playing app beats one left paused in the background.
+  const pick = found.find(f => f.isPlaying) || found[0];
+  return pick ? JSON.stringify(pick) : '';
+}`;
+
+function darwinNowPlaying() {
+  const { execFile } = require('child_process');
+  return new Promise(resolve => {
+    execFile('osascript', ['-l', 'JavaScript', '-e', DARWIN_NOW_PLAYING_JXA], { timeout: 5000 }, (err, stdout) => {
+      try { resolve(stdout.trim() ? JSON.parse(stdout) : null); } catch { resolve(null); }
+    });
+  });
+}
+
 async function osNowPlaying() {
+  if (process.platform === 'darwin') return darwinNowPlaying();
   const line = await getOSNowPlaying();
   if (!line) return null;
   const i = line.indexOf(' — ');
