@@ -7,13 +7,19 @@ on:
     # rebuild and overwrite the assets that were just published. Worse, the tag
     # lands on whatever target_commitish the release carries, so the rebuild is
     # of a different commit. Use workflow_dispatch for manual builds instead.
-    branches: ['stable', 'beta']
+    branches: ['stable']
+  # Manual runs build any branch. Leave prerelease off for a test build (installers
+  # on the run page, no release); turn it on to publish a -bN beta draft.
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build (e.g. 1.1.1) - leave blank to use package.json'
         required: false
         default: ''
+      prerelease:
+        description: 'Publish as a beta (-bN) prerelease draft'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -37,8 +43,8 @@ jobs:
         run: |
           PKG=$(node -p "require('./package.json').version")
 
-          if [[ "${{ github.ref }}" == "refs/heads/beta" ]]; then
-            # Push to beta - auto-increment beta build number
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.prerelease }}" == "true" ]]; then
+            # Manual beta - auto-increment beta build number
             BASE="${PKG%%-*}"
             COUNT=$(git tag -l "v${BASE}-b[0-9]*" | wc -l | tr -d ' ')
             BETA_NUM=$((COUNT + 1))
@@ -71,7 +77,7 @@ jobs:
             echo "should_release=true"  >> $GITHUB_OUTPUT
 
           else
-            # workflow_dispatch
+            # workflow_dispatch test build
             INPUT="${{ github.event.inputs.version }}"
             VERSION="${INPUT:-$PKG}"
             TAG="v${VERSION}"
