@@ -920,7 +920,7 @@ function startTwitchOAuth(flowType) {
       res.writeHead(404); res.end();
     });
 
-    server.listen(OAUTH_CALLBACK_PORT, () => {
+    server.listen(OAUTH_CALLBACK_PORT, '127.0.0.1', () => {
       console.log(`[oauth] Callback server listening on port ${OAUTH_CALLBACK_PORT}`);
       shell.openExternal(`https://id.twitch.tv/oauth2/authorize?${params}`);
     });

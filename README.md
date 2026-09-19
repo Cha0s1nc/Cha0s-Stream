@@ -103,6 +103,8 @@ Under **Settings → Overlays**, choose a browser source mode:
 - **Both** — use `/overlay` for a single combined source, or toggle **Use separate browser sources** to get individual `/alerts` and `/chat` URLs
 - All modes are configurable with separate appearance settings for alerts and chat
 
+The app only answers on `127.0.0.1`, so OBS has to run on the same computer. A browser source on a second streaming PC cannot reach it.
+
 ### Emotes
 
 Third-party emotes render as images in chat and in the overlays. **7TV**, **BTTV** and **FFZ** are all on by default; turn any of them off under **Settings → Twitch**. Each has a **Refresh** button that re-fetches that provider immediately rather than waiting for the 30 minute cache to expire.

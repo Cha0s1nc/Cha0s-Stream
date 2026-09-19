@@ -1,6 +1,6 @@
 # CODEMAP
 
-Orientation for the Cha0s Stream codebase. Line numbers are as of `0497eee` (the mod-page removal is described, but its line numbers are not refreshed)
+Orientation for the Cha0s Stream codebase. Line numbers are as of `0497eee` (the mod-page removal and the localhost bind are described, but their line numbers are not refreshed)
 (branch `dev`). If they've drifted, grep the symbol names.
 
 ## Shape of the thing
@@ -30,8 +30,11 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   Electron, IPC to main; standalone, rewrite `.env`.
 - `89-92` - built-in Twitch client ID + `getEffectiveClientId()` override.
 - `99-120` - express app, `server` (http), `wss` (WebSocketServer on the same
-  server). `PORT` 3000. **`server.listen(PORT)` binds all
-  interfaces** - the dashboard on 3000 is not localhost-only.
+  server). `PORT` 3000, bound to **`127.0.0.1` only**. Every HTTP request and
+  every WS upgrade must pass `isLocalRequest()` (`local-only.js`): Host must be
+  localhost/127.0.0.1 (DNS rebinding) and any Origin must be this app's own
+  (other web pages in the streamer's browser). Overlays therefore only work for
+  an OBS on the same machine.
 - `132-150` - `DEFAULT_COMMANDS`: the built-in chat command table. `permission`
   one of `everyone|subscriber|vip|moderator|lead_moderator|broadcaster`. `run` and
   `killswitch` ship disabled + broadcaster-only, and `floorPermission` keeps
@@ -92,8 +95,9 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   - **`command` (3252-3258)** - builds a fake chat event with a
     `broadcaster` badge and calls `dispatchCommand`. Anything that reaches
     this socket runs commands as the broadcaster, `run`/`killswitch`
-    included. The socket has **no auth**. This is the "narrow it" prerequisite
-    in the portal doc.
+    included. There is no token: what guards it is the loopback bind plus the
+    Host/Origin check in `local-only.js`, so only this machine, and only this
+    app's own pages or non-browser clients, can reach it.
 
 ### HTTP route groups on the main app (port 3000)
 - `2090-2264` - art, cider/cascade status, sounds, queue, jellyfin

@@ -98,7 +98,11 @@ function getEffectiveClientId() {
 const DEV_MODE = process.env.DEV_MODE === 'true' ||
   (() => { try { return fs.existsSync(require('path').join(__dirname, '.debug')); } catch { return false; } })();
 
+const { isLocalRequest } = require('./local-only');
+
 const app = express();
+// Loopback-only, and not reachable from other web pages either: see local-only.js.
+app.use((req, res, next) => (isLocalRequest(req.headers, PORT) ? next() : res.status(403).end()));
 app.use(express.json());
 app.use(express.static(require('path').join(__dirname, 'public')));
 
@@ -108,7 +112,8 @@ require('fs').mkdirSync(SOUNDS_DIR, { recursive: true });
 app.use('/sounds', express.static(SOUNDS_DIR));
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+// The upgrade request skips express middleware, so the same check runs here.
+const wss = new WebSocketServer({ server, verifyClient: (info) => isLocalRequest(info.req.headers, PORT) });
 // ws re-emits the underlying http server's 'error' on the WebSocketServer too,
 // so handling it on `server` alone still left an unhandled 'error' event here -
 // which is what actually crashed the process on a port collision.
@@ -4084,7 +4089,9 @@ server.on('error', (err) => {
   process.exit(0);
 });
 
-server.listen(PORT, () => {
+// 127.0.0.1, not every interface: this dashboard acts as the broadcaster, so nothing
+// but this machine may reach it. Overlays must be loaded by OBS on this same machine.
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`Listener running on http://localhost:${PORT}`);
   nowPlayingStartPolling();
 });
@@ -4097,7 +4104,7 @@ if (!process.env.ELECTRON_MODE) {
   const authApp = express();
   const authServer = http.createServer(authApp);
   authApp.get('/twitch/auth/callback', handleOAuthCallback);
-  authServer.listen(AUTH_PORT, () => {
+  authServer.listen(AUTH_PORT, '127.0.0.1', () => {
     authServerPort = AUTH_PORT;
     console.log(`Auth server running on http://localhost:${AUTH_PORT}`);
   }).on('error', (err) => {
