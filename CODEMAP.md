@@ -1,6 +1,6 @@
 # CODEMAP
 
-Orientation for the Cha0s Stream codebase. Line numbers are as of `0497eee`
+Orientation for the Cha0s Stream codebase. Line numbers are as of `0497eee` (the mod-page removal is described, but its line numbers are not refreshed)
 (branch `dev`). If they've drifted, grep the symbol names.
 
 ## Shape of the thing
@@ -30,7 +30,7 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   Electron, IPC to main; standalone, rewrite `.env`.
 - `89-92` - built-in Twitch client ID + `getEffectiveClientId()` override.
 - `99-120` - express app, `server` (http), `wss` (WebSocketServer on the same
-  server). `PORT` 3000, `MOD_PORT` 3030. **`server.listen(PORT)` binds all
+  server). `PORT` 3000. **`server.listen(PORT)` binds all
   interfaces** - the dashboard on 3000 is not localhost-only.
 - `132-150` - `DEFAULT_COMMANDS`: the built-in chat command table. `permission`
   one of `everyone|subscriber|vip|moderator|lead_moderator|broadcaster`. `run` and
@@ -46,8 +46,8 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
   full trust, no isolation.
 
 ### Broadcast / log / permissions
-- `279-292` - `broadcast(data)`: JSON to every client on both `wss` and
-  `modWss`. This is how the dashboard and the mod queue stay live.
+- `279-292` - `broadcast(data)`: JSON to every client on `wss`. This is how the
+  dashboard stays live. Mods are served through the Guard relay instead.
 - `294-299` - `addLog(type, command, detail, ok)`: prepend to `state.log`
   (capped 100), broadcast as `{event:'log'}`. **This is the only audit trail.**
 - `304-313` - `checkPermission(chatEvent, required)`: badge-based, ranked by
@@ -56,7 +56,7 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
 ### Media / song requests
 - `481-503` - `approveQueueEntry(id, via)`: the shared approve path. Resolves
   the entry, calls `mediaAdapter().queueNext()`, marks `approved`, logs
-  `Approved (via)`. Called by both the dashboard route and the mod-queue route.
+  `Approved (via)`. Called by both the dashboard route and the relay client.
 - `730-795` - now-playing polling loop + `nowPlayingPayload()`.
 - `1938-2039` - song request intake, filters (`SONG_REQUEST_FILTERS`),
   approval mode (`SONG_REQUEST_APPROVAL`: `approve` = queue for review,
@@ -95,25 +95,8 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
     included. The socket has **no auth**. This is the "narrow it" prerequisite
     in the portal doc.
 
-### Mod queue (port 3030, `modApp` / `modServer` / `modWss`)
-- `3629-3688` - the whole mod queue server.
-  - `3644-3658` - `modToken()` (generate-on-first-use, persisted as
-    `MOD_TOKEN`) + `modTokenValid()` (constant-time compare).
-  - `3660-3668` - express middleware: `?token=` or `x-mod-token` header, else
-    401 HTML.
-  - `3671-3678` - `verifyClient` on the upgrade request (middleware doesn't
-    run for WS upgrades).
-  - `3681-3688` - `modWss.on('connection')`: sends `init`, **accepts no
-    inbound messages**. All mod actions go over HTTP, not the socket.
-- `3690-3700` - mod routes: `GET /api/queue`, `POST /api/queue/:id/approve`
-  (→ `approveQueueEntry(id, 'mod')`), `POST /api/queue/:id/skip`.
-- `3702-3870` - `GET /` serves the mod queue page as one inline HTML string
-  (no build step, no framework).
-- `2108-2121` - on the main app: `GET /api/mod/link` (returns URL with token),
-  `POST /api/mod/link` (rotate token, terminate open sockets).
-
 ### HTTP route groups on the main app (port 3000)
-- `2090-2264` - art, mod link, cider/cascade status, sounds, queue, jellyfin
+- `2090-2264` - art, cider/cascade status, sounds, queue, jellyfin
   search, browser-source pages (`/alerts`, `/chat`, `/overlay`, `/nowplaying`).
 - `2265-2760` - chat overlay config, badges, emotes (7TV/BTTV/FFZ), alerts.
 - `2763-3110` - triggers, redeems, OBS scenes/sources/status, commands, custom
@@ -150,9 +133,9 @@ door so Guard and Stream stop double-answering `!` commands.
 - `relay-client.js` - dial + jittered backoff, handshake with the broadcaster
   Twitch token + advertised command list, serial `command.run` execution,
   `queue.approve/skip/list`, `queue.snapshot` push. `init(deps)` is called near
-  the end of `listener.js` (just before `modServer.listen`).
+  the end of `listener.js`.
 - `listener.js` wiring:
-  - `const relayClient = require('./relay-client')` right after `let modWss`.
+  - `const relayClient = require('./relay-client')` near the top, after `PORT`.
   - `sendChatMessage` (~1268): module global `replyInterceptor` +
     `setReplyInterceptor()`; when set, the reply is captured instead of sent to
     Helix (relay posts it via Guard).
@@ -160,7 +143,7 @@ door so Guard and Stream stop double-answering `!` commands.
   - `handleChatMessage` - `RELAY_DEFER_COMMANDS` + connected -> `keywordOnly`.
   - `broadcast()` - pushes `queue.snapshot` on `queue_*` / `wishlist_*` events.
   - `skipQueueEntry(id, via)` - extracted next to `approveQueueEntry`, shared by
-    both skip routes and the relay.
+    the dashboard skip route and the relay.
   - command POST handlers call `relayClient.commandsChanged()`.
   - `/settings` POST calls `relayClient.reload()` on any `RELAY_*` change.
 - Settings: `RELAY_ENABLED`, `RELAY_URL`, `RELAY_DEFER_COMMANDS` (in
@@ -174,5 +157,5 @@ door so Guard and Stream stop double-answering `!` commands.
   (listener) + `STORE_SCHEMA` (main) + the `/settings` POST handler + the
   settings page HTML.
 - `addLog()` for anything you want visible in the dashboard log.
-- `broadcast()` reaches both dashboard and mod queue; there's no per-client
+- `broadcast()` reaches every dashboard client; there's no per-client
   targeting.

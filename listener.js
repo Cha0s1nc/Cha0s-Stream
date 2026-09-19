@@ -6,12 +6,12 @@ require('dotenv').config({ path: dotenvPath });
 const PERSIST_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
   'OBS_HOST','OBS_PORT','OBS_PASSWORD',
-  'LISTENER_PORT','MOD_PORT','MOD_ENABLED',
+  'LISTENER_PORT',
   'TWITCH_OAUTH','TWITCH_CHANNEL','TWITCH_CLIENT_ID','TWITCH_CLIENT_SECRET',
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH',
   'SCRIPT_ALLOWLIST','MEDIA_CONTROL_MODE','CIDER_TOKEN','SPOTIFY_CLIENT_ID',
   'SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME','SONG_REQUEST_ENABLED',
-  'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
+  'SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT',
   'COMMANDS_CONFIG','CUSTOM_COMMANDS','REDEEM_ACTIONS',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','ALERT_CUSTOM_CONFIG',
   'CHAT_OVERLAY_CONFIG','CHAT_OVERLAY_CHANNEL','CHAT_CHANNELS','CHAT_TABS','CHAT_FILTERS','CHAT_HISTORY_ENABLED','OVERLAY_MODE','OVERLAYS_ENABLED','NOWPLAYING_CONFIG',
@@ -115,15 +115,6 @@ const wss = new WebSocketServer({ server });
 wss.on('error', (err) => console.error(`WebSocket server error: ${err.message}`));
 
 const PORT = process.env.LISTENER_PORT || 3000;
-// Not 3001: that is Cha0s Guard's default API port, and anyone developing the Guard
-// relay runs both on one machine. They do not collide in production (Guard lives on a
-// server, this runs on the streamer's PC), but on a dev box whichever binds first wins
-// and the loser fails in a way that looks like anything but a port clash.
-const MOD_PORT = process.env.MOD_PORT || 3030;
-
-// modWss is created later — declared here so broadcast() can reach it
-let modWss = null;
-
 // Guard <-> Stream relay client. init() is called near the mod server block once
 // its dependencies exist; every method is a no-op until then / until connected.
 const relayClient = require('./relay-client');
@@ -293,15 +284,8 @@ process.nextTick(loadAllPlugins);
 // --- Broadcast / log ---
 function broadcast(data) {
   const msg = JSON.stringify(data);
-  // Chat goes to the dashboard only. The mod queue on MOD_PORT is a
-  // network-exposed surface that never rendered chat anyway, and once guest
-  // channels can be joined this would be relaying strangers' chat to it.
-  const targets = data && data.event === 'chat' ? [wss] : [wss, modWss];
-  targets.forEach(ws => {
-    if (!ws) return;
-    ws.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) client.send(msg);
-    });
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
   });
   // ponytail: fire on every queue/wishlist mutation, no coalescing - these are
   // user-paced. Add a debounce if a bulk import ever spams it.
@@ -504,8 +488,7 @@ async function getControllableSession() {
 /**
  * Approve a pending request: hand it to the player as "play next".
  *
- * Shared by the dashboard route and the mod-queue route, which were identical
- * apart from their log line and had already drifted once.
+ * Shared by the dashboard route and the relay client, so the two cannot drift.
  */
 async function approveQueueEntry(id, via) {
   const entry = state.queue.find(e => e.id === id);
@@ -526,8 +509,8 @@ async function approveQueueEntry(id, via) {
 }
 
 /**
- * Remove a pending request from the queue. Shared by the dashboard route, the
- * mod-queue route, and the relay client, which had drifted (different log lines).
+ * Remove a pending request from the queue. Shared by the dashboard route and the
+ * relay client, which had drifted once (different log lines).
  */
 function skipQueueEntry(id, via) {
   const idx = state.queue.findIndex(e => e.id === id);
@@ -2418,21 +2401,6 @@ app.get('/api/art', async (req, res) => {
   } catch { res.status(504).end(); }
 });
 
-// The mod queue link, token included. Served from the main app rather than the
-// mod server so the streamer can read it without already holding the token.
-app.get('/api/mod/link', (req, res) => {
-  const port = parseInt(process.env.MOD_PORT) || MOD_PORT;
-  res.json({ url: `http://localhost:${port}/?token=${modToken()}` });
-});
-
-app.post('/api/mod/link', (req, res) => {
-  process.env.MOD_TOKEN = crypto.randomBytes(24).toString('hex');
-  persistSettings();
-  modWss.clients.forEach(c => c.terminate());   // old link stops working now, not on reconnect
-  addLog('system', 'mod', 'Mod queue link regenerated — existing sessions disconnected');
-  res.json({ ok: true });
-});
-
 app.get('/api/cider/status', async (req, res) => {
   try { await ciderFetch('/playback/active'); res.json({ running: true }); }
   catch { res.json({ running: false }); }
@@ -3623,9 +3591,9 @@ app.get('/api/state', (req, res) => res.json({
 
 const SETTINGS_KEYS = [
   'JELLYFIN_URL','JELLYFIN_API_KEY','JELLYFIN_USERNAME','JELLYFIN_PASSWORD','JELLYFIN_DEVICE_ID',
-  'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','MOD_PORT','MOD_ENABLED','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
+  'OBS_HOST','OBS_PORT','OBS_PASSWORD','LISTENER_PORT','SCRIPT_ALLOWLIST','TWITCH_CLIENT_ID',
   'TWITCH_CLIENT_SECRET','MEDIA_CONTROL_MODE','CIDER_TOKEN','SONG_REQUEST_MODE','SONG_REQUEST_REDEEM_NAME',
-  'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT','MOD_TOKEN',
+  'SONG_REQUEST_ENABLED','SONG_REQUEST_APPROVAL','SONG_REQUEST_FILTERS','CIDER_STOREFRONT',
   'TWITCH_BOT_USERNAME','TWITCH_BOT_OAUTH','TWITCH_OAUTH','TWITCH_CHANNEL',
   'ALERT_MODE','ALERT_OBS_SOURCE','ALERT_OBS_DURATION','OVERLAYS_ENABLED','NOWPLAYING_CONFIG','OVERLAY_MODE',
   'SEVENTV_ENABLED','BTTV_ENABLED','FFZ_ENABLED','SEVENTV_BADGES_ENABLED',
@@ -3684,16 +3652,6 @@ app.post('/settings', (req, res) => {
   // has to hear about it. Without this Guard keeps forwarding triggers and gets
   // ok with no reply, which reads as a working command that answered nothing.
   if (updated.includes('COMMANDS_ENABLED')) relayClient.commandsChanged();
-  if (updated.includes('MOD_ENABLED') || updated.includes('MOD_PORT')) {
-    const enabled = process.env.MOD_ENABLED !== 'false';
-    if (!enabled && modServer.listening) {
-      modWss.clients.forEach(c => c.terminate());
-      modServer.close(() => addLog('system', 'mod', 'Mod server stopped'));
-    } else if (enabled && !modServer.listening) {
-      const port = parseInt(process.env.MOD_PORT) || MOD_PORT;
-      modServer.listen(port, () => addLog('system', 'mod', `Mod server started on port ${port}`));
-    }
-  }
   if (updated.length) persistSettings();
   res.json({ ok: true, updated });
 });
@@ -4149,249 +4107,6 @@ if (!process.env.ELECTRON_MODE) {
   });
 }
 
-// --- Mod server ---
-const modApp = express();
-modApp.use(express.json());
-
-// --- Mod queue auth ---
-// This page is documented as something you share with mods over Tailscale or a
-// Cloudflare Tunnel, and it binds every interface - so it has never been merely
-// local. It carried no authentication at all, while its socket accepts a
-// `command` action that dispatches with broadcaster badges. Anyone who reached
-// the port could switch scenes, stop the stream, or talk in chat as the
-// broadcaster.
-//
-// A shared token is the smallest thing that closes that. It is generated on
-// first use and travels in the URL, because the people using this are opening a
-// link on a phone, not typing headers.
-function modToken() {
-  if (!process.env.MOD_TOKEN) {
-    process.env.MOD_TOKEN = crypto.randomBytes(24).toString('hex');
-    persistSettings();
-    addLog('system', 'mod', 'Generated a mod queue token — re-share the mod URL from Settings');
-  }
-  return process.env.MOD_TOKEN;
-}
-
-/** Constant-time compare, so the token cannot be guessed a character at a time. */
-function modTokenValid(given) {
-  const want = modToken();
-  if (typeof given !== 'string' || given.length !== want.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want));
-}
-
-modApp.use((req, res, next) => {
-  const given = req.query.token || req.get('x-mod-token') || '';
-  if (modTokenValid(String(given))) return next();
-  res.status(401).type('html').send(
-    '<body style="font-family:system-ui;background:#111113;color:#f5f5f7;display:flex;align-items:center;'
-    + 'justify-content:center;height:100vh;margin:0;text-align:center">'
-    + '<div><h2>Not authorised</h2><p style="color:#aeaeb2">Open the mod queue using the full link from '
-    + 'the streamer&rsquo;s Settings &rarr; Mod Queue.</p></div></body>');
-});
-
-const modServer = http.createServer(modApp);
-modWss = new WebSocketServer({ server: modServer, verifyClient: (info, done) => {
-  // The upgrade request skips the express middleware above, so it is checked here.
-  let token = '';
-  try { token = new URL(info.req.url, 'http://x').searchParams.get('token') || ''; } catch {}
-  if (modTokenValid(token)) return done(true);
-  addLog('system', 'mod', 'Rejected an unauthorised mod queue connection', false);
-  done(false, 401, 'Unauthorized');
-} });
-modWss.on('error', (err) => console.error(`Mod WebSocket server error: ${err.message}`));
-
-modWss.on('connection', (ws) => {
-  ws.send(JSON.stringify({
-    event: 'init',
-    queue: state.queue,
-    wishlist: state.wishlist,
-    media: state.media
-  }));
-});
-
-modApp.get('/api/queue', (req, res) => res.json({ queue: state.queue, wishlist: state.wishlist }));
-
-modApp.post('/api/queue/:id/approve', async (req, res) => {
-  const { status, body } = await approveQueueEntry(req.params.id, 'mod');
-  res.status(status).json(body);
-});
-
-modApp.post('/api/queue/:id/skip', (req, res) => {
-  const { status, body } = skipQueueEntry(req.params.id, 'mod');
-  res.status(status).json(body);
-});
-
-modApp.get('/', (req, res) => {
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cha0s Stream — Mod Queue</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e;
-    --border: #3a3a3c; --text: #f5f5f7; --text2: #aeaeb2; --text3: #6e6e73;
-    --accent: #0a84ff; --green: #32d74b; --red: #ff453a; --yellow: #ffd60a;
-    --radius: 12px;
-  }
-  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
-  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 10; }
-  header h1 { font-size: 16px; font-weight: 600; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
-  .dot.live { background: var(--green); }
-  .ws-label { font-size: 11px; color: var(--text3); }
-  .jellyfin-status { margin-left: auto; font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
-  .jellyfin-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
-  .jellyfin-dot.ok { background: var(--green); }
-  main { max-width: 640px; margin: 0 auto; padding: 20px 16px; }
-  section { margin-bottom: 28px; }
-  .section-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
-  .empty { padding: 20px; text-align: center; font-size: 13px; color: var(--text3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-  .request-item { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--border); }
-  .request-item:last-child { border-bottom: none; }
-  .request-item.approved { opacity: 0.45; }
-  .request-info { flex: 1; min-width: 0; }
-  .request-song { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .request-meta { font-size: 11px; color: var(--text3); margin-top: 3px; }
-  .request-actions { display: flex; gap: 7px; flex-shrink: 0; }
-  .btn { border: none; border-radius: 8px; font-size: 12px; font-weight: 600; padding: 7px 14px; cursor: pointer; transition: opacity 0.15s; }
-  .btn:active { opacity: 0.7; }
-  .btn:disabled { opacity: 0.35; cursor: default; }
-  .btn-approve { background: var(--green); color: #000; }
-  .btn-deny   { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
-  .status-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; flex-shrink: 0; }
-  .badge-pending  { background: rgba(255,214,10,0.15); color: var(--yellow); }
-  .badge-approved { background: rgba(50,215,75,0.15); color: var(--green); }
-  .wishlist-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
-  .wishlist-item:last-child { border-bottom: none; }
-  .wishlist-song { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .wishlist-user { font-size: 11px; color: var(--text3); flex-shrink: 0; }
-  summary { cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
-  summary::before { content: '▶'; font-size: 9px; transition: transform 0.15s; }
-  details[open] summary::before { transform: rotate(90deg); }
-</style>
-</head>
-<body>
-<header>
-  <div class="dot" id="ws-dot"></div>
-  <h1>Mod Queue</h1>
-  <span class="ws-label" id="ws-label">connecting</span>
-  <div class="jellyfin-status">
-    <div class="jellyfin-dot" id="jf-dot"></div>
-    <span id="jf-label">Media</span>
-  </div>
-</header>
-<main>
-  <section>
-    <div class="section-title">Song Requests</div>
-    <div id="queue-container"><div class="empty">No pending requests.</div></div>
-  </section>
-  <details>
-    <summary>Wishlist</summary>
-    <div id="wishlist-container"><div class="empty">Wishlist is empty.</div></div>
-  </details>
-</main>
-<script>
-  let queue = [], wishlist = [];
-
-  function timeAgo(iso) {
-    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
-    if (s < 60) return s + 's ago';
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    return Math.floor(s / 3600) + 'h ago';
-  }
-
-  function renderQueue() {
-    const el = document.getElementById('queue-container');
-    const items = queue.filter(e => e.status !== 'skip');
-    if (!items.length) { el.innerHTML = '<div class="empty">No pending requests.</div>'; return; }
-    el.innerHTML = '<div class="card">' + items.map(e => {
-      const song = e.resolvedItem ? (e.resolvedItem.artist + ' — ' + e.resolvedItem.name) : e.query;
-      const approved = e.status === 'approved';
-      return \`<div class="request-item \${approved ? 'approved' : ''}" id="qi-\${e.id}">
-        <div class="request-info">
-          <div class="request-song" title="\${song}">\${song}</div>
-          <div class="request-meta">by \${e.user} · \${timeAgo(e.addedAt)}</div>
-        </div>
-        <span class="status-badge \${approved ? 'badge-approved' : 'badge-pending'}">\${approved ? 'Queued' : 'Pending'}</span>
-        \${!approved ? \`<div class="request-actions">
-          <button class="btn btn-approve" onclick="approve('\${e.id}', this)">✓ Approve</button>
-          <button class="btn btn-deny"   onclick="deny('\${e.id}', this)">✕ Deny</button>
-        </div>\` : ''}
-      </div>\`;
-    }).join('') + '</div>';
-  }
-
-  function renderWishlist() {
-    const el = document.getElementById('wishlist-container');
-    if (!wishlist.length) { el.innerHTML = '<div class="empty">Wishlist is empty.</div>'; return; }
-    el.innerHTML = '<div class="card">' + wishlist.map(e =>
-      \`<div class="wishlist-item"><span class="wishlist-song">\${e.query}</span><span class="wishlist-user">\${e.user}</span></div>\`
-    ).join('') + '</div>';
-  }
-
-  async function approve(id, btn) {
-    btn.disabled = true; btn.textContent = '…';
-    try {
-      const r = await fetch('/api/queue/' + id + '/approve', { method: 'POST' });
-      if (!r.ok) { const d = await r.json(); alert(d.error || 'Failed'); btn.disabled = false; btn.textContent = '✓ Approve'; }
-    } catch (e) { alert('Network error'); btn.disabled = false; btn.textContent = '✓ Approve'; }
-  }
-
-  async function deny(id, btn) {
-    btn.disabled = true; btn.textContent = '…';
-    try {
-      await fetch('/api/queue/' + id + '/skip', { method: 'POST' });
-    } catch (e) { alert('Network error'); btn.disabled = false; btn.textContent = '✕ Deny'; }
-  }
-
-  function connect() {
-    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
-      + location.host + '/?token=' + encodeURIComponent(new URLSearchParams(location.search).get('token') || ''));
-    ws.onopen = () => {
-      document.getElementById('ws-dot').classList.add('live');
-      document.getElementById('ws-label').textContent = 'live';
-    };
-    ws.onclose = () => {
-      document.getElementById('ws-dot').classList.remove('live');
-      document.getElementById('ws-label').textContent = 'reconnecting';
-      setTimeout(connect, 3000);
-    };
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.event === 'init') {
-        queue = data.queue || []; wishlist = data.wishlist || [];
-        const jfOk = data.media?.connected;
-        document.getElementById('jf-dot').classList.toggle('ok', !!jfOk);
-        document.getElementById('jf-label').textContent = jfOk ? 'Media connected' : 'Media offline';
-        renderQueue(); renderWishlist();
-      } else if (data.event === 'queue_add') {
-        queue.push(data.entry); renderQueue();
-      } else if (data.event === 'queue_update') {
-        const idx = queue.findIndex(e => e.id === data.entry.id);
-        if (idx !== -1) queue[idx] = data.entry; renderQueue();
-      } else if (data.event === 'queue_remove') {
-        queue = queue.filter(e => e.id !== data.id); renderQueue();
-      } else if (data.event === 'wishlist_add') {
-        wishlist.unshift(data.entry); renderWishlist();
-      } else if (data.event === 'wishlist_remove') {
-        wishlist = wishlist.filter(e => e.id !== data.id); renderWishlist();
-      } else if (data.event === 'status' && data.service === 'media') {
-        document.getElementById('jf-dot').classList.toggle('ok', data.connected);
-        document.getElementById('jf-label').textContent = data.connected ? 'Media connected' : 'Media offline';
-      }
-    };
-  }
-  connect();
-</script>
-</body>
-</html>`);
-});
-
 relayClient.init({
   state,
   broadcast,
@@ -4401,12 +4116,3 @@ relayClient.init({
   skipQueueEntry,
   setReplyInterceptor,
 });
-
-if (process.env.MOD_ENABLED !== 'false') {
-  modServer.listen(MOD_PORT, () => console.log(`Mod queue running on http://localhost:${MOD_PORT}`))
-    .on('error', (err) => {
-      // Optional feature: warn and carry on rather than taking the app down.
-      if (err.code === 'EADDRINUSE') console.error(`Mod queue port ${MOD_PORT} already in use — mod queue disabled for this session.`);
-      else console.error(`Mod queue error: ${err.message}`);
-    });
-}

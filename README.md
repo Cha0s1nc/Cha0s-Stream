@@ -19,7 +19,7 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 - **Now Playing overlay** — its own browser source with seven layouts, accent colour pulled from the album art, and an optional "requested by" credit
 - **Per-overlay switches** — each overlay has its own URL and its own switch. Switching one off serves a blank page at its address, so the browser source already in OBS goes dark
 - **Combined overlay mode** — a single `/overlay` browser source that layers chat and alerts together, or use separate sources for each
-- **Song request queue** — viewer `!sr` requests or channel point redemptions, with a live queue in the dashboard and mod queue page. Approved requests retire into a history panel once the player moves past them
+- **Song request queue**: viewer `!sr` requests or channel point redemptions, with a live queue in the dashboard, and for mods in Cha0s Guard's Song Queue when the relay is on. Approved requests retire into a history panel once the player moves past them
 - **Chat commands** — built-in commands with per-command permission levels and source settings (chat, whisper, redemption input)
 - **Custom commands** — add your own trigger words with response templates and `{user}` variables
 - **Event triggers** — auto-fire chat messages, sounds, or scripts on follows, cheers, subs, resubs, and gift subs
@@ -27,7 +27,7 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 - **Cha0s Guard relay** — let [Cha0s Guard](https://github.com/Cha0s1nc/ModBot) forward Twitch chat commands to this app. The app dials out, so there is no inbound port to open
 - **Plugin system** — drop a `.js` file into `plugins/` to add commands, react to events, and render a live panel in the dashboard
 - **Sender toggle** — switch between sending chat as your bot account or as the broadcaster on the fly
-- **Mod queue** — a lightweight page for mods to approve or deny song requests in real time
+- **Mod access through Cha0s Guard**: mods approve or deny song requests from Guard's dashboard, signed in with Discord and checked as mods, over the outbound relay. Nothing to port-forward and no shared link
 - **Sound playback** — local files, absolute paths, or remote URLs via `!sound` or channel point redeems
 - **Verbose log** — filterable activity log with OBS, Media, Sound, System, and Error categories
 - **Auto-updater** — checks GitHub releases on startup, verifies the download against its published SHA-256, and offers an opt-in beta channel. Windows installs and relaunches on its own; macOS opens the disk image for the drag to Applications, because Squirrel refuses to update an app without a Developer ID signature
@@ -153,16 +153,9 @@ you can see what they do and edit them.
 [recent-messages.robotty.de](https://recent-messages.robotty.de), shown dimmed
 above live chat. Set `CHAT_HISTORY_ENABLED=false` to turn that off.
 
-### Mod Queue
+### Mods
 
-| Setting | Description |
-|---------|-------------|
-| Enable Mod Queue | Toggle the mod page on or off |
-| Mod Queue Port | Default `3030` |
-
-The mod page runs at `http://<ip>:3030` and shows only the song request queue with approve/deny controls. Share it with mods via a tool like [Tailscale](https://tailscale.com) or something like a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
-
-> **Share the link from Settings, not just the address.** The mod page requires an access token that the link carries in its query string. Anyone holding that link can approve requests and act in your channel, so treat it like a password — and use **New link** in Settings to revoke it, which disconnects every open session immediately.
+There is no separate mod page. Turn on **Settings → Guard Relay → Connect to Guard** and link your channel in Cha0s Guard, and your mods get the song request queue under **Song Queue** in Guard's dashboard. They sign in with Discord, Guard checks they are mods in your server, and every approve or skip is recorded under their name.
 
 ---
 
@@ -251,7 +244,7 @@ An **OBS** button in the Twitch Stream panel header adds a third column with a c
 
 ## Song Requests
 
-Viewers request songs with `!sr <query>` or via a channel point redemption. Requests appear in the **Requests** tab and the mod queue page. The active queue and download wishlist are both visible and manageable from the dashboard.
+Viewers request songs with `!sr <query>` or via a channel point redemption. Requests appear in the **Requests** tab, and in Cha0s Guard's Song Queue for your mods when the relay is on. The active queue and download wishlist are both visible and manageable from the dashboard.
 
 ---
 

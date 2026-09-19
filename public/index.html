@@ -976,13 +976,10 @@
           <div class="settings-group" data-cat="advanced">
             <div class="settings-group-title">Listener</div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Port</div><div class="setting-desc">Port the listener runs on</div></div><input class="setting-input" id="cfg-listener-port" type="text" placeholder="3000" /></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue</div><div class="setting-desc">Enable the mod queue page on a separate port</div></div><label class="toggle"><input type="checkbox" id="cfg-mod-enabled" checked /><span class="toggle-track"></span></label></div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Mod Queue Link</div><div class="setting-desc">Share this exact link — it carries the access token. Anyone holding it can approve requests and act in your channel, so treat it like a password.</div></div><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><code id="mod-queue-url" class="overlay-url">loading…</code><button class="btn btn-secondary btn-sm" onclick="copyUrl('mod-queue-url')">Copy</button><button class="btn btn-secondary btn-sm" onclick="regenerateModToken()">New link</button></div></div>
-            <div class="setting-row" id="mod-port-row"><div class="setting-label"><div class="setting-name">Mod Queue Port</div><div class="setting-desc">Port for the mod queue page</div></div><input class="setting-input" id="cfg-mod-port" type="text" placeholder="3030" /></div>
           </div>
           <div class="settings-group" data-cat="connections">
             <div class="settings-group-title">Guard Relay</div>
-            <div class="setting-row"><div class="setting-label"><div class="setting-name">Connect to Guard</div><div class="setting-desc">Dial the Cha0s Stream Relay so Cha0s Guard can forward chat commands to this app. The app connects outward — no inbound port. <span id="relay-status-text" style="color:#aeaeb2;">disabled</span></div></div><label class="toggle"><input type="checkbox" id="cfg-relay-enabled" /><span class="toggle-track"></span></label></div>
+            <div class="setting-row"><div class="setting-label"><div class="setting-name">Connect to Guard</div><div class="setting-desc">Dial the Cha0s Stream Relay (stream.chaosinc.xyz, run by this app's author) so Cha0s Guard can forward chat commands here and your mods can manage song requests from Guard. Your Twitch token and those commands pass through it, held in memory only; see PRIVACY.md. The app connects outward, so there is no port to open. <span id="relay-status-text" style="color:#aeaeb2;">disabled</span></div></div><label class="toggle"><input type="checkbox" id="cfg-relay-enabled" /><span class="toggle-track"></span></label></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Relay URL</div><div class="setting-desc">Leave blank for the default (wss://stream.chaosinc.xyz/agent).</div></div><input class="setting-input" id="cfg-relay-url" type="text" placeholder="wss://stream.chaosinc.xyz/agent" style="width:280px" /></div>
             <div class="setting-row"><div class="setting-label"><div class="setting-name">Let Guard answer chat commands</div><div class="setting-desc">While connected, this app stops replying to <code>!</code> commands in chat so the two bots don't talk over each other. Keyword commands, chat overlay and TTS still run here. Guard needs its own switch on too (Dashboard → Twitch → Cha0s Stream), or nothing will answer <code>!</code> commands. If the relay drops, this app takes them back automatically.</div></div><label class="toggle"><input type="checkbox" id="cfg-relay-defer" /><span class="toggle-track"></span></label></div>
           </div>
@@ -2034,20 +2031,6 @@
       if (st) { st.textContent = '✓ Saved'; st.style.opacity = '1'; setTimeout(() => st.style.opacity = '0.5', 1800); }
     }
 
-    async function refreshModQueueUrl() {
-      try {
-        const r = await fetch('/api/mod/link');
-        const el = document.getElementById('mod-queue-url');
-        if (el && r.ok) el.textContent = (await r.json()).url || '—';
-      } catch {}
-    }
-
-    async function regenerateModToken() {
-      if (!confirm('Generate a new mod queue link?\n\nThe old one stops working immediately and every mod will need the new one.')) return;
-      try { await fetch('/api/mod/link', { method: 'POST' }); } catch {}
-      refreshModQueueUrl();
-    }
-
     function setOverlayUrls() {
       const base = `http://${location.host}`;
       const set = (id, url) => { const el = document.getElementById(id); if (el) el.textContent = url; };
@@ -2055,7 +2038,6 @@
       set('overlay-chat-url',   `${base}/chat`);
       set('overlay-browser-url', `${base}/overlay`);
       refreshNowPlayingUrl();
-      refreshModQueueUrl();
     }
 
     function copyUrl(elId) {
@@ -2501,7 +2483,6 @@
       'cfg-spotify-client-id': 'SPOTIFY_CLIENT_ID',
       'cfg-script-allowlist': 'SCRIPT_ALLOWLIST',
       'cfg-listener-port': 'LISTENER_PORT',
-      'cfg-mod-port': 'MOD_PORT',
       'cfg-relay-url': 'RELAY_URL',
       'cfg-sr-redeem-name': 'SONG_REQUEST_REDEEM_NAME',
       'cfg-alert-obs-source': 'ALERT_OBS_SOURCE',
@@ -2516,13 +2497,6 @@
       'cfg-tts-alert-types': 'TTS_ALERT_TYPES',
       'cfg-tts-chat-permission': 'TTS_CHAT_PERMISSION',
     };
-
-    const modEnabledCb = document.getElementById('cfg-mod-enabled');
-    const modPortRow = document.getElementById('mod-port-row');
-    modEnabledCb.addEventListener('change', () => {
-      modPortRow.style.opacity = modEnabledCb.checked ? '1' : '0.4';
-      modPortRow.style.pointerEvents = modEnabledCb.checked ? '' : 'none';
-    });
 
     async function loadRedirectUris() {
       try {
@@ -2705,10 +2679,6 @@
         updateTTSUI();
         document.getElementById('cfg-relay-enabled').checked = saved.RELAY_ENABLED === 'true';
         document.getElementById('cfg-relay-defer').checked   = saved.RELAY_DEFER_COMMANDS === 'true';
-        const modEnabled = saved.MOD_ENABLED !== 'false';
-        document.getElementById('cfg-mod-enabled').checked = modEnabled;
-        modPortRow.style.opacity = modEnabled ? '1' : '0.4';
-        modPortRow.style.pointerEvents = modEnabled ? '' : 'none';
         const ciderField = document.getElementById('cfg-cider-token');
         if (ciderField) ciderField.value = saved.CIDER_TOKEN || '';
         updateCiderUI(!!saved.CIDER_TOKEN, false);
@@ -2758,7 +2728,6 @@
       settings.ALERT_MODE = alertMode;
       settings.OVERLAYS_ENABLED  = JSON.stringify(overlaysEnabled);
       settings.NOWPLAYING_CONFIG = JSON.stringify(nowPlayingCfg);
-      settings.MOD_ENABLED = document.getElementById('cfg-mod-enabled').checked ? 'true' : 'false';
       settings.RELAY_ENABLED = document.getElementById('cfg-relay-enabled').checked ? 'true' : 'false';
       settings.RELAY_DEFER_COMMANDS = document.getElementById('cfg-relay-defer').checked ? 'true' : 'false';
       settings.TTS_ENABLED             = document.getElementById('cfg-tts-enabled').checked             ? 'true' : 'false';
@@ -3683,7 +3652,6 @@
       cb('cfg-seventv-enabled',          true);
       cb('cfg-bttv-enabled',             true);
       cb('cfg-ffz-enabled',              true);
-      cb('cfg-mod-enabled',              true);
       cb('cfg-tts-enabled',              false);
       cb('cfg-tts-chat-enabled',         false);
       cb('cfg-tts-chat-say-name',        true);
@@ -3699,10 +3667,6 @@
       inp('cfg-tts-chat-max-length', '200');
       inp('cfg-tts-bits-threshold',  '0');
       inp('cfg-tts-alert-types',     'follow,cheer,sub,resub,giftsub');
-
-      // Mod port visibility
-      const modRow = document.getElementById('mod-port-row');
-      if (modRow) { modRow.style.opacity = '1'; modRow.style.pointerEvents = ''; }
 
       updateTTSUI();
 
