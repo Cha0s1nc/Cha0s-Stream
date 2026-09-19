@@ -24,7 +24,7 @@ A stream management app that bridges Twitch events to OBS, Jellyfin, Spotify, al
 - **Custom commands** — add your own trigger words with response templates and `{user}` variables
 - **Event triggers** — auto-fire chat messages, sounds, or scripts on follows, cheers, subs, resubs, and gift subs
 - **Text to speech** — reads chat, cheers above a threshold, named channel point redeems, or alerts. Ignores bots by default, and maps awkward usernames to how they should be pronounced
-- **Cha0s Guard relay** — let [Cha0s Guard](https://github.com/Cha0s1nc/ModBot) forward Twitch chat commands to this app. The app dials out, so there is no inbound port to open
+- **Cha0s Guard relay** — let [Cha0s Guard](https://guard.chaosinc.xyz) forward Twitch chat commands to this app. The app dials out, so there is no inbound port to open
 - **Plugin system** — drop a `.js` file into `plugins/` to add commands, react to events, and render a live panel in the dashboard
 - **Sender toggle** — switch between sending chat as your bot account or as the broadcaster on the fly
 - **Mod access through Cha0s Guard**: mods approve or deny song requests from Guard's dashboard, signed in with Discord and checked as mods, over the outbound relay. Nothing to port-forward and no shared link

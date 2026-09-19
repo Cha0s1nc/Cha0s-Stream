@@ -34,7 +34,7 @@ The author does not sit in the middle of any of these.
 
 If **you** enable the Cha0s Guard integration, the app dials out to the
 Cha0s Stream relay (`stream.chaosinc.xyz`, operated by the author) so that
-[Cha0s Guard](https://github.com/Cha0s1nc/ModBot) can be the single chat-command
+[Cha0s Guard](https://guard.chaosinc.xyz) can be the single chat-command
 front door. While enabled:
 
 - Your **broadcaster Twitch token** is sent to the relay, which validates it
