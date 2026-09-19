@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { installInPlace } = require('./mac-update');
 const path   = require('path');
 const fs     = require('fs');
 const https  = require('https');
@@ -135,16 +136,24 @@ function getConfig() {
 
 // ── Version helpers ────────────────────────────────────────────────────────────
 
+// Same as Cascade's. A -bN beta sorts below its release and by N among betas;
+// the old split('.') read "2.2.1-b1" as 2.2.1, so a beta user was never offered
+// the release it led to, or the next beta.
 function parseVersion(v) {
-  return String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const s = String(v).replace(/^v/, '');
+  const betaMatch = s.match(/-b(\d+)$/i);
+  const betaNum = betaMatch ? parseInt(betaMatch[1], 10) : Infinity;
+  const [major, minor, patch] = s.replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0);
+  return [major, minor, patch, betaNum];
 }
 
 function isNewer(latest, current) {
-  const [la, lb, lc] = parseVersion(latest);
-  const [ca, cb, cc] = parseVersion(current);
+  const [la, lb, lc, ld] = parseVersion(latest);
+  const [ca, cb, cc, cd] = parseVersion(current);
   if (la !== ca) return la > ca;
   if (lb !== cb) return lb > cb;
-  return lc > cc;
+  if (lc !== cc) return lc > cc;
+  return ld > cd;
 }
 
 // ── Updater popup window ───────────────────────────────────────────────────────
@@ -475,6 +484,34 @@ ipcMain.handle('updater:install', () => {
     // else is handing off to an installer that has to replace a running binary.
     if (process.platform !== 'darwin') setTimeout(() => app.quit(), 1500);
   });
+
+  // macOS replaces the app in place and relaunches; see mac-update.js, shared
+  // verbatim with Cascade. Any reason that is not safe (running from the DMG or
+  // a translocated copy, a folder this account cannot write to, a staged copy
+  // that fails its checks) falls back to opening the DMG, which is what every
+  // Mac update did before. An unpackaged dev run has no .app of its own to
+  // replace. The forked listener dies on before-quit (no SIGTERM handler), long
+  // before the swap script relaunches, so the new copy gets its port.
+  if (process.platform === 'darwin') {
+    if (!app.isPackaged) return handOver();
+    const log = (line) => {
+      if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.webContents.send('updater:log', line);
+    };
+    return installInPlace({
+      dmgPath: pendingDownload.destPath,
+      appBundle: path.resolve(process.execPath, '..', '..', '..'),
+      expectedVersion: pendingDownload.version,
+      bundleId: require('../package.json').build.appId,
+      pid: process.pid,
+      log,
+    }).then(() => {
+      setTimeout(() => app.quit(), 300);
+    }).catch((err) => {
+      console.error('[updater] In-place update failed, opening the installer:', err.message);
+      log(`Could not update in place (${err.message}). Opening the installer instead.`);
+      return handOver();
+    });
+  }
 
   if (process.platform !== 'win32') return handOver();
 

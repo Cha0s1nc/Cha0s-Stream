@@ -123,6 +123,15 @@ uses PKCE + a dedicated auth port (3773), settings persist to `.env`.
 - `602-740` - Twitch OAuth (token grant, `shell.openExternal`, one-shot
   callback server on `OAUTH_CALLBACK_PORT` 611). `TWITCH_SCOPES` at 612.
 - `742-763` - `ipcMain.handle('twitch-auth-start')`.
+- **Updater** (`checkForUpdates`, `pickAsset`, `verifyDigest`, `updater:*` IPC)
+  is the same code as Cascade's, down to `isNewer` sorting `-bN` betas below
+  their release. Windows installs silently via NSIS. macOS installs in place
+  through `electron/mac-update.js`, **byte-identical with Cascade's
+  `mac-update.js`**: change one, copy it to the other. It stages the new .app
+  beside the old, checks signature, bundle id and exact version (betas keep
+  their `-bN` in `CFBundleShortVersionString`), swaps after quit, relaunches,
+  and falls back to opening the DMG when a swap is unsafe. Log:
+  `$TMPDIR/cha0s-stream-update.log`.
 
 ## public/
 Single-file pages, no build. `index.html` (3504 lines) is the whole dashboard
