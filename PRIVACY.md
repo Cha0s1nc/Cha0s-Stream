@@ -33,7 +33,7 @@ The author does not sit in the middle of any of these.
 ## The one exception: the Cha0s Guard relay (opt-in)
 
 If **you** enable the Cha0s Guard integration, the app dials out to the
-Cha0s Stream relay (`stream.chaosinc.xyz`, operated by the author) so that
+Cha0s Stream relay (`stapi.chaosinc.xyz`, operated by the author) so that
 [Cha0s Guard](https://guard.chaosinc.xyz) can be the single chat-command
 front door. While enabled:
 

@@ -12,7 +12,7 @@
 const { WebSocket } = require('ws');
 
 const PROTOCOL_VERSION = 1;
-const DEFAULT_URL = 'wss://stream.chaosinc.xyz/agent';
+const DEFAULT_URL = 'wss://stapi.chaosinc.xyz/agent';
 const SEEN_TTL_MS = 60 * 60 * 1000;
 const SEEN_MAX = 500;
 
