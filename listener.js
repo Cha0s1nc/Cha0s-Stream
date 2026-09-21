@@ -545,7 +545,7 @@ function getOSNowPlaying() {
   const platform = require('os').platform();
 
   const cmds = {
-    win32: `powershell -Command "$null=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media,ContentType=WindowsRuntime];$m=[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync().GetAwaiter().GetResult();$s=$m.GetCurrentSession();if($s){$p=$s.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();if($p -and $p.Title){\\"$($p.Artist) — $($p.Title)\\"}}"`,
+    // Windows lives in win-now-playing.js: it returns JSON with the album art.
     linux: `playerctl metadata --format "{{artist}} — {{title}}" 2>/dev/null`
   };
 
@@ -796,8 +796,11 @@ function nowPlayingPayload(track) {
     // Null unless this exact track came in through song requests, which is what
     // lets the overlay hide its credit line instead of printing an empty one.
     requestedBy: nowPlayingRequester(),
-    // Proxied so the overlay's canvas can read it - see /api/art.
-    art: track?.art ? `/api/art?u=${encodeURIComponent(track.art)}` : null,
+    // Proxied so the overlay's canvas can read it - see /api/art. Art that is
+    // already ours (Windows' thumbnail, /api/art/os) is a local path, not a URL.
+    art: track?.art
+      ? (track.art.startsWith('/') ? track.art : `/api/art?u=${encodeURIComponent(track.art)}`)
+      : null,
     durationMs: track?.durationMs ?? null,
     // Sampled at poll time, so an overlay wanting a smooth bar should tick
     // forward locally from here rather than waiting for the next poll.
@@ -1669,8 +1672,12 @@ function darwinNowPlaying() {
   });
 }
 
+const winNowPlaying = require('./win-now-playing');
+const winNowPlayingState = winNowPlaying.createState();
+
 async function osNowPlaying() {
   if (process.platform === 'darwin') return darwinNowPlaying();
+  if (process.platform === 'win32') return winNowPlaying.query(winNowPlayingState);
   const line = await getOSNowPlaying();
   if (!line) return null;
   const i = line.indexOf(' — ');
@@ -2398,6 +2405,14 @@ function artUrlAllowed(target) {
   }
   return ART_HOST_ALLOWLIST.includes(target.host);
 }
+
+// The current Windows media thumbnail, held in memory by win-now-playing.js.
+app.get('/api/art/os', (req, res) => {
+  if (!winNowPlayingState.art) return res.status(404).end();
+  res.set('Content-Type', winNowPlayingState.type);
+  res.set('Cache-Control', 'no-store');
+  res.send(winNowPlayingState.art);
+});
 
 app.get('/api/art', async (req, res) => {
   let target;
