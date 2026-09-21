@@ -2157,9 +2157,20 @@ async function cmdTTS(user, text) {
   addLog('system', '!tts', `${user}: ${text}`);
 }
 
+// Always on and checked before any permission, so it needs its own floor: without
+// one, anyone in chat can make the broadcaster's account post this as fast as
+// they can type. 30s matches Guard's cooldown on the same command, so the two
+// stay in step when Guard is the one relaying it.
+const INFO_COOLDOWN_MS = 30_000;
+let infoReadyAt = 0;
+
 async function cmdInfo() {
+  const now = Date.now();
+  if (now < infoReadyAt) return;
+  infoReadyAt = now + INFO_COOLDOWN_MS;
+
   const { version } = require('./package.json');
-  await sendChatMessage(`Cha0s Stream v${version} — https://github.com/Cha0s1nc/cha0s-stream`);
+  await sendChatMessage(`Cha0s Stream v${version} | https://github.com/Cha0s1nc/cha0s-stream`);
   addLog('system', '!info', `Sent app info (v${version})`);
 }
 
