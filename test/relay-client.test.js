@@ -100,3 +100,52 @@ test('handshake, serial command.run, reply capture, idempotency', async () => {
   server.close();
   relay.stop();
 });
+
+// Two copies of Stream on one Twitch account: the relay keeps the newer socket and
+// closes the older with 4009. If the older reconnects it displaces the newer, which
+// reconnects and displaces it back, for as long as both run. That showed up in the
+// relay's log as bursts of connect/disconnect a second apart.
+test('a copy displaced by a newer one stops reconnecting until asked', async () => {
+  relay.stop();
+  const server = http.createServer();
+  const wss = new WebSocketServer({ server });
+  await new Promise((r) => server.listen(0, r));
+  process.env.RELAY_URL = `ws://127.0.0.1:${server.address().port}`;
+
+  let connections = 0;
+  wss.on('connection', (ws) => {
+    connections++;
+    ws.on('message', (raw) => {
+      if (JSON.parse(raw.toString()).role !== 'agent') return;
+      ws.send(JSON.stringify({ type: 'ready', login: 'streamer' }));
+      // Exactly what the relay does to the older socket when a newer one arrives.
+      setTimeout(() => {
+        ws.send(JSON.stringify({ type: 'displaced' }));
+        ws.close(4009, 'displaced by newer connection');
+      }, 50);
+    });
+  });
+
+  relay.init({
+    state: { queue: [], wishlist: [], commands: {}, customCommands: {} },
+    broadcast: () => {}, addLog: () => {},
+    approveQueueEntry: async () => ({}), skipQueueEntry: () => ({}),
+    setReplyInterceptor: () => {}, dispatchCommand: async () => {},
+  });
+
+  // The first reconnect would land 1.4 to 2.6s after the close, so give it room.
+  await new Promise((r) => setTimeout(r, 3000));
+  assert.equal(connections, 1, 'a displaced copy must not reconnect by itself');
+  assert.equal(relay.status().displaced, true);
+  assert.equal(relay.status().connected, false);
+
+  // The streamer switches Connect to Guard off and on here: this copy takes over.
+  relay.reload();
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(connections, 2);
+
+  relay.stop();
+  assert.equal(relay.status().displaced, false);
+  wss.close();
+  server.close();
+});

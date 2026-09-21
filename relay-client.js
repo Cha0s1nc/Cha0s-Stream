@@ -30,6 +30,14 @@ let warnedNoToken = false;
 // song-request data doesn't stream to the relay for a screen nobody has open.
 let watching = false;
 
+// Set when the relay closes us with 4009: another copy of Cha0s Stream connected
+// with the same Twitch account and the relay kept the newer one. Reconnecting
+// would displace that copy, which would reconnect and displace this one, round
+// and round for as long as both are open. So stop, say why, and wait for the
+// streamer to pick one: toggling "Connect to Guard" here takes it back.
+const DISPLACED = 4009;
+let displaced = false;
+
 // command.run is processed one at a time: the reply interceptor in
 // sendChatMessage is a single module global, so overlapping runs would cross
 // their replies. Queue the rest.
@@ -50,17 +58,25 @@ function init(d) {
 // Called by listener.js when RELAY_ENABLED / RELAY_URL change.
 function reload() {
   const want = process.env.RELAY_ENABLED === 'true';
-  if (want && !started) { started = true; attempt = 0; connect(); }
+  if (want && !started) { started = true; attempt = 0; displaced = false; connect(); }
   else if (!want && started) { stop(); }
   else if (want && started) {
-    // URL may have changed: bounce the socket.
-    if (ws) { try { ws.close(); } catch {} }
+    if (displaced) {
+      // The streamer asked for this copy back after another one took over.
+      displaced = false;
+      attempt = 0;
+      connect();
+    } else if (ws) {
+      // URL may have changed: bounce the socket.
+      try { ws.close(); } catch {}
+    }
   }
 }
 
 function stop() {
   started = false;
   connected = false;
+  displaced = false;
   watching = false;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (ws) { try { ws.close(); } catch {} ws = null; }
@@ -95,6 +111,12 @@ function connect() {
     connected = false;
     watching = false; // relay re-signals on the next watch poll if a mod is still there
     ws = null;
+    if (code === DISPLACED) {
+      displaced = true;
+      log('another copy of Cha0s Stream connected with this Twitch account; not reconnecting');
+      broadcastStatus();
+      return;
+    }
     broadcastStatus();
     scheduleReconnect();
   });
@@ -291,6 +313,7 @@ function status() {
   return {
     enabled: process.env.RELAY_ENABLED === 'true',
     connected,
+    displaced,
     url: process.env.RELAY_URL || DEFAULT_URL,
     deferring: isDeferring() && connected,
   };

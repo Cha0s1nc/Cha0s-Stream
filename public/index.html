@@ -1243,10 +1243,13 @@
       if (!el) return;
       if (!relay || !relay.enabled) { el.textContent = 'disabled'; el.style.color = '#aeaeb2'; return; }
       if (relay.connected) {
-        el.textContent = relay.deferring ? 'connected — Guard is answering commands' : 'connected to Guard';
+        el.textContent = relay.deferring ? 'connected, Guard is answering commands' : 'connected to Guard';
         el.style.color = '#4ade80';
+      } else if (relay.displaced) {
+        el.textContent = 'another copy of Cha0s Stream took over with this Twitch account. Close it, or switch this off and on to take it back.';
+        el.style.color = '#fbbf24';
       } else {
-        el.textContent = 'enabled — trying to reach the relay…';
+        el.textContent = 'enabled, trying to reach the relay…';
         el.style.color = '#fbbf24';
       }
     }
