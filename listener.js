@@ -675,12 +675,28 @@ async function cascadeProbe() {
   if (!r.ok) throw new Error(`Cascade returned ${r.status}`);
 }
 
+// Cascade mode builds art URLs from Stream's Jellyfin address, and with no
+// Jellyfin configured in Stream that address is borrowed from Cascade. The borrow
+// only ever happened inside a Jellyfin request (a !sr search, say), which the
+// now-playing poll never makes, so on a machine relying on Cascade's Jellyfin the
+// overlay showed no art until the first song request happened to wake it up.
+// ponytail: one borrow attempt per 30s, not per poll, since a Cascade without a
+// Jellyfin session would otherwise be asked every 4 seconds forever.
+let jellyfinBorrowTriedAt = 0;
+async function ensureJellyfinBaseForArt() {
+  if (jellyfinBaseUrl || process.env.JELLYFIN_URL) return;
+  if (Date.now() - jellyfinBorrowTriedAt < 30_000) return;
+  jellyfinBorrowTriedAt = Date.now();
+  await authenticateJellyfin();
+}
+
 async function cascadeGetNowPlaying() {
   try {
     const r = await fetch('http://127.0.0.1:47847/cascade/now-playing', { signal: AbortSignal.timeout(2000), headers: cascadeAuthHeaders() });
     if (!r.ok) return null;
     const data = await r.json();
     if (!data.title) return null;
+    if (data.artItemId) await ensureJellyfinBaseForArt();
     // Cascade sends Jellyfin ids rather than a URL, because its own artUrl()
     // embeds Cascade's token. We build ours from the session we already have -
     // which, on a machine where only Cascade is configured, was borrowed from
@@ -1698,10 +1714,10 @@ const CIDER_API = 'http://127.0.0.1:10767/api/v1';
 /**
  * Where Cider keeps spa-config.yml, per platform, newest-install-shape first.
  *
- * Windows does not use the sh.cider.genten name at all: it is C2Windows there, so
- * the old single path could never match and auto-detection simply never worked on
- * Windows. An MSIX or Store install adds a second layer, because a packaged app's
- * writes to %APPDATA% are redirected into its own LocalCache sandbox.
+ * Windows does not use the sh.cider.genten name at all. Older builds used
+ * C2Windows; the current Store build (CiderCollective) uses sh.cider.dotnet. An
+ * MSIX or Store install adds a second layer, because a packaged app's writes to
+ * %APPDATA% are redirected into its own LocalCache sandbox.
  *
  * Deliberately exact paths, never a scan of %LOCALAPPDATA%\Packages. Walking other
  * applications' directories looking for credential-shaped files is the literal
@@ -1720,7 +1736,13 @@ function ciderConfigPaths() {
     const roaming = process.env.APPDATA || '';
     const local   = process.env.LOCALAPPDATA || '';
     const msixPkg = '27554FireDevElijahKlauman.CiderEA_270bejk4xgzqp';
+    // The current Store build, as found on a real install: a different package
+    // identity and a different folder name (sh.cider.dotnet, not C2Windows).
+    const collectivePkg = 'CiderCollective.Cider_a6qxe093bx5xj';
     return [
+      local   && path.join(local, 'Packages', collectivePkg, 'LocalCache', 'Roaming', 'sh.cider.dotnet', file),
+      // Unpackaged install of that same build. Inferred from the folder name, not seen.
+      roaming && path.join(roaming, 'sh.cider.dotnet', file),
       roaming && path.join(roaming, 'C2Windows', file),
       local   && path.join(local, 'Packages', msixPkg, 'LocalCache', 'Roaming', 'C2Windows', file),
     ].filter(Boolean);
