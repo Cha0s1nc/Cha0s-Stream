@@ -1721,7 +1721,9 @@
       for (const p of LOCAL_PLAYERS) {
         if (localStorage.getItem(p.flag)) continue; // already unlocked
         try {
-          const res = await fetch(`/api/${p.id}/status`, { signal: AbortSignal.timeout(800) });
+          // Longer than the server's own probe of the player (1.5s for Cider), or
+          // a slow answer is dropped here before the server has one to give.
+          const res = await fetch(`/api/${p.id}/status`, { signal: AbortSignal.timeout(2500) });
           if ((await res.json()).running) {
             localStorage.setItem(p.flag, '1');
             unlockPlayer(p);
