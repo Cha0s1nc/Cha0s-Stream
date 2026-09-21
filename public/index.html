@@ -1174,7 +1174,10 @@
           commandsConfig = data.commands;
           renderCommandsTable();
         } else if (data.event === 'custom_commands_update') {
-          customCommandsConfig = data.customCommands;
+          // The server sends the table as `commands`. This read `customCommands`
+          // from the day the feature landed, so every save set the table to
+          // undefined and the next delete threw: "cannot remove custom commands".
+          customCommandsConfig = data.commands || {};
           renderCustomCommandsTable();
         } else if (data.event === 'plugins_update') {
           loadPlugins();
