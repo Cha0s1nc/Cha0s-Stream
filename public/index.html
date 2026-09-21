@@ -1547,16 +1547,18 @@
       } catch {}
     }
 
-    function updateCiderUI(hasOverride, running) {
+    function updateCiderUI(hasOverride, running, authorized = running) {
       const disc   = document.getElementById('btn-cider-disconnect');
       const status = document.getElementById('cider-status-text');
       if (disc) disc.style.display = hasOverride ? '' : 'none';
       if (status) {
-        status.textContent = hasOverride
-          ? '✓ Using the token you entered below.'
-          : running
-            ? "✓ Read automatically from Cider's settings."
-            : "Read automatically from Cider's settings. Cider → Settings → Connectivity → Manage External Application Access.";
+        status.textContent = running && !authorized
+          ? "Cider is running, but its app token was not found or was refused. In Cider: Settings \u2192 Connectivity \u2192 Manage External Application Access, create one, and paste it below."
+          : hasOverride
+            ? '\u2713 Using the token you entered below.'
+            : running
+              ? "\u2713 Read automatically from Cider's settings."
+              : "Read automatically from Cider's settings. Cider \u2192 Settings \u2192 Connectivity \u2192 Manage External Application Access.";
       }
     }
 
@@ -2689,7 +2691,7 @@
         if (ciderField) ciderField.value = saved.CIDER_TOKEN || '';
         updateCiderUI(!!saved.CIDER_TOKEN, false);
         fetch('/api/cider/status').then(r => r.json())
-          .then(d => updateCiderUI(!!saved.CIDER_TOKEN, d.running)).catch(() => {});
+          .then(d => updateCiderUI(!!saved.CIDER_TOKEN, d.running, d.authorized)).catch(() => {});
         updateTwitchUI('broadcaster', saved.TWITCH_OAUTH && saved.TWITCH_CHANNEL ? saved.TWITCH_CHANNEL : null);
         updateTwitchUI('bot', saved.TWITCH_BOT_OAUTH && saved.TWITCH_BOT_USERNAME ? saved.TWITCH_BOT_USERNAME : null);
         updateOAuthLink();

@@ -2417,9 +2417,25 @@ app.get('/api/art', async (req, res) => {
   } catch { res.status(504).end(); }
 });
 
+// Running and authorised are separate questions. This used to answer "running"
+// only when a call with the app token worked, so a Cider that was open but whose
+// token Stream could not find looked exactly like no Cider at all. The page hides
+// the Cider button until it sees Cider running, and the token override field only
+// shows in Cider mode: missing the token automatically (easy on Windows, where
+// Cider's config lives in one of several places) locked the way to fix it.
 app.get('/api/cider/status', async (req, res) => {
-  try { await ciderFetch('/playback/active'); res.json({ running: true }); }
-  catch { res.json({ running: false }); }
+  const token = ciderToken();
+  try {
+    const r = await fetch(`${CIDER_API}/playback/active`, {
+      headers: token ? { apptoken: token } : {},
+      signal: AbortSignal.timeout(1500),
+    });
+    // Any HTTP answer on Cider's port means Cider is up; only a good one means the
+    // token works.
+    res.json({ running: true, authorized: r.ok });
+  } catch {
+    res.json({ running: false, authorized: false });
+  }
 });
 
 app.get('/api/cascade/status', async (req, res) => {
