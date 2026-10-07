@@ -83,13 +83,12 @@ open "$TARGET"
  * @param {string} o.dmgPath         the downloaded, digest-verified DMG
  * @param {string} o.appBundle       the running app, e.g. /Applications/Name.app
  * @param {string} o.expectedVersion version the DMG must contain, e.g. "2.1.1"
- * @param {string} o.bundleId        the bundle id it must carry
  * @param {number} o.pid             the process the swap waits on
  * @param {(line: string) => void} [o.log]
  * @returns {Promise<{ logPath: string }>} once the swap script is running;
  *   the caller then quits the app.
  */
-async function installInPlace({ dmgPath, appBundle, expectedVersion, bundleId, pid, log = () => {} }) {
+async function installInPlace({ dmgPath, appBundle, expectedVersion, pid, log = () => {} }) {
   if (!appBundle.endsWith('.app')) throw new Error(`not running from an app bundle (${appBundle})`)
   const name = path.basename(appBundle, '.app')
   // For temp file names only: "Cha0s Stream" -> "cha0s-stream".
@@ -104,6 +103,13 @@ async function installInPlace({ dmgPath, appBundle, expectedVersion, bundleId, p
   } catch {
     throw new Error(`this account cannot write to ${parent}`)
   }
+
+  // The update must carry the running app's own bundle id, read from the app
+  // itself. It used to come from package.json's build.appId, but
+  // electron-builder strips the build section from the packaged package.json,
+  // so that threw before anything ran and every Mac update sat on
+  // "Installing…" for good.
+  const bundleId = await run('/usr/bin/plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', path.join(appBundle, 'Contents', 'Info.plist')])
 
   const staged = path.join(parent, `.${name}-update-${expectedVersion}.app`)
   const backup = path.join(parent, `.${name}-previous.app`)
